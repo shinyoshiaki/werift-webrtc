@@ -36,6 +36,27 @@
 
 ## Properties
 
+### acceptedBundleOnly
+
+> **acceptedBundleOnly**: `boolean` = `false`
+
+Set when the port 0 of a remote offer's bundle-only m-line was replaced
+by `DISCARD_PORT` because werift accepts it into BUNDLE (see
+`SDPManager.acceptBundleOnlyMedia`). The m-line is still written with
+port 0, as received.
+
+***
+
+### bundleOnly
+
+> **bundleOnly**: `boolean` = `false`
+
+`a=bundle-only` (RFC 8843 §6): the offerer writes the m-line with port 0
+so that an answerer without BUNDLE rejects it. werift itself never offers
+it (Chrome does not either).
+
+***
+
 ### direction?
 
 > `optional` **direction?**: `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
@@ -108,9 +129,23 @@
 
 ***
 
+### rtcpAddrType?
+
+> `optional` **rtcpAddrType?**: `"IP4"` \| `"IP6"`
+
+`a=rtcp` の addrtype。パースした値を保持して再出力に使う (ホスト名の
+`IN IP4 host.example.com` が `IP6` に変わらない)。未設定なら `rtcpHost` から推定する。
+
+***
+
 ### rtcpHost?
 
 > `optional` **rtcpHost?**: `string`
+
+`a=rtcp` の connection-address (RFC 3605)。
+`a=rtcp:<port>` のようにアドレスが省略された場合は `undefined` のまま保持し、
+有効な RTCP アドレスは media-level の `c=` (`host`)、それもなければ
+session-level の `c=` を継承する (`rtcpHost ?? media.host ?? session.host`)。
 
 ***
 
@@ -118,11 +153,15 @@
 
 > **rtcpMux**: `boolean` = `false`
 
+`a=rtcp-mux` (RFC 5761)。`a=rtcp` の有無とは独立して入出力する。
+
 ***
 
 ### rtcpPort?
 
 > `optional` **rtcpPort?**: `number`
+
+`a=rtcp` の RTCP port (RFC 3605)。`undefined` のときは `a=rtcp` を出力しない。
 
 ***
 

@@ -15,6 +15,7 @@ import {
   installPolyfill,
 } from "../../src/polyfill";
 import "../../src/polyfill";
+import type { UdpSocketFactory } from "../../src/polyfill/sourceIo";
 import {
   encodeLengthPrefixed,
   openPacketSource,
@@ -31,6 +32,7 @@ import {
   installTestPolyfill,
   parseVp8Rtp,
   receivesRtpWithin,
+  TYPESCRIPT_COMPILE_TEST_TIMEOUT_MS,
   waitForRtp,
   waitUntil,
   withUdpSocketCounter,
@@ -1554,11 +1556,17 @@ test("mp4/webm hanging stream read is aborted on uninstall", async () => {
 });
 
 test("same rtp/encoded udp register can be acquired twice and all sockets close", async () => {
-  await assertUdpAcquisitionsReleased(() =>
-    createRtpRtcpRegister({ mimeType: "video/VP8", udp: { port: 0 } }),
+  await assertUdpAcquisitionsReleased((createUdpSocket) =>
+    createRtpRtcpRegister({
+      mimeType: "video/VP8",
+      udp: { port: 0, createSocket: createUdpSocket },
+    }),
   );
-  await assertUdpAcquisitionsReleased(() =>
-    createEncodedBinaryRegister({ mimeType: "video/VP8", udp: { port: 0 } }),
+  await assertUdpAcquisitionsReleased((createUdpSocket) =>
+    createEncodedBinaryRegister({
+      mimeType: "video/VP8",
+      udp: { port: 0, createSocket: createUdpSocket },
+    }),
   );
 });
 
@@ -1603,21 +1611,29 @@ test("in-flight getUserMedia is aborted by immediate uninstall", async () => {
   expect(nodeStream.readableFlowing).not.toBe(true);
 });
 
-test("public polyfill entry compiles with TypeScript DOM lib", () => {
-  // 実行: lib.dom と skipLibCheck=false で polyfill/dom エントリをコンパイルする。
-  const result = compilePolyfillFixture("polyfillDomCompile");
+test(
+  "public polyfill entry compiles with TypeScript DOM lib",
+  () => {
+    // 実行: lib.dom と skipLibCheck=false で polyfill/dom エントリをコンパイルする。
+    const result = compilePolyfillFixture("polyfillDomCompile");
 
-  // 検証: TS2403 / TS2687 / TS2717 を含む型エラーが出ない。
-  expect(result.status, result.stdout + result.stderr).toBe(0);
-}, 125_000);
+    // 検証: TS2403 / TS2687 / TS2717 を含む型エラーが出ない。
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+  },
+  TYPESCRIPT_COMPILE_TEST_TIMEOUT_MS,
+);
 
-test("public polyfill entry compiles without DOM lib", () => {
-  // 実行: lib.esnext のみで werift/polyfill のグローバル型をコンパイルする。
-  const result = compilePolyfillFixture("polyfillNodeCompile");
+test(
+  "public polyfill entry compiles without DOM lib",
+  () => {
+    // 実行: lib.esnext のみで werift/polyfill のグローバル型をコンパイルする。
+    const result = compilePolyfillFixture("polyfillNodeCompile");
 
-  // 検証: RTCPeerConnection / navigator / MediaStream が解決する。
-  expect(result.status, result.stdout + result.stderr).toBe(0);
-}, 125_000);
+    // 検証: RTCPeerConnection / navigator / MediaStream が解決する。
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+  },
+  TYPESCRIPT_COMPILE_TEST_TIMEOUT_MS,
+);
 
 test("same rtp/encoded web stream register can be acquired twice", async () => {
   await assertStreamAcquisitionsLive((stream) =>
@@ -1629,12 +1645,14 @@ test("same rtp/encoded web stream register can be acquired twice", async () => {
 });
 
 async function assertUdpAcquisitionsReleased(
-  createRegister: () => Parameters<
-    typeof installPolyfill
-  >[0]["mediaRegister"][number],
+  createRegister: (
+    createUdpSocket: UdpSocketFactory,
+  ) => Parameters<typeof installPolyfill>[0]["mediaRegister"][number],
 ) {
   await withUdpSocketCounter(async (sockets) => {
-    const uninstall = installPolyfill({ mediaRegister: [createRegister()] });
+    const uninstall = installPolyfill({
+      mediaRegister: [createRegister(sockets.createSocket)],
+    });
     let uninstalled = false;
     const uninstallOnce = () => {
       if (uninstalled) {

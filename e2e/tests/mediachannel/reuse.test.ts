@@ -1,8 +1,8 @@
-import { browserName, peer, sleep } from "../fixture";
+import { peer, sleep } from "../fixture";
 
 // Issue #705: 停止した m-line の port 0 交渉と、同じ index の再利用
 const reuseModes = [
-  "mediachannel_reuse_compatible",
+  "mediachannel_reuse_standard",
   "mediachannel_reuse_aggressive",
 ] as const;
 const mediachannel_reject_unsupported_video =
@@ -25,10 +25,6 @@ function mLines(sdp: string) {
 }
 
 describe("mediachannel_reuse", () => {
-  if (browserName === "Firefox") {
-    return;
-  }
-
   for (const label of reuseModes) {
     it(label, async () => {
       if (!peer.connected) await new Promise<void>((r) => peer.on("open", r));

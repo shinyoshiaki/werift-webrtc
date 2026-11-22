@@ -3,7 +3,7 @@ import { debug, type Event } from "../imports/common";
 import type { TransceiverManager } from "../media";
 import type { NegotiationTransaction } from "../negotiationTransaction";
 import type { SctpTransportManager } from "../sctpManager";
-import type { MediaDescription } from "../sdp";
+import { type MediaDescription, parseIceOptions } from "../sdp";
 import type { SDPManager } from "../sdpManager";
 import type { SecureTransportManager } from "../secureTransportManager";
 import type { RTCDtlsTransport } from "../transport/dtls";
@@ -151,6 +151,9 @@ export class TransportActivation {
         if (!provisional) {
           if (media.iceParams) {
             dtls.iceTransport.setRemoteParams(media.iceParams);
+            dtls.iceTransport.setRemoteIceOptions(
+              parseIceOptions(media.iceOptions),
+            );
           }
           if (media.dtlsParams) dtls.setRemoteParams(media.dtlsParams);
         }
@@ -218,6 +221,13 @@ export class TransportActivation {
    * its own state machine (consent freshness, a later ICE restart). A DTLS
    * handshake already running is awaited rather than started again. The
    * connection state changes only when this call started or awaited work.
+   *
+   * A DTLS transport that a live m-line still uses and that ends before it
+   * was established makes `connectionState` `failed`, whether it became
+   * `failed` (a fatal alert, a rejected certificate) or `closed` (the peer's
+   * close_notify, a local `stop()`), so the attempt never stays
+   * `connecting`. A retired transport (renegotiation, `close()`) leaves the
+   * state to its owner.
    */
   async connect() {
     log("start connect");
@@ -238,19 +248,37 @@ export class TransportActivation {
         ) {
           return progressed;
         }
+        // The ICE generation awaited below may end meanwhile (restart(),
+        // resetRemoteGeneration()) or the transport retire (renegotiation,
+        // close()): its outcome then changes no state, whether it failed,
+        // was cancelled or connected. The connect() of the description that
+        // carries the new generation reports that one.
+        const generation = iceTransport.checksGeneration;
+        const replaced = () =>
+          iceTransport.checksGeneration !== generation ||
+          !this.secure.dtlsTransports.includes(dtlsTransport);
         if (!iceTransport.checksStarted) {
           progressed = true;
           this.secure.setConnectionState("connecting");
-          await iceTransport.start().catch((err) => {
-            log("iceTransport.start failed", err);
-            throw err;
-          });
+          // A connectionstatechange subscriber may have restarted ICE: the
+          // new generation's own connect() starts its checks.
+          if (replaced()) return false;
+          const error = await iceTransport.start().then(
+            () => undefined,
+            (err: unknown) => err ?? new Error("ICE start failed"),
+          );
+          if (replaced()) return false;
+          if (error) {
+            log("iceTransport.start failed", error);
+            throw error;
+          }
           iceReady = true;
         } else if (iceTransport.state === "checking") {
           // Checks an earlier connect() (or a pranswer) started are awaited,
           // never started again.
           progressed = true;
           await iceTransport.checksSettled();
+          if (replaced()) return false;
           iceReady = ["connected", "completed"].includes(iceTransport.state);
           if (!iceReady) {
             throw new Error(`ICE transport ${iceTransport.state}`);
@@ -287,6 +315,21 @@ export class TransportActivation {
           log("dtlsTransport.start failed", err);
           throw err;
         });
+
+        // start() also returns when the transport was closed meanwhile
+        // (stop()): it never connected, so neither SCTP nor the connected
+        // connectionState follows. A transport a live m-line still uses ends
+        // the connection attempt as failed, so connecting never lingers; one
+        // that was retired (renegotiation, close()) leaves the state to its
+        // owner.
+        if (
+          (dtlsTransport.state as RTCDtlsTransport["state"]) !== "connected"
+        ) {
+          if (this.secure.dtlsTransports.includes(dtlsTransport)) {
+            throw new Error(`DTLS transport ${dtlsTransport.state}`);
+          }
+          return false;
+        }
 
         // SCTP on a newly started DTLS transport is ensured before this
         // transport activation completes.
@@ -346,13 +389,26 @@ export class TransportActivation {
     await Promise.all(
       pending.map(async (transport) => {
         const { iceTransport } = transport;
+        // As in connect(): checks of an ended generation, or of a transport
+        // that is no longer pending only (promoted by the final answer or
+        // discarded), lead nowhere.
+        const generation = iceTransport.checksGeneration;
+        const replaced = () =>
+          iceTransport.checksGeneration !== generation ||
+          !this.negotiation.isPendingOnlyTransport(iceTransport.id);
         if (!iceTransport.checksStarted) {
           if (!iceTransport.getRemoteParameters()) return;
           iceTransport.connection.iceControlling =
             this.host.signalingState() === "have-remote-pranswer";
-          await iceTransport.start();
+          const error = await iceTransport.start().then(
+            () => undefined,
+            (err: unknown) => err ?? new Error("ICE start failed"),
+          );
+          if (replaced()) return;
+          if (error) throw error;
         } else if (iceTransport.state === "checking") {
           await iceTransport.checksSettled();
+          if (replaced()) return;
         }
         if (!["connected", "completed"].includes(iceTransport.state)) return;
         if (transport.state === "connecting") {

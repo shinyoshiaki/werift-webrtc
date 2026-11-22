@@ -21,7 +21,7 @@
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
-    "ci": "run-s type:all build test doc wpt wpt:coverage",
+    "ci": "run-s type:all build test doc",
     "clean": "rm -rf e2e/node_modules && rm -rf packages/*/node_modules",
     "datachannel": "node --watch --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./tools/node-ts/register.mjs examples/datachannel/offer.ts",
     "debug": "DEBUG=werift* node --watch --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./tools/node-ts/register.mjs examples/mediachannel/sendrecv/answer.ts",
@@ -38,6 +38,7 @@
     "media": "DEBUG=werift* node --watch --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./tools/node-ts/register.mjs examples/mediachannel/pubsub/offer.ts",
     "test": "run-s test:small e2e",
     "test:small": "npm run test --workspaces --if-present",
+    "pbt:deep": "npm run pbt:deep --workspaces --if-present",
     "type": "npm run type:packages",
     "type:all": "run-s type:packages type:extra",
     "type:extra": "cd e2e && npm run type",

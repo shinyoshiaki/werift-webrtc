@@ -24,8 +24,16 @@ m-line stop, rejection and reuse inside a negotiation:
   answer.
 - A transceiver created for a remote offer is not an application operation
   (no `negotiationneeded`). Rollback removes it unless the application
-  attached a track (`heldByApplication`); a kept one returns to its created
-  state. An application `stop()` during the transaction survives rollback.
+  uses it (`heldByApplication`: `addTrack()` attached a track to it, even
+  one `replaceTrack(null)` / `removeTrack()` detached since, or its sender
+  has a track); a kept one returns to its created state. An application `stop()` during the transaction survives rollback.
+- Each transceiver records what created it (`createdBy`: `addTrack`,
+  `addTransceiver` or `remote`); reusing one with `addTrack()` or
+  `replaceTrack()` keeps it. Under `transceiverPairing: "standard"` a remote
+  offer pairs an m-section with an unassociated transceiver only if
+  `addTrack()` created it (JSEP 5.10). A remote one that `addTrack()` reused
+  and a rollback keeps becomes `addTrack` (JSEP 4.1.8.2). The origin is not
+  part of the negotiation snapshot.
 - A transceiver the application added while a description was pending is
   never committed by it: rollback takes back its MID, m-line and the
   direction a pranswer gave it.
@@ -85,7 +93,7 @@ m-line stop, rejection and reuse inside a negotiation:
 
 ### addTrack()
 
-> **addTrack**(`track`, `streams?`): [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
+> **addTrack**(`track`, `streams?`, `createTransport?`): [`RTCRtpTransceiver`](RTCRtpTransceiver.md)
 
 #### Parameters
 
@@ -96,6 +104,14 @@ m-line stop, rejection and reuse inside a negotiation:
 ##### streams?
 
 [`MediaStream`](MediaStream.md)[] = `[]`
+
+##### createTransport?
+
+() => [`RTCDtlsTransport`](RTCDtlsTransport.md)
+
+the transport a new transceiver starts on: it is
+  part of the state the transceiver was created with, which a rollback
+  of a description pending meanwhile returns it to.
 
 #### Returns
 
@@ -122,6 +138,13 @@ m-line stop, rejection and reuse inside a negotiation:
 `Partial`\<[`TransceiverOptions`](../interfaces/TransceiverOptions.md)\> = `{}`
 
 ##### \_\_namedParameters?
+
+###### createdBy?
+
+`TransceiverOrigin` = `...`
+
+The operation creating it (JSEP 5.10 pairing). Defaults to
+`"remote"` with `remoteMLineIndex`, else `"addTransceiver"`.
 
 ###### remoteMLineIndex?
 
@@ -336,9 +359,23 @@ remote SDP 起因の停止なので negotiationneeded は要求しない。
 
 ***
 
+### notifyCommittedRemoteTracks()
+
+> **notifyCommittedRemoteTracks**(): `void`
+
+Internal: after a commit, announce the track an m-line that was without
+SSRC and RID got from the committed description (its RID tracks were
+deferred while it was pending, see `RTCRtpReceiver.deferredRemote`).
+
+#### Returns
+
+`void`
+
+***
+
 ### planRemoteRtpCodecs()
 
-> **planRemoteRtpCodecs**(`remoteSdp`, `findTransceiver`): `Map`\<`number`, [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]\>
+> **planRemoteRtpCodecs**(`remoteSdp`, `findTransceiver`, `isStopping?`): `Map`\<`number`, [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]\>
 
 remote SDP の全 audio/video m-line の codec を副作用なしで解決する。
 transceiver の対応付けは本適用と同じ resolver を使い、検証と適用の判定をずらさない。
@@ -357,6 +394,12 @@ transceiver の対応付けは本適用と同じ resolver を使い、検証と�
 ##### findTransceiver
 
 (`remoteMedia`, `index`) => [`RTCRtpTransceiver`](RTCRtpTransceiver.md) \| `undefined`
+
+##### isStopping?
+
+(`transceiver`) => `boolean`
+
+Whether the paired transceiver is stopping or stopped at association.
 
 #### Returns
 
@@ -463,6 +506,55 @@ sender から track を外す。
 
 ***
 
+### resolveOfferCodecs()
+
+> **resolveOfferCodecs**(): `Map`\<[`RTCRtpTransceiver`](RTCRtpTransceiver.md), [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]\>
+
+Codecs each transceiver puts in the next offer (`createOffer()`).
+
+Rules (RFC 8829 §5.2.2, RFC 3264 §8.3.2):
+- An offer lists everything the transceiver can currently use: the
+  configured codecs for its direction, narrowed by a fixed track source
+  and by `setCodecPreferences()`. An earlier answer that narrowed the
+  negotiated codecs does not narrow later offers (issue #818).
+- A transceiver with a negotiated session (`currentDirection` set) has its
+  offer codecs resolved again for every offer and they are returned
+  here, not written to `transceiver.codecs`: those stay the negotiated
+  codecs that the sender, receiver, router, `getPayloadType()` and stats
+  use until an answer commits new ones. A `createOffer()` that is never
+  applied therefore changes nothing that is sending or receiving.
+- A negotiated transceiver offers its negotiated codecs plus that
+  capability (`withNegotiatedCodecs`). A direction change (`direction`,
+  `removeTrack()`) never takes a negotiated codec off the m-line, even one
+  configured for the other direction: only an answer removes codecs.
+  Preferences and a fixed source apply to the negotiated codecs too, so
+  they still narrow the offer. A codec change that leaves no codec fails
+  with `NotSupportedError`, as for a first offer.
+- An inactive transceiver can use every configured codec (whatever its
+  `direction` attribute), so an inactive first offer has codecs too.
+- A negotiated codec is offered as negotiated: payload type, fmtp and
+  rtcp-fb all stay as the answer committed them, also when that is the
+  remote's form (RFC 3264 §8.3.2). Its configured counterpart is found
+  with the rule negotiation pairs codecs by (`pairCodecs`: the same
+  format first, then the same MIME type). A negotiated RTX / RED for an
+  offered primary is offered as negotiated too.
+- A codec offered again (one the last answer left out, also another
+  format of a negotiated MIME type such as H264 mode 1 next to a
+  negotiated mode 0) takes its
+  configured payload type, or a free dynamic one when that type is used
+  by another codec in this session (any m-line; the same codec with other
+  `a=fmtp` / `a=rtcp-fb` counts as another). RTX `apt` and RED
+  references follow the primary's payload type, and an RTX / RED whose
+  primary is not offered is dropped.
+- A transceiver without a negotiated session resolves as before: its
+  codecs are assigned when empty or when a codec change asks for it.
+
+#### Returns
+
+`Map`\<[`RTCRtpTransceiver`](RTCRtpTransceiver.md), [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]\>
+
+***
+
 ### restoreNegotiationState()
 
 > **restoreNegotiationState**(`snapshot`, `added`, `createdState?`, `carried?`, `notified?`): [`RTCDtlsTransport`](RTCDtlsTransport.md)[]
@@ -485,7 +577,7 @@ keep the track event they delivered.
 
 ##### createdState?
 
-(`transceiver`) => \{ `applicationStopRevision`: `number`; `codecChangeRevision`: `number`; `codecPreferencesNeedResolution`: `boolean`; `codecs`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]; `currentDirection`: [`CurrentDirection`](../type-aliases/CurrentDirection.md) \| `null`; `dtlsTransport`: [`RTCDtlsTransport`](RTCDtlsTransport.md); `firedReceiving`: `boolean`; `headerExtensions`: [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[]; `mid`: `string` \| `null`; `mLineIndex`: `number` \| `undefined`; `offerDirection`: `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`; `pendingLocalOfferCodecs`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[] \| `undefined`; `pendingRejection`: `boolean`; `receiver`: \{ `receiverTWCC`: `ReceiverTWCC` \| `undefined`; `receiveTables`: \{ `codecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `ssrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; `stagedCodecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `stagedSsrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; \}; `remoteStreamId`: `string` \| `undefined`; `remoteStreamIds`: `string`[]; `remoteTrackId`: `string` \| `undefined`; `trackByRID`: \{\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \}; `trackBySSRC`: \{\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \}; `tracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; `unboundTracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; \}; `rejected`: `boolean`; `sender`: \{ `cname`: `string` \| `undefined`; `codec`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`; `headerExtensions`: [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[]; `mid`: `string` \| `undefined`; `negotiatedCodecs`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]; `proposedPrimaryCodec`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`; `redRedundantPayloadType`: `number` \| `undefined`; `repairedRtpStreamId`: `string` \| `undefined`; `rtpStreamId`: `string` \| `undefined`; `rtxPayloadType`: `number` \| `undefined`; `sendPrimaryCodec`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`; `track`: [`MediaStreamTrack`](MediaStreamTrack.md) \| `null`; `trackCodec`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`; \}; `stopped`: `boolean`; `stopping`: `boolean`; \} \| `undefined`
+(`transceiver`) => \{ `applicationStopRevision`: `number`; `codecChangeRevision`: `number`; `codecPreferencesNeedResolution`: `boolean`; `codecs`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]; `currentDirection`: [`CurrentDirection`](../type-aliases/CurrentDirection.md) \| `null`; `dtlsTransport`: [`RTCDtlsTransport`](RTCDtlsTransport.md); `firedReceiving`: `boolean`; `headerExtensions`: [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[]; `mid`: `string` \| `null`; `mLineIndex`: `number` \| `undefined`; `negotiatedCodecsStale`: `boolean`; `offerDirection`: `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`; `pendingLocalOfferCodecs`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[] \| `undefined`; `pendingRejection`: `boolean`; `receiver`: \{ `deferredRemote`: `DeferredRemoteRtp` \| `undefined`; `learnedTrackSsrcs`: `number`[]; `receiverTWCC`: `ReceiverTWCC` \| `undefined`; `receiveTables`: \{ `codecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `ssrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; `stagedCodecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `stagedSsrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; \}; `remoteStreamId`: `string` \| `undefined`; `remoteStreamIds`: `string`[]; `remoteTrackId`: `string` \| `undefined`; `trackByRID`: \{\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \}; `trackBySSRC`: \{\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \}; `tracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; `unboundTracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; \}; `rejected`: `boolean`; `sender`: \{ `cname`: `string` \| `undefined`; `codec`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`; `headerExtensions`: [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[]; `mid`: `string` \| `undefined`; `negotiatedCodecs`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]; `proposedPrimaryCodec`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`; `redRedundantPayloadType`: `number` \| `undefined`; `repairedRtpStreamId`: `string` \| `undefined`; `rtpStreamId`: `string` \| `undefined`; `rtxPayloadType`: `number` \| `undefined`; `sendPrimaryCodec`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`; `track`: [`MediaStreamTrack`](MediaStreamTrack.md) \| `null`; `trackCodec`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`; \}; `stopped`: `boolean`; `stopping`: `boolean`; \} \| `undefined`
 
 ##### carried?
 

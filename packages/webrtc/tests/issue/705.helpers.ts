@@ -12,6 +12,7 @@ import {
   RtpHeader,
   RtpPacket,
   SessionDescription,
+  type TransceiverPairing,
   useOPUS,
 } from "../../src";
 
@@ -103,6 +104,7 @@ export function audioOnlyConfig(
 ): RTCPeerConnectionConfig {
   return {
     iceServers: [],
+    iceUseDefaultStunServer: false,
     ...config,
     codecs: { audio: [useOPUS()], video: [] },
   };
@@ -116,7 +118,11 @@ export function createAudioOnlyPeer(
 
 /** STUN を待たずにローカル候補だけで接続するデフォルト構成の peer */
 export function createPeer(config: Partial<RTCPeerConnectionConfig> = {}) {
-  return new RTCPeerConnection({ iceServers: [], ...config });
+  return new RTCPeerConnection({
+    iceServers: [],
+    iceUseDefaultStunServer: false,
+    ...config,
+  });
 }
 
 export function parseSdp(sdp: string) {
@@ -132,6 +138,21 @@ export function mLines(sdp: string) {
     fmt: media.fmt.map((v) => v.toString()),
     mid: media.rtp.muxId,
   }));
+}
+
+/**
+ * m-section ごとの `a=rtcp:` / `a=rtcp-mux` 行 (生 SDP のまま)。
+ * 拒否 m-line に RTCP 属性を載せない出力形式の固定に使う。
+ */
+export function rtcpLinesBySection(sdp: string) {
+  return sdp
+    .split("\r\nm=")
+    .slice(1)
+    .map((section) =>
+      section
+        .split("\r\n")
+        .filter((line) => line.startsWith("a=rtcp:") || line === "a=rtcp-mux"),
+    );
 }
 
 export function bundleGroups(sdp: string) {
@@ -296,18 +317,20 @@ export async function closeAll(...pcs: RTCPeerConnection[]) {
 
 /** audio + video を交渉済みの werift ペアを作る */
 export async function createNegotiatedPair({
-  mLineReuse = "compatible",
+  mLineReuse = "standard",
   bundlePolicy,
   dataChannelFirst = false,
   connect = false,
+  transceiverPairing,
 }: {
   mLineReuse?: MLineReuse;
   bundlePolicy?: "disable";
   dataChannelFirst?: boolean;
   connect?: boolean;
+  transceiverPairing?: TransceiverPairing;
 } = {}) {
-  const caller = createPeer({ mLineReuse, bundlePolicy });
-  const callee = createPeer({ mLineReuse, bundlePolicy });
+  const caller = createPeer({ mLineReuse, bundlePolicy, transceiverPairing });
+  const callee = createPeer({ mLineReuse, bundlePolicy, transceiverPairing });
   if (connect) {
     exchangeIceCandidates(caller, callee);
   }

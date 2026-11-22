@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "suite": "e2e firefox (vitest.firefox.config.mts)",
+  "commit": "825accd288b3933a0d1eecc2bec22b3600539295",
+  "shortCommit": "825accd28",
+  "branch": "ticket/f90a2878-2bab-4524-bd0e-b735e2e48d00",
+  "dirty": true,
+  "uncommittedFiles": [
+    "changelog.md",
+    "e2e/tests/fixture.ts",
+    "e2e/tests/mediachannel/vp8Playback.test.ts",
+    "packages/webrtc/src/nonstandard/userMedia.ts",
+    "packages/webrtc/src/nonstandard/userMedia/packetizer.ts",
+    "packages/webrtc/tests/nonstandard/userMedia.test.ts",
+    "packages/webrtc/tests/nonstandard/userMediaTestUtils.ts"
+  ],
+  "uncommittedDiffSha256": "0e9037cf209e9072a9bc38fd1b82ccc3f548b9ba8232a24c0767762099afff08",
+  "startedAt": "2026-11-18T09:58:03.080Z",
+  "finishedAt": "2026-11-18T09:58:36.839Z",
+  "durationSec": 34,
+  "exitCode": 0,
+  "outcome": "completed",
+  "stopReason": null,
+  "result": "passed",
+  "vitestArgs": [
+    "tests/mediachannel/vp8Playback.test.ts"
+  ],
+  "environment": {
+    "firefox": "157.0",
+    "playwright": "1.64.1",
+    "vitest": "5.0.5",
+    "node": "v24.22.2",
+    "platform": "linux 7.0.0-43-generic x64"
+  },
+  "runEnded": true,
+  "endReason": "passed",
+  "unhandledErrors": [],
+  "totals": {
+    "files": 1,
+    "tests": 2,
+    "passed": 2,
+    "failed": 0,
+    "skipped": 0,
+    "unfinished": 0
+  },
+  "tests": [
+    {
+      "file": "e2e/tests/mediachannel/vp8Playback.test.ts",
+      "name": "mediachannel_vp8_playback > file",
+      "status": "passed",
+      "durationMs": 6185
+    },
+    {
+      "file": "e2e/tests/mediachannel/vp8Playback.test.ts",
+      "name": "mediachannel_vp8_playback > dummy",
+      "status": "passed",
+      "durationMs": 4079
+    }
+  ],
+  "unfinished": [],
+  "moduleErrors": []
+}

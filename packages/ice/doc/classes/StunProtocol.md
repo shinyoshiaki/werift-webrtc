@@ -44,11 +44,25 @@
 
 ### onDataReceived
 
-> `readonly` **onDataReceived**: `Event`\<\[`Buffer`\<`ArrayBufferLike`\>\]\>
+> `readonly` **onDataReceived**: `Event`\<\[`Buffer`\<`ArrayBufferLike`\>, readonly \[`string`, `number`\]\]\>
+
+Application data (not STUN) and the remote address it came from.
 
 #### Implementation of
 
 [`Protocol`](../interfaces/Protocol.md).[`onDataReceived`](../interfaces/Protocol.md#ondatareceived)
+
+***
+
+### onPathBroken
+
+> `readonly` **onPathBroken**: `Event`\<\[readonly \[`string`, `number`\] \| `undefined`, `Error`\]\>
+
+See `Protocol.onPathBroken`: a datagram to that address could not be sent.
+
+#### Implementation of
+
+[`Protocol`](../interfaces/Protocol.md).[`onPathBroken`](../interfaces/Protocol.md#onpathbroken)
 
 ***
 
@@ -132,7 +146,11 @@
 
 ### connectionMade()
 
-> **connectionMade**(`useIpv4`, `portRange?`, `interfaceAddresses?`): `Promise`\<`void`\>
+> **connectionMade**(`useIpv4`, `portRange?`, `interfaceAddresses?`, `__namedParameters?`): `Promise`\<`void`\>
+
+Opens the UDP socket. `bindAddress` binds it to that address (an IPv6
+link-local one with its zone, `fe80::1%eth0`) instead of the address of
+`interfaceAddresses` or the wildcard address.
 
 #### Parameters
 
@@ -147,6 +165,12 @@
 ##### interfaceAddresses?
 
 `InterfaceAddresses`
+
+##### \_\_namedParameters?
+
+###### bindAddress?
+
+`string`
 
 #### Returns
 

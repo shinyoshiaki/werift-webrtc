@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "suite": "e2e firefox (vitest.firefox.config.mts)",
+  "commit": "8be5e919471f7cadc7d766edd63f5987bacefec0",
+  "shortCommit": "8be5e9194",
+  "branch": "ticket/a461df90-10bb-4aad-8f1b-3cce626d630b",
+  "dirty": false,
+  "uncommittedFiles": [],
+  "uncommittedDiffSha256": null,
+  "startedAt": "2026-11-18T03:44:45.696Z",
+  "finishedAt": "2026-11-18T03:45:52.006Z",
+  "durationSec": 66,
+  "exitCode": 1,
+  "outcome": "completed",
+  "stopReason": null,
+  "result": "failed",
+  "vitestArgs": [
+    "tests/ice/nomination.test.ts"
+  ],
+  "environment": {
+    "firefox": "157.0",
+    "playwright": "1.64.1",
+    "vitest": "5.0.5",
+    "node": "v24.22.2",
+    "platform": "linux 7.0.0-43-generic x64"
+  },
+  "runEnded": true,
+  "endReason": "failed",
+  "unhandledErrors": [],
+  "totals": {
+    "files": 1,
+    "tests": 4,
+    "passed": 0,
+    "failed": 4,
+    "skipped": 0,
+    "unfinished": 0
+  },
+  "tests": [
+    {
+      "file": "e2e/tests/ice/nomination.test.ts",
+      "name": "ice/nomination (semi-aggressive / renomination with Chrome) > the selection moves from the relay path to the host path (chrome offers, renomination: false)",
+      "status": "failed",
+      "durationMs": 697,
+      "retryCount": 1,
+      "failureMessages": [
+        "AssertionError: expected 'prflx' to be 'relay' // Object.is equality",
+        "AssertionError: expected 'prflx' to be 'relay' // Object.is equality"
+      ]
+    },
+    {
+      "file": "e2e/tests/ice/nomination.test.ts",
+      "name": "ice/nomination (semi-aggressive / renomination with Chrome) > the selection moves from the relay path to the host path (chrome offers, renomination: true)",
+      "status": "failed",
+      "durationMs": 581,
+      "retryCount": 1,
+      "failureMessages": [
+        "AssertionError: expected 'prflx' to be 'relay' // Object.is equality",
+        "AssertionError: expected 'prflx' to be 'relay' // Object.is equality"
+      ]
+    },
+    {
+      "file": "e2e/tests/ice/nomination.test.ts",
+      "name": "ice/nomination (semi-aggressive / renomination with Chrome) > the selection moves from the relay path to the host path (werift offers, renomination: false)",
+      "status": "failed",
+      "durationMs": 510,
+      "retryCount": 1,
+      "failureMessages": [
+        "AssertionError: expected 'prflx' to be 'relay' // Object.is equality",
+        "AssertionError: expected 'prflx' to be 'relay' // Object.is equality"
+      ]
+    },
+    {
+      "file": "e2e/tests/ice/nomination.test.ts",
+      "name": "ice/nomination (semi-aggressive / renomination with Chrome) > the selection moves from the relay path to the host path (werift offers, renomination: true)",
+      "status": "failed",
+      "durationMs": 40084,
+      "retryCount": 1,
+      "failureMessages": [
+        "Error: Test timed out in 20000ms.\nIf this is a long-running test, pass a timeout value as the last argument or configure it globally with \"testTimeout\".",
+        "Error: Test timed out in 20000ms.\nIf this is a long-running test, pass a timeout value as the last argument or configure it globally with \"testTimeout\"."
+      ]
+    }
+  ],
+  "unfinished": [],
+  "moduleErrors": []
+}

@@ -1,5 +1,6 @@
 import type { Candidate } from "../candidate";
 import type { Address, Event } from "../imports/common";
+import type { MessageIntegrityMode } from "../stun/const";
 import type { Message } from "../stun/message";
 
 /**
@@ -27,20 +28,39 @@ export interface TransactionRequestOptions {
    */
   failOnSendError?: boolean;
   /**
-   * When set, responses must include MESSAGE-INTEGRITY and pass HMAC
-   * verification (protocol re-parses the wire bytes with this key; the
-   * transaction also rejects unsigned Messages as defense-in-depth).
-   * Unsigned or forged responses must not complete the transaction.
+   * When set, responses must include MESSAGE-INTEGRITY or
+   * MESSAGE-INTEGRITY-SHA256 and pass HMAC verification (protocol re-parses
+   * the wire bytes with this key; the transaction also rejects unsigned
+   * Messages as defense-in-depth). Unsigned or forged responses must not
+   * complete the transaction.
    */
   integrityKey?: Buffer;
+  /**
+   * Integrity attributes a request signed with `integrityKey` carries.
+   * Defaults to `"sha1"` (MESSAGE-INTEGRITY only). Responses are accepted
+   * with either algorithm regardless of this choice. Ignored by the TURN
+   * client's own long-term credential requests (TurnProtocol), which stay
+   * MESSAGE-INTEGRITY only.
+   */
+  integrityAlgorithm?: MessageIntegrityMode;
 }
 
 export interface Protocol {
   type: string;
   onRequestReceived: Event<[Message, Address, Buffer]>;
-  onDataReceived: Event<[Buffer]>;
+  /** Application data (not STUN) and the remote address it came from. */
+  onDataReceived: Event<[Buffer, Address]>;
   /** Connection-oriented protocols: the connection to this remote address is gone. */
   onConnectionClosed?: Event<[Address]>;
+  /**
+   * Sending failed in a way that says the path is gone, not just a lost
+   * packet: a routing error from the OS for this remote address (see
+   * `PATH_BROKEN_SEND_ERRORS`), or, with no address, every path of the
+   * protocol (its TURN allocation is lost: the connection to the TURN
+   * server closed, a Refresh failed, the server is unreachable). The ICE
+   * agent fails over at once instead of waiting for unanswered checks.
+   */
+  onPathBroken?: Event<[Address | undefined, Error]>;
   request: (
     message: Message,
     addr: Address,

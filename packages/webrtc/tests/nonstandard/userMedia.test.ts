@@ -24,6 +24,7 @@ import {
   createVp8Frames,
   createVp9Frames,
   createVp9OpusWebmBuffer,
+  reassignCodecOnFirstRtp,
   waitUntil,
 } from "./userMediaTestUtils";
 
@@ -91,10 +92,7 @@ describe("nonstandard/userMedia file playback", () => {
     media.video!.codec = useVP8();
     // RTCRtpSender は offer / answer ごとに新しい codec オブジェクトを track に代入し、
     // 再生開始後に payloadType が確定することもある。
-    const { unSubscribe } = media.video!.onReceiveRtp.subscribe(() => {
-      unSubscribe();
-      media.video!.codec = useVP8({ payloadType: 96 });
-    });
+    reassignCodecOnFirstRtp(media.video!, useVP8({ payloadType: 96 }));
     const videoFramesPromise = collectFrames(media.video!, 6);
 
     // 実行: 1 周目の再生中に codec を payloadType 付きの新オブジェクトへ差し替え、2 周目のフレームまで受け取る。
@@ -111,6 +109,104 @@ describe("nonstandard/userMedia file playback", () => {
       expect(pictureIds[index]).toBe((pictureIds[index - 1] + 1) & 0x7fff);
     }
   });
+
+  test("keeps VP8 PictureID continuous across loops when the answer adds VP8 fmtp", async () => {
+    const media = await createFileMediaPlayer({
+      buffer: await createAvWebmBuffer(),
+      loop: true,
+    });
+    media.audio!.codec = useOPUS();
+    media.video!.codec = useVP8();
+    // Firefox などの answer は VP8 に max-fs / max-fr の fmtp を付ける。
+    reassignCodecOnFirstRtp(
+      media.video!,
+      useVP8({ payloadType: 96, parameters: "max-fs=12288;max-fr=60" }),
+    );
+    const videoFramesPromise = collectFrames(media.video!, 6);
+
+    // 実行: 1 周目の再生中に fmtp 付きの codec へ差し替え、2 周目のフレームまで受け取る。
+    const startPromise = media.start();
+    const videoFrames = await videoFramesPromise;
+    media.stop();
+    await startPromise;
+
+    // 検証: fmtp が変わった後の loop 境界（3 枚目 → 4 枚目）でも PictureID が +1 され続ける。
+    const pictureIds = videoFrames.map(
+      ([first]) => Vp8RtpPayload.deSerialize(first.payload).pictureId!,
+    );
+    for (let index = 1; index < pictureIds.length; index++) {
+      expect(pictureIds[index]).toBe((pictureIds[index - 1] + 1) & 0x7fff);
+    }
+  });
+
+  test("keeps the H264 packetizer across loops when only fmtp other than packetization-mode changes", async () => {
+    const media = await createFileMediaPlayer({
+      buffer: await createAvMp4Buffer(),
+      loop: true,
+    });
+    media.audio!.codec = useOPUS();
+    media.video!.codec = useH264({
+      parameters: "profile-level-id=42e01f;packetization-mode=1",
+    });
+    reassignCodecOnFirstRtp(
+      media.video!,
+      useH264({
+        payloadType: 102,
+        parameters:
+          "profile-level-id=42e01f;packetization-mode=1;level-asymmetry-allowed=1",
+      }),
+    );
+    const createPacketizerSpy = vi.spyOn(packetizerModule, "createPacketizer");
+
+    try {
+      const videoFramesPromise = collectFrames(media.video!, 6);
+
+      // 実行: 1 周目の再生中に packetization-mode 以外の fmtp だけが違う codec へ差し替え、2 周目まで再生する。
+      const startPromise = media.start();
+      await videoFramesPromise;
+      media.stop();
+      await startPromise;
+
+      // 検証: 映像 packetizer は作り直されず、音声と合わせて 1 回ずつしか作られない。
+      const videoCalls = createPacketizerSpy.mock.calls.filter(
+        ([props]) => props.sourceCodec === "avc",
+      );
+      expect(videoCalls).toHaveLength(1);
+    } finally {
+      createPacketizerSpy.mockRestore();
+      media.stop();
+    }
+  }, 15_000);
+
+  test("stops looped H264 playback when the answer changes packetization-mode", async () => {
+    const media = await createFileMediaPlayer({
+      buffer: await createAvMp4Buffer(),
+      loop: true,
+    });
+    media.audio!.codec = useOPUS();
+    media.video!.codec = useH264({
+      parameters: "profile-level-id=42e01f;packetization-mode=1",
+    });
+    reassignCodecOnFirstRtp(
+      media.video!,
+      useH264({ parameters: "profile-level-id=42e01f;packetization-mode=0" }),
+    );
+
+    try {
+      const errorPromise = media.onError.asPromise(10_000);
+
+      // 実行: 1 周目の再生中に packetization-mode=0 の codec へ差し替え、次の loop まで再生する。
+      await media.start();
+      const [error] = await errorPromise;
+
+      // 検証: 次の loop の開始時に packetization-mode 不一致のエラーで再生が止まる。
+      expect(error.message).toBe(
+        "Input video packetization-mode 1 does not match negotiated packetization-mode 0",
+      );
+    } finally {
+      media.stop();
+    }
+  }, 15_000);
 
   test("createFileMediaPlayer({ path }) packetizes MP4 H264/Opus in-process", async () => {
     const mediaBuffer = await createAvMp4Buffer();

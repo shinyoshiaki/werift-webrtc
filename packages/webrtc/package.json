@@ -1,6 +1,6 @@
 {
   "name": "werift",
-  "version": "0.27.0",
+  "version": "0.28.0",
   "description": "WebRTC Implementation for TypeScript (Node.js)",
   "keywords": [
     "WebRTC",
@@ -56,11 +56,12 @@
     "test": "vitest run ./tests",
     "memleak": "vitest run --config ./tests/memleak/memleak.vitest.config.mts",
     "leak:verify": "bash tools/leak-verify/run.sh",
-    "pbt:deep": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/pbt-deep/run.ts",
+    "pbt:deep": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs ../pbt/src/cli.ts tests/pbt/suites.ts",
     "type": "tsc --noEmit --project ./tsconfig.json --rootDir ..",
     "upgrade-interactive": "npx npm-check-updates -i",
     "wpt:list": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/wpt-runner/list.ts",
     "wpt": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/wpt-runner/run.ts",
+    "wpt:stable-baseline": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/wpt-runner/stableBaseline.ts",
     "wpt:coverage": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs tools/wpt-runner/coverage.ts",
     "test:sim": "vitest run --config ./simulations/vitest.config.mts"
   },

@@ -19,12 +19,9 @@ describe("nonstandard/navigator dummy media", () => {
 
     // 検証: audio track が 1 本返り、sequence / timestamp が Opus 想定で進む。
     expect(stream.getTracks()).toHaveLength(1);
-    expect(
-      packets[1].header.sequenceNumber - packets[0].header.sequenceNumber,
-    ).toBe(1);
-    expect(
-      packets[2].header.sequenceNumber - packets[1].header.sequenceNumber,
-    ).toBe(1);
+    // 初期 sequence は乱数なので 16 bit の差で比べる
+    expect(sequenceDelta(packets[0], packets[1])).toBe(1);
+    expect(sequenceDelta(packets[1], packets[2])).toBe(1);
     expect(packets[1].header.timestamp - packets[0].header.timestamp).toBe(960);
     expect(packets[2].header.timestamp - packets[1].header.timestamp).toBe(960);
 
@@ -52,10 +49,7 @@ describe("nonstandard/navigator dummy media", () => {
     // 検証: sequence / timestamp / marker が連続し、先頭と 31 枚目が同じ keyframe 本体になる。
     expect(stream.getTracks()).toHaveLength(1);
     for (let index = 1; index < packets.length; index++) {
-      expect(
-        packets[index].header.sequenceNumber -
-          packets[index - 1].header.sequenceNumber,
-      ).toBe(1);
+      expect(sequenceDelta(packets[index - 1], packets[index])).toBe(1);
       expect(
         packets[index].header.timestamp - packets[index - 1].header.timestamp,
       ).toBe(3000);
@@ -95,6 +89,38 @@ describe("nonstandard/navigator dummy media", () => {
     navigator.mediaDevices.cleanup();
   });
 
+  test("別々の MediaDevices の dummy track は SSRC と sequence が重ならない", async () => {
+    // Arrange: dummy media を持つ Navigator を 2 つ用意する
+    const navigators = [0, 1].map(
+      () => new Navigator({ dummyMedia: { enabled: true } }),
+    );
+
+    // Act: それぞれから audio と video の track を取り、最初の RTP を受け取る
+    const firsts: RtpPacket[] = [];
+    const tracks: MediaStreamTrack[] = [];
+    for (const navigator of navigators) {
+      for (const kind of ["audio", "video"] as const) {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          [kind]: true,
+        });
+        const [track] = stream.getTracks();
+        tracks.push(track);
+        const [first] = await waitForPackets(track, 1);
+        firsts.push(first);
+      }
+    }
+
+    // Assert: 4 つの source の SSRC がすべて異なり、同じ PeerConnection で送っても区別できる
+    expect(new Set(firsts.map((p) => p.header.ssrc)).size).toBe(4);
+    expect(
+      new Set(firsts.map((p) => `${p.header.ssrc}/${p.header.sequenceNumber}`))
+        .size,
+    ).toBe(4);
+
+    for (const track of tracks) track.stop();
+    for (const navigator of navigators) navigator.mediaDevices.cleanup();
+  });
+
   test("cloned getUserMedia track forwards extensions and receive info", async () => {
     // Arrange: 既存ソースを clone する Navigator
     const source = new MediaStreamTrack({ kind: "audio" });
@@ -127,6 +153,11 @@ describe("nonstandard/navigator dummy media", () => {
     navigator.mediaDevices.cleanup();
   });
 });
+
+/** `next` の sequence が `prev` から何進んだか (16 bit で折り返す)。 */
+function sequenceDelta(prev: RtpPacket, next: RtpPacket) {
+  return (next.header.sequenceNumber - prev.header.sequenceNumber) & 0xffff;
+}
 
 function waitForPackets(track: MediaStreamTrack, count: number) {
   return new Promise<RtpPacket[]>((resolve) => {

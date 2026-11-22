@@ -10,6 +10,7 @@ import {
 import {
   type PeerConnectionEventHandlers,
   type RTCDataChannelEvent,
+  RTCPeerConnectionIceErrorEvent,
   type RTCPeerConnectionIceEvent,
   RTCTrackEvent,
 } from "./api/peerConnectionEvents";
@@ -18,7 +19,7 @@ import {
   type RTCDataChannel,
 } from "./dataChannel";
 import { createWebRtcDomException } from "./errors";
-import { EventTarget, enumerate } from "./helper";
+import { EventTarget, enumerate, notifySafely } from "./helper";
 import { debug, Event } from "./imports/common";
 import {
   type MediaStream,
@@ -44,17 +45,23 @@ import { IceRestartRequest } from "./negotiation/iceRestartRequest";
 import { NegotiationNeeded } from "./negotiation/negotiationNeeded";
 import {
   normalizeCandidateUfrag,
+  normalizeEmptyCandidateMid,
   RemoteCandidates,
 } from "./negotiation/remoteCandidates";
 import { RemoteMediaApplication } from "./negotiation/remoteMediaApplication";
 import { TransportActivation } from "./negotiation/transportActivation";
 import { NegotiationTransaction } from "./negotiationTransaction";
 import { SctpTransportManager } from "./sctpManager";
-import { type RTCSessionDescription, SessionDescription } from "./sdp";
+import {
+  descriptionIceOptions,
+  type RTCSessionDescription,
+  SessionDescription,
+} from "./sdp";
 import { type RTCSessionDescriptionInit, SDPManager } from "./sdpManager";
 import { SecureTransportManager } from "./secureTransportManager";
 import type { DtlsRole, RTCDtlsTransport } from "./transport/dtls";
 import type {
+  IceCandidateErrorDetails,
   IceGathererState,
   RTCIceCandidate,
   RTCIceCandidateInit,
@@ -66,9 +73,23 @@ import type { Callback, CallbackWithValue } from "./types/util";
 import { andDirection } from "./utils";
 
 export {
+  type CompatibilityOption,
+  type CompatibilityOptionValue,
+  CompatibilityOptionValues,
+} from "./api/compatibilityOptions";
+export {
+  type CertificateScope,
+  CertificateScopeModes,
+  type CompatibilityPreset,
+  CompatibilityPresets,
   type DebugConfig,
+  type DeprecatedCertificateScope,
+  DeprecatedCompatibilityValues,
+  type DeprecatedKeyFrameRequestRouting,
+  type DeprecatedMLineReuse,
   defaultPeerConfig,
   findCodecByMimeType,
+  MLineReuseModes,
   type PeerConfig,
   type RTCBundlePolicy,
   type RTCConfiguration,
@@ -76,9 +97,13 @@ export {
   type RTCPeerConnectionConfig,
   type RTCRtcpMuxPolicy,
   type RTCSctpConfiguration,
+  type TransceiverPairing,
+  TransceiverPairingModes,
 } from "./api/peerConfig";
 export {
   type RTCDataChannelEvent,
+  RTCPeerConnectionIceErrorEvent,
+  type RTCPeerConnectionIceErrorEventInit,
   type RTCPeerConnectionIceEvent,
   RTCTrackEvent,
 } from "./api/peerConnectionEvents";
@@ -95,6 +120,9 @@ const log = debug("werift:packages/webrtc/src/peerConnection.ts");
  * - `addIceCandidate()` also validates `sdpMid` / `sdpMLineIndex` /
  *   `usernameFragment` against the applied remote description and appends
  *   candidates or end-of-candidates markers to the corresponding m-section.
+ *   An empty `sdpMid` with a numeric `sdpMLineIndex` (as Pion sends) is
+ *   resolved by the index, as libwebrtc and Firefox do; the W3C steps reject it with
+ *   OperationError. An empty `sdpMid` without an index is still rejected.
  *   The public API keeps werift's historical pre-SRD buffering behavior, while
  *   the WPT runner wraps the class to exercise strict spec rejection.
  * - `bundlePolicy: "balanced"` is accepted for input compatibility but is
@@ -157,6 +185,30 @@ export class RTCPeerConnection extends EventTarget {
   private isClosed = false;
   private applyingIceRestart = false;
   /**
+   * The current gathering's STUN / TURN outcomes by URL, for the 701 of
+   * `icecandidateerror` (see RTCPeerConnectionIceErrorEvent): the
+   * transports that reached the server, and the 701s of the transports
+   * that tried and did not, in order. Judged once when `iceGatheringState`
+   * leaves "gathering" (fireUnreachableServerErrors) and cleared when it
+   * enters "gathering".
+   */
+  /**
+   * True while the 701s of the gathering that just ended are dispatched:
+   * `iceGatheringState` still reads "gathering" for their handlers.
+   */
+  private firingGatheringErrors = false;
+  private gatheringServerOutcomes = new Map<
+    string,
+    {
+      reached: { transport: RTCIceTransport; generation: number }[];
+      unreached: {
+        transport: RTCIceTransport;
+        generation: number;
+        details: IceCandidateErrorDetails;
+      }[];
+    }
+  >();
+  /**
    * The last operation of the chain: `done` when it finished, `applied` when
    * the description it applies is in place (setLocalDescription's gathering
    * wait comes after it). addIceCandidate only needs `applied`.
@@ -193,6 +245,15 @@ export class RTCPeerConnection extends EventTarget {
   readonly onRemoteTransceiverAdded = new Event<[RTCRtpTransceiver]>();
   readonly onTransceiverAdded = new Event<[RTCRtpTransceiver]>();
   readonly onIceCandidate = new Event<[RTCIceCandidate | undefined]>();
+  /**
+   * `icecandidateerror` (see {@link RTCPeerConnectionIceErrorEvent}): the
+   * same event object is passed here, to `onicecandidateerror` and to the
+   * `icecandidateerror` listeners.
+   */
+  readonly onIceCandidateError = new Event<[RTCPeerConnectionIceErrorEvent]>({
+    onListenerError: (error) =>
+      log("onIceCandidateError subscriber threw", error),
+  });
   readonly onNegotiationneeded = new Event<[]>();
   readonly onTrack = new Event<[MediaStreamTrack]>();
   private readonly eventHandlers: PeerConnectionEventHandlers = {};
@@ -217,7 +278,7 @@ export class RTCPeerConnection extends EventTarget {
     return this.eventHandlers.onicecandidateerror ?? null;
   }
 
-  set onicecandidateerror(value: CallbackWithValue<any> | null) {
+  set onicecandidateerror(value: CallbackWithValue<RTCPeerConnectionIceErrorEvent> | null,) {
     this.eventHandlers.onicecandidateerror = value ?? undefined;
   }
 
@@ -278,6 +339,9 @@ export class RTCPeerConnection extends EventTarget {
       cname: this.cname,
       bundlePolicy: this.config.bundlePolicy,
       mLineReuse: this.config.mLineReuse,
+      bundleCandidates: this.config.bundleCandidates,
+      iceRenomination: this.config.iceRenomination,
+      iceOptionIce2: this.config.iceOptionIce2,
     });
     this.transceiverManager = new TransceiverManager(
       this.cname,
@@ -334,6 +398,7 @@ export class RTCPeerConnection extends EventTarget {
         onRemoteTransceiverAdded: (transceiver) =>
           this.onRemoteTransceiverAdded.execute(transceiver),
       },
+      this.config.transceiverPairing,
     );
     this.validator = new DescriptionValidation(
       this.config,
@@ -343,11 +408,14 @@ export class RTCPeerConnection extends EventTarget {
       this.negotiation,
       this.topology,
     );
+    // Test: tests/issue/815.notification.test.ts "datachannel: later listeners run and the channel opens on both ends"
     this.sctpManager.onDataChannel.subscribe((channel) => {
-      this.onDataChannel.execute(channel);
+      const onError = (error: unknown) =>
+        log("datachannel listener failed", error);
+      this.onDataChannel.executeIsolated(onError, channel);
       const event: RTCDataChannelEvent = { type: "datachannel", channel };
-      this.ondatachannel?.(event);
-      this.emit("datachannel", event);
+      notifySafely(log, "ondatachannel", () => this.ondatachannel?.(event));
+      this.emitIsolated(onError, "datachannel", event);
     });
     this.secureManager = new SecureTransportManager({
       config: this.config,
@@ -378,6 +446,15 @@ export class RTCPeerConnection extends EventTarget {
       },
     );
     this.secureManager.iceGatheringStateChange.subscribe((state) => {
+      if (state === "gathering") {
+        this.gatheringServerOutcomes = new Map();
+      } else {
+        // The gathering ended: its 701s fire before the state change.
+        this.fireUnreachableServerErrors();
+      }
+      // A closed connection fires no event (also when a handler of those
+      // 701s closed it, or a transport closing mid-gathering ends it).
+      if (this.isClosed) return;
       this.iceGatheringStateChange.execute(state);
       this.onicegatheringstatechange?.(
         new globalThis.Event("icegatheringstatechange"),
@@ -392,10 +469,21 @@ export class RTCPeerConnection extends EventTarget {
       this.oniceconnectionstatechange?.();
       this.emit("iceconnectionstatechange");
     });
+    // Each notification is isolated: an application listener that throws
+    // must not stop the others nor the transport state propagation that
+    // triggered it (e.g. SCTP closing after a DTLS failure).
     this.secureManager.connectionStateChange.subscribe((state) => {
-      this.connectionStateChange.execute(state);
-      this.onconnectionstatechange?.();
-      this.emit("connectionstatechange");
+      this.connectionStateChange.executeIsolated(
+        (error) => log("connectionStateChange listener failed", error),
+        state,
+      );
+      notifySafely(log, "onconnectionstatechange", () =>
+        this.onconnectionstatechange?.(),
+      );
+      this.emitIsolated(
+        (error) => log("connectionstatechange listener failed", error),
+        "connectionstatechange",
+      );
     });
     this.secureManager.onIceCandidate.subscribe((candidate) => {
       const iceCandidate = candidate ? candidate.toJSON() : undefined;
@@ -419,6 +507,9 @@ export class RTCPeerConnection extends EventTarget {
     return this.secureManager.iceGatheringState;
   }
   get iceGatheringState() {
+    // The 701s of a gathering fire while it is still "gathering" (W3C): the
+    // ended state shows only from its icegatheringstatechange on.
+    if (this.firingGatheringErrors) return "gathering";
     return this.secureManager.iceGatheringState;
   }
   get dtlsTransports() {
@@ -436,6 +527,144 @@ export class RTCPeerConnection extends EventTarget {
   get iceTransports() {
     return this.secureManager.iceTransports;
   }
+
+  /** The outcome record of `url` in the current gathering. */
+  private gatheringServerOutcome(url: string) {
+    let outcome = this.gatheringServerOutcomes.get(url);
+    if (!outcome) {
+      outcome = { reached: [], unreached: [] };
+      this.gatheringServerOutcomes.set(url, outcome);
+    }
+    return outcome;
+  }
+
+  /**
+   * Judge the gathering that just ended (W3C: a 701 means no host candidate
+   * reached the server, once per URL per gathering): fire one 701 for each
+   * URL some transport tried without reaching it and none reached. Only
+   * transports still live count (not closed, not pending only), with the
+   * ICE generation they had: one that left during the gathering, or whose
+   * generation an ICE restart replaced, neither reached nor failed for it.
+   * The event carries the first counted failure (its local address and
+   * text). Stops as soon as the connection is closed (a handler may close
+   * it).
+   */
+  private fireUnreachableServerErrors() {
+    this.firingGatheringErrors = true;
+    try {
+      this.judgeUnreachableServers();
+    } finally {
+      this.firingGatheringErrors = false;
+    }
+  }
+
+  private judgeUnreachableServers() {
+    const outcomes = this.gatheringServerOutcomes;
+    this.gatheringServerOutcomes = new Map();
+    if (this.isClosed) return;
+    const live = new Set(
+      this.secureManager.iceTransports.filter(
+        (transport) =>
+          transport.state !== "closed" &&
+          !this.negotiation.isPendingOnlyTransport(transport.id),
+      ),
+    );
+    const counts = (entry: {
+      transport: RTCIceTransport;
+      generation: number;
+    }) =>
+      live.has(entry.transport) &&
+      entry.transport.connection.generation === entry.generation;
+    for (const { reached, unreached } of outcomes.values()) {
+      // A handler of an earlier 701 may have closed the connection: a
+      // closed connection fires nothing more.
+      if (this.isClosed) return;
+      if (reached.some(counts)) continue;
+      const first = unreached.find(counts);
+      if (first) this.dispatchIceCandidateError(first.details);
+    }
+  }
+
+  /**
+   * Dispatch an `icecandidateerror` to `onIceCandidateError`,
+   * `onicecandidateerror` and the listeners, in that order, with one event
+   * object. A handler calling `stopImmediatePropagation()` stops the ones
+   * after it (also the later subscribers of onIceCandidateError); a
+   * listener removed during the dispatch is not called, one added during it
+   * is not called this time.
+   */
+  private dispatchIceCandidateError(details: IceCandidateErrorDetails) {
+    const event = new RTCPeerConnectionIceErrorEvent(
+      "icecandidateerror",
+      details,
+    );
+    // Not dispatched through a native EventTarget, so set what a listener
+    // sees of the dispatch itself (W3C DOM: target, currentTarget, phase).
+    const setDispatchState = (currentTarget: unknown, eventPhase: number) => {
+      for (const [key, value] of Object.entries({
+        target: this,
+        currentTarget,
+        eventPhase,
+      })) {
+        Object.defineProperty(event, key, {
+          value,
+          configurable: true,
+          enumerable: false,
+        });
+      }
+    };
+    setDispatchState(this, 2);
+    // Fired by the connection (the user agent), not constructed by the
+    // application: a trusted event (W3C DOM `isTrusted`).
+    Object.defineProperty(event, "isTrusted", {
+      value: true,
+      enumerable: true,
+    });
+    // stopImmediatePropagation() stops the listeners after the caller (W3C
+    // DOM), in the order below.
+    let stopped = false;
+    const stopImmediatePropagation = event.stopImmediatePropagation.bind(event);
+    Object.defineProperty(event, "stopImmediatePropagation", {
+      value: () => {
+        stopped = true;
+        stopImmediatePropagation();
+      },
+      configurable: true,
+      enumerable: false,
+      writable: true,
+    });
+    const onError = (error: unknown) =>
+      log("icecandidateerror handler threw", error);
+    // The listeners when the dispatch starts (W3C DOM): one added meanwhile
+    // is not called this time.
+    const listeners = this.rawListeners("icecandidateerror");
+    // One throwing handler must not hide the event from the others, and the
+    // stop is checked before each one (also between the subscribers of
+    // onIceCandidateError).
+    this.onIceCandidateError.executeUntil(() => stopped, onError, event);
+    if (!stopped) {
+      try {
+        this.onicecandidateerror?.(event);
+      } catch (error) {
+        onError(error);
+      }
+    }
+    // EventEmitter stops at the first throwing listener: call each one.
+    for (const listener of listeners) {
+      if (stopped) break;
+      // Removed meanwhile (removeEventListener): not called (W3C DOM).
+      if (!this.rawListeners("icecandidateerror").includes(listener)) {
+        continue;
+      }
+      try {
+        listener.call(this, event);
+      } catch (error) {
+        onError(error);
+      }
+    }
+    setDispatchState(null, 0);
+  }
+
   get extIdUriMap() {
     return this.router.extIdUriMap;
   }
@@ -465,13 +694,19 @@ export class RTCPeerConnection extends EventTarget {
     if (!remoteDescription) {
       return null;
     }
-    const iceOptions = [
-      remoteDescription.iceOptions,
-      ...remoteDescription.media.map((media) => media.iceOptions),
-    ]
-      .filter((value): value is string => !!value)
-      .join(" ");
-    return iceOptions.split(/\s+/).includes("trickle");
+    return descriptionIceOptions(remoteDescription).includes("trickle");
+  }
+  /**
+   * Whether the remote description declares the `ice2` ice-option (an
+   * RFC 8445 agent, RFC 8839 §5.6), or null without a remote description.
+   * Informational: werift runs the RFC 8445 procedures either way.
+   */
+  get remoteIceOptionIce2() {
+    const remoteDescription = this.sdpManager._remoteDescription;
+    if (!remoteDescription) {
+      return null;
+    }
+    return descriptionIceOptions(remoteDescription).includes("ice2");
   }
   get remoteIsBundled() {
     return this.sdpManager.remoteIsBundled;
@@ -623,13 +858,12 @@ export class RTCPeerConnection extends EventTarget {
 
     await this.secureManager.ensureCerts();
 
+    // Every offer lists what each transceiver can use now, whatever an earlier
+    // answer narrowed (RFC 8829 5.2.2); a negotiated transceiver keeps its
+    // negotiated codecs live until an answer commits new ones
+    // (TransceiverManager.resolveOfferCodecs).
+    const offerCodecs = this.transceiverManager.resolveOfferCodecs();
     for (const transceiver of this.transceiverManager.getTransceivers()) {
-      if (
-        transceiver.codecs.length === 0 ||
-        transceiver.codecPreferencesNeedResolution
-      ) {
-        this.transceiverManager.assignTransceiverCodecs(transceiver);
-      }
       if (transceiver.headerExtensions.length === 0) {
         transceiver.headerExtensions =
           this.config.headerExtensions[transceiver.kind] ?? [];
@@ -651,6 +885,7 @@ export class RTCPeerConnection extends EventTarget {
     const description = this.sdpManager.buildOfferSdp(
       transceivers,
       this.sctpTransport,
+      offerCodecs,
     );
     const transceiverByMid = new Map(
       transceivers
@@ -671,6 +906,25 @@ export class RTCPeerConnection extends EventTarget {
       changeSeq: this.negotiationNeed.noteCreatedOffer(),
     };
     return createdOffer;
+  }
+
+  /**
+   * W3C webrtc-pc 4.4.1.6 step 2.2.6: an answer / pranswer negotiating the
+   * application m-line assigns stream IDs before its promise resolves, also
+   * when the DTLS role it keeps did not change.
+   * @see tests/issue/815.test.ts "issue 815: data channel stream IDs follow the DTLS role"
+   * @see tests/issue/815.test.ts "a %s gives the IDs back and the next answer, keeping the DTLS role, assigns them again"
+   */
+  private assignDataChannelIds(description: SessionDescription) {
+    if (description.type !== "answer" && description.type !== "pranswer") {
+      return;
+    }
+    const negotiatesApplication = description.media.some(
+      (media) => media.kind === "application" && media.port !== 0,
+    );
+    if (negotiatesApplication) {
+      this.sctpTransport?.assignPendingStreamIds();
+    }
   }
 
   private createSctpTransport() {
@@ -694,6 +948,9 @@ export class RTCPeerConnection extends EventTarget {
       id?: number;
     }> = {},
   ): RTCDataChannel {
+    // W3C webrtc-pc createDataChannel step 2: [[IsClosed]].
+    // Test: tests/issue/815.notification.test.ts "pc.close(): createDataChannel throws, channel.close() and pc.close() complete"
+    this.assertNotClosed();
     // Reject invalid input before creating the transport or scheduling
     // negotiation, so a failed call leaves the connection unchanged.
     assertDataChannelFieldLengths({ label, protocol: options.protocol });
@@ -864,7 +1121,7 @@ export class RTCPeerConnection extends EventTarget {
 
     const dtlsTransport = this.secureManager.createTransport(forceNew);
     dtlsTransport.onRtp.subscribe((rtp) => {
-      this.router.routeRtp(rtp);
+      this.router.routeRtp(rtp, dtlsTransport);
     });
     dtlsTransport.onRtcp.subscribe((rtcp) => {
       this.router.routeRtcp(rtcp, dtlsTransport);
@@ -874,6 +1131,41 @@ export class RTCPeerConnection extends EventTarget {
 
     iceTransport.onNegotiationNeeded.subscribe(() => {
       this.needNegotiation();
+    });
+    iceTransport.onIceServerReached.subscribe((urls) => {
+      if (
+        this.isClosed ||
+        this.negotiation.isPendingOnlyTransport(iceTransport.id)
+      ) {
+        return;
+      }
+      for (const url of urls) {
+        this.gatheringServerOutcome(url).reached.push({
+          transport: iceTransport,
+          generation: iceTransport.connection.generation,
+        });
+      }
+    });
+    iceTransport.onIceCandidateError.subscribe((details) => {
+      // A closed connection fires nothing; a transport a rollback discards
+      // (pending only) is not announced, as for its candidates.
+      if (
+        this.isClosed ||
+        this.negotiation.isPendingOnlyTransport(iceTransport.id)
+      ) {
+        return;
+      }
+      // A 701 waits for the end of the gathering (fireUnreachableServerErrors);
+      // a server's error response (300-699) fires now.
+      if (details.errorCode === 701) {
+        this.gatheringServerOutcome(details.url).unreached.push({
+          transport: iceTransport,
+          generation: iceTransport.connection.generation,
+          details,
+        });
+        return;
+      }
+      this.dispatchIceCandidateError(details);
     });
     iceTransport.onIceCandidate.subscribe((candidate) => {
       if (
@@ -1223,8 +1515,9 @@ export class RTCPeerConnection extends EventTarget {
           );
           if (!answered || answered.rtp.codecs.length === 0) continue;
           const resolved = transceiver.codecs;
+          const stale = transceiver.negotiatedCodecsStale;
           transceiver.codecs = [...answered.rtp.codecs];
-          if (!sameCodecList(resolved, transceiver.codecs)) {
+          if (stale || !sameCodecList(resolved, transceiver.codecs)) {
             resolveAfterAnswer.push(transceiver);
           }
         }
@@ -1357,7 +1650,7 @@ export class RTCPeerConnection extends EventTarget {
       if (description.type === "answer") {
         // answer の確定で拒否予定の m-line を停止し、RTP pipeline を解放する
         this.transceiverManager.commitRemoteOffer();
-        // port 0 で答えた m-line (aggressive の inactive など) は offerer 側で拒否として
+        // port 0 で答えた m-line (mLineReuse: "aggressive" の inactive など) は offerer 側で拒否として
         // 停止が確定する。answerer 側も同じ位置を停止確定にし、offerer が新 MID で再利用できるようにする
         for (const media of description.media) {
           if (!["audio", "video"].includes(media.kind) || media.port !== 0) {
@@ -1389,6 +1682,8 @@ export class RTCPeerConnection extends EventTarget {
         this.sctpTransport,
         this.negotiation.transportByMid,
       );
+
+      this.assignDataChannelIds(description);
 
       if (description.type === "offer") {
         this.secureManager.markStagedIceRestartApplied();
@@ -1490,7 +1785,20 @@ export class RTCPeerConnection extends EventTarget {
       // answerer の stop() は次の自分の offer で交渉する
       const hasUnnegotiatedStop =
         description.type === "answer" && this.settleStoppingTransceivers();
-      if (this.negotiationNeed.recheck || hasUnnegotiatedStop) {
+      // W3C "check if negotiation is needed": under "standard" pairing a remote
+      // offer leaves an addTransceiver() transceiver unassociated (JSEP
+      // 5.10), so returning to stable fires negotiationneeded for it.
+      const hasUnassociatedTransceiver =
+        description.type === "answer" &&
+        this.config.transceiverPairing === "standard" &&
+        this.transceiverManager
+          .getTransceivers()
+          .some((t) => t.mid == null && !t.stopping && !t.stopped);
+      if (
+        this.negotiationNeed.recheck ||
+        hasUnnegotiatedStop ||
+        hasUnassociatedTransceiver
+      ) {
         this.negotiationNeed.schedule();
       }
 
@@ -1549,7 +1857,9 @@ export class RTCPeerConnection extends EventTarget {
           throw createWebRtcDomException("InvalidStateError", "is closed");
         }
 
-        candidateMessage = normalizeCandidateUfrag(candidateMessage);
+        candidateMessage = normalizeEmptyCandidateMid(
+          normalizeCandidateUfrag(candidateMessage),
+        );
         if (!this.remoteDescription || !this.sdpManager._remoteDescription) {
           const ufrag = candidateMessage?.usernameFragment;
           if (this.negotiation.isRetiredRemoteUfrag(ufrag)) {
@@ -1639,9 +1949,29 @@ export class RTCPeerConnection extends EventTarget {
       });
       this.validator.validateRemote(remoteSdp, this.signalingState);
 
+      const needsImplicitLocalRollback =
+        sessionDescription.type === "offer" &&
+        ["have-local-offer", "have-local-pranswer"].includes(
+          this.signalingState,
+        );
       // Resolve codec compatibility before implicit rollback or any transaction
       // mutation, then pass the same plan into the staged m-line application.
-      const codecPlan = this.remoteMedia.planCodecs(remoteSdp);
+      // The plan pairs m-lines with the transceivers as the application will
+      // see them after the implicit rollback / replacement / revert, so both
+      // pair every m-line with the same transceiver.
+      const codecPlan = this.remoteMedia.planCodecs(
+        remoteSdp,
+        remoteSdp.type === "offer"
+          ? this.negotiation.pairingViewForRemoteOffer(
+              remoteSdp,
+              needsImplicitLocalRollback
+                ? "rollback"
+                : this.signalingState === "have-remote-offer"
+                  ? "replace"
+                  : undefined,
+            )
+          : undefined,
+      );
 
       // Queued candidates are placed against the parsed proposal before any
       // state changes or application events (track, transceiver) fire.
@@ -1651,11 +1981,6 @@ export class RTCPeerConnection extends EventTarget {
         this.assertOpenAfterYield();
       }
 
-      const needsImplicitLocalRollback =
-        sessionDescription.type === "offer" &&
-        ["have-local-offer", "have-local-pranswer"].includes(
-          this.signalingState,
-        );
       if (needsImplicitLocalRollback) {
         this.negotiation.retireRemoteGeneration(
           this.sdpManager.pendingRemoteDescription,
@@ -1805,6 +2130,8 @@ export class RTCPeerConnection extends EventTarget {
         throw error;
       }
 
+      this.assignDataChannelIds(remoteSdp);
+
       if (remoteSdp.type === "offer") {
         this.sdpManager.applyRemoteDescription(remoteSdp);
         this.negotiation.settle();
@@ -1906,7 +2233,9 @@ export class RTCPeerConnection extends EventTarget {
     if (this.isClosed) {
       throw createWebRtcDomException("InvalidStateError", "is closed");
     }
-    const transceiver = this.transceiverManager.addTrack(track, streams);
+    const transceiver = this.transceiverManager.addTrack(track, streams, () =>
+      this.findOrCreateTransport(),
+    );
     if (!transceiver.dtlsTransport) {
       const dtlsTransport = this.findOrCreateTransport();
       transceiver.setDtlsTransport(dtlsTransport);
@@ -1956,12 +2285,7 @@ export class RTCPeerConnection extends EventTarget {
     // setCodecPreferences() は negotiated codec と分けて保持される。
     // Answer SDP 用の候補だけを再解決し、送受信の live table は commit まで触らない。
     for (const transceiver of this.transceiverManager.getTransceivers()) {
-      if (
-        transceiver.codecs.length !== 0 &&
-        !transceiver.codecPreferencesNeedResolution
-      ) {
-        continue;
-      }
+      if (!transceiver.needsCodecResolution) continue;
       if (
         transceiver.pendingRejection ||
         transceiver.stopping ||
@@ -2093,6 +2417,11 @@ export class RTCPeerConnection extends EventTarget {
 
     this.transceiverManager.close();
 
+    // W3C close(): SCTP / DTLS / connectionState は同期に closed（statechange なし）。
+    // 送信（SCTP ABORT → close_notify → ICE 停止）はこの後の非同期部分で行う。
+    this.sctpManager.markClosed();
+    this.secureManager.markClosed();
+
     // SCTP ABORT は DTLS/ICE が生きている間に送る（close は abrupt であり SHUTDOWN ではない）
     await this.sctpManager.close();
     await this.negotiation.dispose();
@@ -2114,6 +2443,7 @@ export class RTCPeerConnection extends EventTarget {
       this.onTransceiverAdded,
       this.onRemoteTransceiverAdded,
       this.onIceCandidate,
+      this.onIceCandidateError,
       this.onNegotiationneeded,
     ] as const;
     for (const event of events) {

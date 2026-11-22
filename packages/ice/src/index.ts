@@ -1,5 +1,7 @@
 export { randomPort } from "../../common/src";
 export * from "./candidate";
+export * from "./candidateError";
+export { IceRestartedError } from "./exceptions";
 export * from "./ice";
 export * from "./iceBase";
 export * from "./stun/const";

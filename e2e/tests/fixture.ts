@@ -5,6 +5,48 @@ import { Peer, WebSocketTransport } from "protoo-client";
 
 const browser = Bowser.getParser(window.navigator.userAgent);
 export const browserName = browser.getBrowserName();
+export const isFirefox = browserName === "Firefox";
+
+/**
+ * Why a test is skipped in Firefox: werift bugs that Firefox exposes. Each
+ * reason starts with a fixed tag and the first 8 characters of the ticket ID.
+ * When the ticket is fixed, find its skips with
+ * `grep -rn "firefox-known:<name>" e2e/tests` and remove them.
+ */
+export const firefoxKnownIssue = {
+  simulcastSsrcTrack:
+    "[firefox-known:simulcast-ssrc-track] be690c2e: a=ssrc 付き simulcast answer で SSRC のトラックが別に作られ、そのレイヤーの RTX がそちらへ復元される",
+} as const;
+
+/**
+ * Why a test is skipped in Firefox: the test relies on something Firefox (or
+ * its Playwright build) does not provide. No ticket: these stay skipped.
+ */
+export const firefoxUnsupported = {
+  h264: "[firefox-unsupported:h264] Playwright の Firefox は H.264（OpenH264 プラグイン）を持たない",
+  encodedStreams:
+    "[firefox-unsupported:encoded-streams] Chrome 独自の RTCRtpReceiver.createEncodedStreams() で RED を読む",
+  turnsIpLiteral:
+    "[firefox-unsupported:turns-ip-literal] Firefox の TURNS は FQDN と信頼済み証明書が必要（e2e の TURN は 127.0.0.1 と自己署名証明書）",
+} as const;
+
+type FirefoxSkipReason =
+  | (typeof firefoxKnownIssue)[keyof typeof firefoxKnownIssue]
+  | (typeof firefoxUnsupported)[keyof typeof firefoxUnsupported];
+
+/**
+ * `it` for a test that is skipped in Firefox: there it becomes `it.skip`
+ * with `reason` (a {@link firefoxKnownIssue} / {@link firefoxUnsupported}
+ * entry) before the name, so the run record shows why. Other browsers get
+ * `it` and the unchanged name. Use it as `itSkipOnFirefox(reason)(name, fn,
+ * timeout)`.
+ */
+export function itSkipOnFirefox(reason: FirefoxSkipReason): typeof it {
+  if (!isFirefox) return it;
+  const skip = (name: string, ...rest: unknown[]) =>
+    it.skip(`${reason} | ${name}`, ...(rest as [() => void]));
+  return skip as unknown as typeof it;
+}
 const e2ePort = import.meta.env.VITE_E2E_PORT ?? "8886";
 const e2eBaseUrl = `http://127.0.0.1:${e2ePort}`;
 
@@ -74,23 +116,35 @@ export async function waitAudioPlay(
   audio.autoplay = true;
   audio.srcObject = new MediaStream([track]);
   document.body.appendChild(audio);
-  try {
-    await audio.play();
-  } catch {
-    // autoplay policies may reject; Analyser may still work via MediaStream
-  }
+  // Do not wait for play(): Firefox resolves it only once the stream delivers
+  // media, so a source that stops early would hang here past timeoutMs.
+  // Autoplay policies may reject it; the Analyser still reads the MediaStream.
+  audio.play().catch(() => {});
 
   const ctx = new AudioContext();
-  try {
-    await ctx.resume();
-  } catch {}
+  const started = performance.now();
+  // Firefox keeps resume() pending while it cannot start audio output (no
+  // audio device, as in a container): bound the wait by timeoutMs too.
+  const running = await Promise.race([
+    ctx.resume().then(
+      () => true,
+      () => false,
+    ),
+    sleep(timeoutMs).then(() => false),
+  ]);
+  if (!running) {
+    void ctx.close().catch(() => {});
+    audio.pause();
+    audio.srcObject = null;
+    audio.remove();
+    throw new Error(`waitAudioPlay: AudioContext did not start (${ctx.state})`);
+  }
   const source = ctx.createMediaStreamSource(new MediaStream([track]));
   const analyser = ctx.createAnalyser();
   analyser.fftSize = 512;
   source.connect(analyser);
   const data = new Uint8Array(analyser.frequencyBinCount);
   const timeData = new Uint8Array(analyser.fftSize);
-  const started = performance.now();
 
   try {
     for (;;) {
@@ -682,6 +736,7 @@ export async function connectRecordPlayback(
   }
 
   await pc.setLocalDescription(await pc.createOffer());
+  await keepSendResolution(pc);
   const answer = await peer.request(label, {
     type: "init",
     payload: pc.localDescription,
@@ -695,6 +750,23 @@ export async function connectRecordPlayback(
     pc.close();
   };
   return { pc, dc, close };
+}
+
+/**
+ * The recording tests compare the recorded size with the camera size, so keep
+ * the encoder at the capture resolution. Without bandwidth feedback the
+ * encoder starts from its start bitrate; Firefox shares it with the audio
+ * stream and encodes the 640x480 camera at 320x240 in the "av" case.
+ */
+async function keepSendResolution(pc: RTCPeerConnection) {
+  for (const sender of pc.getSenders()) {
+    if (sender.track?.kind !== "video") continue;
+    const parameters = sender.getParameters() as RTCRtpSendParameters & {
+      degradationPreference?: "maintain-resolution";
+    };
+    parameters.degradationPreference = "maintain-resolution";
+    await sender.setParameters(parameters);
+  }
 }
 
 /**
@@ -756,6 +828,26 @@ export async function receiveRecordedFile(
   });
 }
 
+type MediaElementAudioCounters = {
+  /** Chrome: bytes of audio the element decoded. */
+  webkitAudioDecodedByteCount?: number;
+};
+
+function audioDecodedByteCount(element: HTMLMediaElement) {
+  return (element as MediaElementAudioCounters).webkitAudioDecodedByteCount;
+}
+
+/**
+ * Whether a media element that played to `ended` decoded audio, or undefined
+ * when the browser has no decode counter (Firefox: its `mozHasAudio` only
+ * says the media has an audio track). Tests that need decoded audio in every
+ * browser decode the file with {@link decodeAudioFile}.
+ */
+function hasPlayedAudio(element: HTMLMediaElement) {
+  const bytes = audioDecodedByteCount(element);
+  return bytes === undefined ? undefined : bytes > 0;
+}
+
 export type WebmFilePlayback = {
   duration: number;
   videoWidth: number;
@@ -764,8 +856,10 @@ export type WebmFilePlayback = {
   endedAt: number;
   totalVideoFrames: number;
   droppedVideoFrames: number;
-  /** Chrome-only `webkitAudioDecodedByteCount`. */
-  audioDecodedBytes: number;
+  /** Chrome-only `webkitAudioDecodedByteCount` (undefined in other browsers). */
+  audioDecodedBytes?: number;
+  /** The element decoded audio (undefined: no counter): {@link hasPlayedAudio}. */
+  audioDecoded?: boolean;
   /** Seek to the middle of the file completed and a frame was drawn. */
   seekedTo: number;
   /** Sum of RGB values at the seek target (0 means a black/empty frame). */
@@ -847,9 +941,8 @@ export async function playWebmFile(
       endedAt,
       totalVideoFrames: quality.totalVideoFrames,
       droppedVideoFrames: quality.droppedVideoFrames,
-      audioDecodedBytes:
-        (video as unknown as { webkitAudioDecodedByteCount?: number })
-          .webkitAudioDecodedByteCount ?? 0,
+      audioDecodedBytes: audioDecodedByteCount(video),
+      audioDecoded: hasPlayedAudio(video),
       seekedTo: video.currentTime,
       seekedFrameLuma,
     } satisfies WebmFilePlayback;
@@ -1002,8 +1095,10 @@ export type AudioFilePlayback = {
   duration: number;
   /** currentTime when `ended` fired. */
   endedAt: number;
-  /** Chrome-only `webkitAudioDecodedByteCount`. */
-  audioDecodedBytes: number;
+  /** Chrome-only `webkitAudioDecodedByteCount` (undefined in other browsers). */
+  audioDecodedBytes?: number;
+  /** The element decoded audio (undefined: no counter): {@link hasPlayedAudio}. */
+  audioDecoded?: boolean;
   /** Seek to the middle of the file completed. */
   seekedTo: number;
 };
@@ -1067,9 +1162,8 @@ export async function playAudioFile(
     return {
       duration: audio.duration,
       endedAt,
-      audioDecodedBytes:
-        (audio as unknown as { webkitAudioDecodedByteCount?: number })
-          .webkitAudioDecodedByteCount ?? 0,
+      audioDecodedBytes: audioDecodedByteCount(audio),
+      audioDecoded: hasPlayedAudio(audio),
       seekedTo: audio.currentTime,
     } satisfies AudioFilePlayback;
   } finally {
@@ -1115,4 +1209,125 @@ export async function decodeAudioFile(
     duration: buffer.duration,
     peak,
   };
+}
+
+/** The addresses and types of the candidate pair Chrome selected. */
+export type SelectedCandidatePairAddresses = {
+  localAddress?: string;
+  localPort?: number;
+  localCandidateType?: string;
+  remoteCandidateType?: string;
+};
+
+export async function getSelectedCandidatePairAddresses(
+  connection: RTCPeerConnection,
+): Promise<SelectedCandidatePairAddresses> {
+  const stats = await connection.getStats();
+  const statsMap = stats as unknown as Map<string, RTCStats>;
+  const pair = findSelectedCandidatePair(stats) as
+    | (RTCStats & { localCandidateId?: string; remoteCandidateId?: string })
+    | undefined;
+  if (!pair) return {};
+  const local = pair.localCandidateId
+    ? (statsMap.get(pair.localCandidateId) as
+        | (RTCStats & { address?: string; port?: number })
+        | undefined)
+    : undefined;
+  const remote = pair.remoteCandidateId
+    ? statsMap.get(pair.remoteCandidateId)
+    : undefined;
+  return {
+    localAddress: local?.address,
+    localPort: local?.port,
+    localCandidateType: readStatString(local, "candidateType"),
+    remoteCandidateType: readStatString(remote, "candidateType"),
+  };
+}
+
+/**
+ * Add `renomination` to every `a=ice-options` line of a local description
+ * before `setLocalDescription`: Chrome has no API for it
+ * (`RTCConfiguration.enable_ice_renomination` is not exposed), but it takes
+ * the option from the description it applies.
+ */
+export function advertiseRenomination(sdp: string) {
+  return sdp.replace(/^a=ice-options:(.*)$/gm, (line, options: string) =>
+    options.split(/\s+/).includes("renomination")
+      ? line
+      : `a=ice-options:${options} renomination`,
+  );
+}
+
+/**
+ * Remove the non-relay candidates (and end-of-candidates) from a remote
+ * description; returns the description and the removed candidate strings,
+ * to signal later with `addIceCandidate`.
+ */
+export function holdBackNonRelayCandidates(sdp: string) {
+  const held: string[] = [];
+  const lines = sdp.split("\r\n").filter((line) => {
+    if (line === "a=end-of-candidates") return false;
+    if (!line.startsWith("a=candidate:")) return true;
+    if (line.includes(" typ relay")) return true;
+    held.push(line.slice("a=".length));
+    return false;
+  });
+  return { sdp: lines.join("\r\n"), held };
+}
+/**
+ * Arrange: Node (werift) offers a data channel on `label`; Chrome answers
+ * (after `transformAnswer`, e.g. to corrupt its fingerprint) and resolves
+ * once the answer is applied on both sides.
+ */
+export async function answerServerDataChannelOffer(
+  label: string,
+  transformAnswer: (sdp: string) => string = (sdp) => sdp,
+) {
+  await ensurePeerConnected();
+  const pc = new RTCPeerConnection({
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+  });
+  pc.onicecandidate = ({ candidate }) => {
+    peer
+      .request(label, { type: "candidate", payload: candidate })
+      .catch(() => {});
+  };
+  const channel = new Promise<RTCDataChannel>((resolve) => {
+    pc.ondatachannel = ({ channel }) => resolve(channel);
+  });
+
+  const offer = await peer.request(label, { type: "init" });
+  await pc.setRemoteDescription(offer);
+  await pc.setLocalDescription(await pc.createAnswer());
+  await peer.request(label, {
+    type: "answer",
+    payload: {
+      type: "answer",
+      sdp: transformAnswer(pc.localDescription!.sdp),
+    },
+  });
+  return { pc, channel };
+}
+
+/** Resolve once `condition` holds, checked on every `event` of `target`. */
+export function waitForEventCondition(
+  target: EventTarget,
+  event: string,
+  condition: () => boolean,
+  timeoutMs = 10_000,
+) {
+  if (condition()) return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      target.removeEventListener(event, check);
+      reject(new Error(`condition not met after ${event} (${timeoutMs}ms)`));
+    }, timeoutMs);
+    const check = () => {
+      if (!condition()) return;
+      clearTimeout(timer);
+      target.removeEventListener(event, check);
+      resolve();
+    };
+    target.addEventListener(event, check);
+  });
 }

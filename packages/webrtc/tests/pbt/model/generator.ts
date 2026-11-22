@@ -1,14 +1,19 @@
+import { type SeededRandom, seededRandom } from "../../../../pbt/src";
 import {
+  type BundleCandidates,
   MediaStreamTrack,
   type RTCPeerConnection,
   type RTCRtpTransceiver,
+  type TransceiverPairing,
   useH264,
   useNACK,
   useOPUS,
   usePCMU,
   usePLI,
   useREMB,
+  useRepairedRtpStreamId,
   useSdesMid,
+  useSdesRTPStreamId,
   useTransportWideCC,
   useTWCC,
   useVP8,
@@ -18,13 +23,19 @@ import {
   NegotiationCase,
 } from "../../negotiation/harness/negotiationCase";
 import {
+  assertNegotiationInvariants,
   createDuplexSession,
   createPeerPair,
   createSplitOffer,
   rtxCodec,
 } from "../../negotiation/harness/negotiationTransactionUtils";
-import { type SeededRandom, seededRandom } from "../shared/random";
 import { ModelOracles } from "./oracles";
+import {
+  injectRidPacket,
+  ridReceivers,
+  ssrcLessReceivers,
+  switchRemoteSsrc,
+} from "./ssrcLessTraffic";
 import {
   remapsCurrentKeys,
   WIRE_MUTATION_NAMES,
@@ -46,7 +57,12 @@ export type Side = "a" | "b";
  * transport-cc header extensions, so codec, feedback, RTX and extension
  * rewrites on the wire have something to change.
  */
-export const modelConfig = () => ({
+export const modelConfig = (
+  transceiverPairing: TransceiverPairing = "standard",
+  bundlePolicy: ModelBundlePolicy = "max-bundle",
+) => ({
+  transceiverPairing,
+  bundlePolicy,
   codecs: {
     video: [
       useVP8({ rtcpFeedback: [useNACK(), usePLI(), useREMB(), useTWCC()] }),
@@ -56,8 +72,40 @@ export const modelConfig = () => ({
     audio: [useOPUS(), usePCMU()],
   },
   headerExtensions: {
-    video: [useSdesMid(), useTransportWideCC()],
+    video: [
+      useSdesMid(),
+      useTransportWideCC(),
+      useSdesRTPStreamId(),
+      useRepairedRtpStreamId(),
+    ],
     audio: [useSdesMid()],
+  },
+});
+
+/**
+ * The configuration of peer b in an asymmetric scene: the codecs of
+ * `modelConfig` in another form, so the codecs negotiation commits are in the
+ * remote's form on one side (issue 818): VP8 on another payload type (110) with
+ * NACK and PLI only, H264 of another level (42e00d), and Opus with other fmtp.
+ */
+export const asymmetricModelConfig = (
+  transceiverPairing: TransceiverPairing = "standard",
+  bundlePolicy: ModelBundlePolicy = "max-bundle",
+) => ({
+  ...modelConfig(transceiverPairing, bundlePolicy),
+  codecs: {
+    video: [
+      // 120 is the free payload type the `codecRenumbered` wire mutation
+      // moves H264 to, so VP8 takes another one.
+      useVP8({ payloadType: 110, rtcpFeedback: [useNACK(), usePLI()] }),
+      rtxCodec(),
+      useH264({
+        rtcpFeedback: [useNACK(), usePLI()],
+        parameters:
+          "profile-level-id=42e00d;packetization-mode=1;level-asymmetry-allowed=1",
+      }),
+    ],
+    audio: [useOPUS({ parameters: "stereo=1" }), usePCMU()],
   },
 });
 
@@ -69,21 +117,51 @@ export const modelConfig = () => ({
 export type Start = "connected" | "unnegotiated" | "media";
 /** One operation: the peer that takes it, its name and the choices it made. */
 export type Op = [Side, string, Record<string, unknown>?];
-export type Scene = { start: Start; ops: Op[] };
+/**
+ * `bundleCandidates`: the `bundleCandidates` of both peers (default `"legacy"`; a generated
+ * scene draws `"compatible"` on even seeds). Each property varies
+ * independently so the model checks both configuration axes.
+ * `pairing`: the `transceiverPairing` of both peers (default `"standard"`, the
+ * JSEP 5.10 rules the oracles check; a generated scene draws `"byKind"`, the
+ * werift default, sometimes, #816). `asymmetric`: peer b has
+ * `asymmetricModelConfig` (a generated scene draws it sometimes, #818).
+ */
+/**
+ * `bundlePolicy` of both peers (default `"max-bundle"`, one transport). A
+ * generated scene sometimes draws `"disable"` (a transport per m-line) or
+ * `"max-compat"`, so the same SSRC may live in several RTP sessions (#356).
+ */
+export type ModelBundlePolicy = "max-bundle" | "max-compat" | "disable";
+export type Scene = {
+  start: Start;
+  ops: Op[];
+  bundleCandidates?: BundleCandidates;
+  pairing?: TransceiverPairing;
+  bundle?: ModelBundlePolicy;
+  /** a also sends a simulcast video (RIDs "high" / "low", #356 3.12). */
+  simulcast?: boolean;
+  asymmetric?: boolean;
+};
 
 type World = {
   c: NegotiationCase;
   oracles: ModelOracles;
   /** Offers created and not applied, per peer (for `applyStale`). */
   saved: Map<RTCPeerConnection, { type: "offer"; sdp: string }>;
+  /** Transceivers `pc.addTrack()` attached a track to (`detachTrack` takes it off again). */
+  addTracked: WeakSet<RTCRtpTransceiver>;
   created: number;
+  /** The scene has a simulcast sender (see `Scene.simulcast`). */
+  simulcast?: boolean;
+  /** That simulcast sender's transceiver (on a). */
+  simulcastSender?: RTCRtpTransceiver;
 };
 type Peers = { pc: RTCPeerConnection; other: RTCPeerConnection };
 type Step = {
   weight: number;
   applies: (p: Peers, w: World) => boolean;
   /** Draw the choices of the operation (stored in the Op, used on replay). */
-  draw?: (rng: SeededRandom, p: Peers) => Record<string, unknown>;
+  draw?: (rng: SeededRandom, p: Peers, w: World) => Record<string, unknown>;
   run: (p: Peers, w: World, args: Record<string, unknown>) => Promise<void>;
 };
 
@@ -123,11 +201,24 @@ const splittable = (pc: RTCPeerConnection) =>
 /** A transceiver by its index (a replayed scene may no longer have it). */
 const byIndex = (pc: RTCPeerConnection, index: unknown) =>
   pc.getTransceivers()[index as number] as RTCRtpTransceiver | undefined;
+/** A transceiver whose track `pc.addTrack()` attached and the application can take off. */
+const detachable = (t: RTCRtpTransceiver, w: World) =>
+  w.addTracked.has(t) && !t.stopping && !!t.sender.track;
 const pickIndex = (
   rng: SeededRandom,
   pc: RTCPeerConnection,
   from: RTCRtpTransceiver[],
 ) => pc.getTransceivers().indexOf(rng.pick(from));
+
+/**
+ * 範囲外: simulcast (RID) の m-line を止めてから、その m-line を新しい transceiver が
+ * 再利用すると、answer が "No compatible codec remains after remote negotiation" で失敗する
+ * (develop にもある既存の不具合、チケット e4bfc125)。simulcast のシーンでは RID を持つ transceiver
+ * を止めない。
+ */
+const stoppable = (w: World, t: RTCRtpTransceiver) =>
+  !w.simulcast ||
+  (Object.keys(t.receiver.trackByRID).length === 0 && t !== w.simulcastSender);
 
 export const STEPS: Record<string, Step> = {
   addTrack: {
@@ -138,6 +229,73 @@ export const STEPS: Record<string, Step> = {
       const track = new MediaStreamTrack({ kind: kind as "audio" });
       w.oracles.application(
         pc.addTransceiver(track, { direction: "sendrecv" }),
+      );
+    },
+  },
+  takeTrack: {
+    weight: 1,
+    // pc.addTrack() は同じ kind の空いた transceiver (remote offer が作ったものを含む)
+    // を再利用する。pending 中に再利用したものは rollback で残る (W3C)。
+    applies: ({ pc, other }) =>
+      applicationTurn(pc, other) && pc.getTransceivers().length < 6,
+    draw: (rng, { pc }) => {
+      const free = targets(pc).filter((t) => !t.sender.track);
+      return { kind: free.length ? rng.pick(free).kind : rng.pick(kinds) };
+    },
+    run: async ({ pc }, w, { kind }) => {
+      const sender = pc.addTrack(
+        new MediaStreamTrack({ kind: kind as "audio" }),
+      );
+      const t = pc.getTransceivers().find((each) => each.sender === sender)!;
+      w.addTracked.add(t);
+      w.oracles.application(t);
+    },
+  },
+  // #816: a transceiver addTrack() creates (or the one it reuses) may pair
+  // with a remote offer; one addTransceiver() creates never does (JSEP 5.10).
+  addTrackApi: {
+    weight: 1,
+    applies: ({ pc }) => pc.getTransceivers().length < 6,
+    draw: (rng) => ({ kind: rng.pick(kinds) }),
+    run: async ({ pc }, w, { kind }) => {
+      const sender = pc.addTrack(
+        new MediaStreamTrack({ kind: kind as "audio" }),
+      );
+      const t = pc.getTransceivers().find((each) => each.sender === sender)!;
+      w.addTracked.add(t);
+      w.oracles.application(t);
+    },
+  },
+  detachTrack: {
+    weight: 1,
+    // addTrack で付けた track を replaceTrack(null) か removeTrack で外す。外しても
+    // addTrack で使った transceiver は rollback で残る (#817)。
+    applies: ({ pc, other }, w) =>
+      applicationTurn(pc, other) &&
+      pc.getTransceivers().some((t) => detachable(t, w)),
+    draw: (rng, { pc }, w) => ({
+      index: pickIndex(
+        rng,
+        pc,
+        pc.getTransceivers().filter((t) => detachable(t, w)),
+      ),
+      how: rng.pick(["replaceTrack", "removeTrack"]),
+    }),
+    run: async ({ pc }, w, { index, how }) => {
+      const t = byIndex(pc, index);
+      if (!t || !detachable(t, w)) return;
+      if (how === "removeTrack") pc.removeTrack(t.sender);
+      else await t.sender.replaceTrack(null);
+    },
+  },
+  addSendonly: {
+    weight: 1,
+    applies: ({ pc }) => pc.getTransceivers().length < 6,
+    draw: (rng) => ({ kind: rng.pick(kinds) }),
+    run: async ({ pc }, w, { kind }) => {
+      const track = new MediaStreamTrack({ kind: kind as "audio" });
+      w.oracles.application(
+        pc.addTransceiver(track, { direction: "sendonly" }),
       );
     },
   },
@@ -177,6 +335,26 @@ export const STEPS: Record<string, Step> = {
       w.oracles.application(t);
     },
   },
+  // removeTrack(): sendrecv becomes recvonly and sendonly becomes inactive;
+  // the next offer keeps the negotiated codecs (issue 818).
+  removeTrack: {
+    weight: 1,
+    applies: ({ pc, other }) =>
+      applicationTurn(pc, other) &&
+      targets(pc).some((t) => !!t.sender.track && !t.stopping),
+    draw: (rng, { pc }) => ({
+      index: pickIndex(
+        rng,
+        pc,
+        targets(pc).filter((t) => !!t.sender.track && !t.stopping),
+      ),
+    }),
+    run: async ({ pc }, _w, { index }) => {
+      const t = byIndex(pc, index);
+      if (!t || t.stopping || !t.sender.track) return;
+      pc.removeTrack(t.sender);
+    },
+  },
   direction: {
     weight: 1,
     applies: ({ pc, other }) =>
@@ -213,12 +391,18 @@ export const STEPS: Record<string, Step> = {
   },
   stop: {
     weight: 1,
-    applies: ({ pc, other }) =>
-      applicationTurn(pc, other) && targets(pc).length > 0,
-    draw: (rng, { pc }) => ({ index: pickIndex(rng, pc, targets(pc)) }),
-    run: async ({ pc }, _w, { index }) => {
+    applies: ({ pc, other }, w) =>
+      applicationTurn(pc, other) && targets(pc).some((t) => stoppable(w, t)),
+    draw: (rng, { pc }, w) => ({
+      index: pickIndex(
+        rng,
+        pc,
+        targets(pc).filter((t) => stoppable(w, t)),
+      ),
+    }),
+    run: async ({ pc }, w, { index }) => {
       const t = byIndex(pc, index);
-      if (t && !t.stopping) t.stop();
+      if (t && !t.stopping && stoppable(w, t)) t.stop();
     },
   },
   settle: {
@@ -266,7 +450,10 @@ export const STEPS: Record<string, Step> = {
   },
   replacementOffer: {
     weight: 1,
-    applies: ({ pc, other }) => offering(pc) && answering(other),
+    // 範囲外: simulcast の m-line は置き換えの offer で ontrack を同じ stream でもう一度
+    // 通知する (develop にもある既存の不具合、チケット e4bfc125)。simulcast のシーンでは引かない。
+    applies: ({ pc, other }, w) =>
+      offering(pc) && answering(other) && !w.simulcast,
     draw: (rng) => ({ iceRestart: rng.chance(0.2) }),
     run: async ({ pc }, w, { iceRestart }) => {
       await w.c.offer(pc, { iceRestart: !!iceRestart });
@@ -368,6 +555,7 @@ export const STEPS: Record<string, Step> = {
         await w.oracles.unchanged(pc, async () => {
           offer = (await pc.createOffer()) as never;
         });
+        w.oracles.offerCapability(pc, offer!);
         w.saved.set(pc, offer!);
       }
     },
@@ -384,6 +572,39 @@ export const STEPS: Record<string, Step> = {
       if (pc.signalingState === "have-local-offer") {
         await w.c.setRemote(other, pc.localDescription, { mayReject: true });
       }
+    },
+  },
+  // #356: SSRC も RID もない m-line で、相手のストリームが SSRC を切り替え、旧 SSRC の
+  // 遅延パケットが続く (どの signaling state でも。保留中の交渉と重なる)。
+  remoteSsrcSwitch: {
+    weight: 2,
+    applies: ({ pc }) => ssrcLessReceivers(pc).length > 0,
+    draw: (rng, { pc }) => ({
+      index: pickIndex(rng, pc, ssrcLessReceivers(pc)),
+      withMid: rng.chance(0.5),
+      late: rng.chance(0.7),
+    }),
+    run: async ({ pc }, w, { index, withMid, late }) => {
+      const t = byIndex(pc, index);
+      if (!t || !ssrcLessReceivers(pc).includes(t)) return;
+      w.c.note(switchRemoteSsrc(pc, t, { withMid: !!withMid, late: !!late }));
+      assertNegotiationInvariants(pc);
+    },
+  },
+  // #356 3.12: simulcast の m-line に、その transport と別 transport から RID パケットが届く
+  // (どの signaling state でも)。識別子はパケットの RTP session の中でだけ解決する。
+  remoteRidPacket: {
+    weight: 6,
+    applies: ({ pc }) => ridReceivers(pc).length > 0,
+    draw: (rng, { pc }) => ({
+      index: pickIndex(rng, pc, ridReceivers(pc)),
+      withMid: rng.chance(0.5),
+    }),
+    run: async ({ pc }, w, { index, withMid }) => {
+      const t = byIndex(pc, index);
+      if (!t || !ridReceivers(pc).includes(t)) return;
+      w.c.note(injectRidPacket(pc, t, { withMid: !!withMid }));
+      assertNegotiationInvariants(pc);
     },
   },
   trickle: {
@@ -480,12 +701,22 @@ async function deliver(
 async function arrange(
   c: NegotiationCase,
   start: Start,
+  bundleCandidates: BundleCandidates = "legacy",
+  pairing: TransceiverPairing = "standard",
+  bundle: ModelBundlePolicy = "max-bundle",
+  simulcast = false,
+  asymmetric = false,
 ): Promise<World & Peers2> {
   const oracles = new ModelOracles(c);
+  const config = { ...modelConfig(pairing, bundle), bundleCandidates };
   let a: RTCPeerConnection;
   let b: RTCPeerConnection;
+  const configB = {
+    ...(asymmetric ? asymmetricModelConfig : modelConfig)(pairing, bundle),
+    bundleCandidates,
+  };
   if (start !== "connected") {
-    ({ a, b } = await c.given(createPeerPair(modelConfig())));
+    ({ a, b } = await c.given(createPeerPair(config, configB)));
     oracles.application(
       a.addTransceiver(new MediaStreamTrack({ kind: "video" }), {
         direction: "sendrecv",
@@ -495,16 +726,44 @@ async function arrange(
       oracles.channel(a.createDataChannel("dc0"), a);
     }
   } else {
-    const scope = await c.given(createDuplexSession(modelConfig()));
+    const scope = await c.given(createDuplexSession(config, configB));
     ({ a, b } = scope);
     oracles.application(scope.aVideo);
     oracles.application(scope.bVideo);
     oracles.channel(scope.aChannel, a);
     oracles.channel(scope.bChannel, b);
   }
+  let simulcastSender: RTCRtpTransceiver | undefined;
+  if (simulcast) {
+    simulcastSender = a.addTransceiver(
+      new MediaStreamTrack({ kind: "video" }),
+      {
+        direction: "sendonly",
+        sendEncodings: [{ rid: "high" }, { rid: "low" }],
+      },
+    );
+    oracles.application(simulcastSender);
+  }
   oracles.watch(a, b);
-  c.note(`start: ${start}`);
-  return { c, oracles, saved: new Map(), created: 0, a, b };
+  if (simulcast && start === "connected") {
+    // 接続済みのシーンは simulcast の m-line も交渉済みで始める (RID の操作が引けるように)。
+    await c.offer(a);
+    await c.answer(b);
+  }
+  c.note(
+    `start: ${start} (bundleCandidates: ${bundleCandidates}${pairing === "standard" ? "" : `, ${pairing}`}${bundle === "max-bundle" ? "" : `, bundlePolicy ${bundle}`}${simulcast ? ", simulcast" : ""}${asymmetric ? ", asymmetric b" : ""})`,
+  );
+  return {
+    c,
+    oracles,
+    saved: new Map(),
+    addTracked: new WeakSet(),
+    created: 0,
+    a,
+    b,
+    simulcast,
+    simulcastSender,
+  };
 }
 type Peers2 = { a: RTCPeerConnection; b: RTCPeerConnection };
 
@@ -520,7 +779,15 @@ export async function runScene(
   scene: Scene,
   { lenient = false } = {},
 ) {
-  const w = await arrange(c, scene.start);
+  const w = await arrange(
+    c,
+    scene.start,
+    scene.bundleCandidates,
+    scene.pairing,
+    scene.bundle,
+    scene.simulcast,
+    scene.asymmetric,
+  );
   for (const [index, [side, name, args = {}]] of scene.ops.entries()) {
     const peers = peersOf(w, side);
     const step = STEPS[name];
@@ -552,7 +819,28 @@ export async function generateScene(
     "unnegotiated",
     "media",
   ] as const);
-  const w = await arrange(c, scene.start);
+  // seed の乱数列を変えず、偶数 seed で compatible を選ぶ。
+  if (seed % 2 === 0) scene.bundleCandidates = "compatible";
+  // Pairing uses a separate stream so it does not shift the operations.
+  if (seededRandom(seed ^ 0x816).chance(0.25)) scene.pairing = "byKind";
+  // The bundle axis has its own stream too (several RTP sessions, #356).
+  const bundleRng = seededRandom(seed ^ 0x356);
+  if (bundleRng.chance(0.3)) {
+    scene.bundle = bundleRng.pick(["disable", "max-compat"] as const);
+  }
+  // The simulcast axis has its own stream as well (RID routing, #356 3.12).
+  if (seededRandom(seed ^ 0x3512).chance(0.3)) scene.simulcast = true;
+  // So has the asymmetric axis (peer b configured in another codec form).
+  if (seededRandom(seed ^ 0x818).chance(0.25)) scene.asymmetric = true;
+  const w = await arrange(
+    c,
+    scene.start,
+    scene.bundleCandidates,
+    scene.pairing,
+    scene.bundle,
+    scene.simulcast,
+    scene.asymmetric,
+  );
   for (let index = 1; index <= steps; index++) {
     const side: Side = rng.chance(0.5) ? "a" : "b";
     const peers = peersOf(w, side);
@@ -563,7 +851,7 @@ export async function generateScene(
     let point = rng.next() * total;
     const [name, step] =
       choices.find(([, s]) => (point -= s.weight) < 0) ?? choices.at(-1)!;
-    const args = step.draw?.(rng, peers) ?? {};
+    const args = step.draw?.(rng, peers, w) ?? {};
     scene.ops.push([
       side,
       name,

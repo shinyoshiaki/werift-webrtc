@@ -1,6 +1,9 @@
 import { readFileSync } from "fs";
 import { setImmediate as waitImmediate } from "timers/promises";
+import { setFlagsFromString } from "v8";
 import { expect, type Mock, vi } from "vitest";
+
+import { runInNewContext } from "vm";
 
 import { SCTP, SCTP_STATE } from "../src";
 import {
@@ -209,15 +212,39 @@ export const dropReconfigSuccessResponses = (count = 1) => {
   };
 };
 
-/** Runs a burst of `count` messages on a fresh pair and returns the elapsed time. */
+let cachedGc: (() => void) | undefined;
+
+/**
+ * V8 の `gc()`。`--expose-gc` なら `globalThis.gc`、なければ実行時にフラグを立てて
+ * 取り出す (既定の vitest 設定は `execArgv` を渡さない)。
+ */
+const collectGarbage = () => {
+  if (!cachedGc) {
+    const exposed = (globalThis as typeof globalThis & { gc?: () => void }).gc;
+    if (typeof exposed === "function") {
+      cachedGc = exposed;
+    } else {
+      setFlagsFromString("--expose-gc");
+      cachedGc = runInNewContext("gc") as () => void;
+    }
+  }
+  cachedGc();
+};
+
+/**
+ * Runs a burst of `count` messages on a fresh pair and returns the elapsed time.
+ *
+ * The heap is collected right before the measurement so that every run starts
+ * from the same GC state. Otherwise a small run that follows a large one
+ * (heap already grown, no collection needed) looks much cheaper per message
+ * than a run that pays for its own collections, which skews size ratios.
+ */
 export const measureBurstTransfer = async (count: number, size: number) => {
   const pair = await createConnectedSctpPair();
   try {
-    return await runBurstTransfer(
-      pair.client,
-      pair.server,
-      createMessages(count, size),
-    );
+    const messages = createMessages(count, size);
+    collectGarbage();
+    return await runBurstTransfer(pair.client, pair.server, messages);
   } finally {
     await pair.stop();
   }
@@ -638,36 +665,6 @@ export const flushImmediates = async (rounds = 10) => {
 };
 
 /**
- * Seeds of a property test, as in packages/webrtc/tests/pbt/shared/seeds.ts:
- * `<prefix>_SEEDS` seeds (default `defaults.seeds`) starting at `<prefix>_SEED`
- * (default 1). A failing seed is replayed with `<prefix>_SEED=<n> <prefix>_SEEDS=1`.
- */
-export const propertySeeds = (prefix: string, defaults: { seeds: number }) => {
-  const env = process.env;
-  const count = Number(env[`${prefix}_SEEDS`] ?? defaults.seeds);
-  const first = Number(env[`${prefix}_SEED`] ?? 1);
-  return {
-    seeds: [...Array(count)].map((_, index) => first + index),
-    /** True when `<prefix>_SEED` picks the seeds (a replay of one seed). */
-    seedSelected: env[`${prefix}_SEED`] !== undefined,
-    replay: (seed: number | string) =>
-      `${prefix}_SEED=${seed} ${prefix}_SEEDS=1`,
-  };
-};
-
-/** Deterministic PRNG (mulberry32) so a failing random-loss seed can be replayed. */
-export const createSeededRandom = (seed: number) => {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-};
-
-/**
  * Sender bookkeeping that must hold at any time: flightSize equals the bytes of
  * the chunks counted in flight, and a counted chunk is neither gap-acked nor
  * waiting for retransmission. Returns a description of the first violation.
@@ -685,6 +682,70 @@ export const findFlightSizeViolation = (sctp: SCTP) => {
     return `tsn ${bad.tsn} counted in flight while acked=${bad.acked} retransmit=${bad.retransmit}`;
   }
   return undefined;
+};
+
+/** Bytes a DATA chunk of `payloadLength` occupies on the wire: 16-byte header + payload padded to 4. */
+export const dataChunkWireSize = (payloadLength: number) =>
+  16 + Math.ceil(payloadLength / 4) * 4;
+
+/**
+ * Oracle of the sender's congestion control, observed from outside its
+ * bookkeeping (the chunks' wire sizes and the T3 / Fast Retransmit marks):
+ * - new data goes out only while the DATA already in flight, counted at its
+ *   wire size, is below cwnd (RFC 9260 §6.1 B / §7.2);
+ * - a chunk is marked for Fast Retransmit at most once per transmission
+ *   round started by the T3-rtx timer (RFC 9260 §7.2.4).
+ * Returns the violations found so far and the counts of the marks.
+ */
+export const observeCongestionControl = (sctp: SCTP) => {
+  const sender = sctp as any;
+  const violations: string[] = [];
+  const fastRetransmits = new Map<DataChunk, number>();
+  const t3Rounds = new Map<DataChunk, number>();
+  const counts = { newData: 0, fastRetransmits: 0, t3: 0 };
+
+  const strike = sender.strikeChunk.bind(sender);
+  sender.strikeChunk = (chunk: DataChunk) => {
+    const marked = strike(chunk);
+    if (marked) {
+      counts.fastRetransmits++;
+      const n = (fastRetransmits.get(chunk) ?? 0) + 1;
+      fastRetransmits.set(chunk, n);
+      if (n > 1 + (t3Rounds.get(chunk) ?? 0)) {
+        violations.push(
+          `tsn ${chunk.tsn} fast-retransmitted ${n} times in ${t3Rounds.get(chunk) ?? 0} T3 rounds`,
+        );
+      }
+    }
+    return marked;
+  };
+  const t3 = sender.timer3Expired;
+  sender.timer3Expired = () => {
+    counts.t3++;
+    for (const chunk of sender.sentQueue as DataChunk[]) {
+      if (!chunk.acked && !chunk.abandoned) {
+        t3Rounds.set(chunk, (t3Rounds.get(chunk) ?? 0) + 1);
+      }
+    }
+    t3();
+  };
+  const send = sender.sendChunk.bind(sender);
+  sender.sendChunk = (chunk: Chunk) => {
+    if (chunk instanceof DataChunk && chunk.sentCount === 1) {
+      counts.newData++;
+      // The chunk is already counted in flight: the others were below cwnd.
+      const others = ([...sender.sentQueue] as DataChunk[])
+        .filter((c) => c.inFlight && c !== chunk)
+        .reduce((sum, c) => sum + dataChunkWireSize(c.userData.length), 0);
+      if (others >= sender.cwnd) {
+        violations.push(
+          `new tsn ${chunk.tsn} sent with ${others} wire bytes in flight >= cwnd ${sender.cwnd}`,
+        );
+      }
+    }
+    return send(chunk);
+  };
+  return { violations, counts };
 };
 
 // # stream reset (RFC 6525) helpers

@@ -2,6 +2,7 @@ import type { AcceptFn, Peer } from "protoo-server";
 import { RTCPeerConnection } from "../..";
 import { peerConfig } from "../../fixture";
 import { acceptLocalDescription } from "../localDescription";
+import { notifyCandidate } from "../notifyCandidate";
 
 export class bundle_max_bundle_answer {
   pc!: RTCPeerConnection;
@@ -21,7 +22,7 @@ export class bundle_max_bundle_answer {
             }
           };
           this.pc.onicecandidate = (e) => {
-            peer.notify("candidate", { candidate: e.candidate ?? null });
+            notifyCandidate(peer, e.candidate ?? null);
           };
 
           {
@@ -80,21 +81,17 @@ export class bundle_max_bundle_offer {
             };
           };
 
-          {
-            const transceiver = this.pc.addTransceiver("video");
+          // JSEP 5.10: each m-line of the browser's offer gets its own
+          // transceiver; echo on it.
+          this.pc.onRemoteTransceiverAdded.subscribe((transceiver) => {
+            transceiver.setDirection("sendrecv");
             transceiver.onTrack.subscribe((track) => {
               transceiver.sender.replaceTrack(track);
             });
-          }
-          {
-            const transceiver = this.pc.addTransceiver("video");
-            transceiver.onTrack.subscribe((track) => {
-              transceiver.sender.replaceTrack(track);
-            });
-          }
+          });
 
           this.pc.onicecandidate = (e) => {
-            peer.notify("candidate", { candidate: e.candidate ?? null });
+            notifyCandidate(peer, e.candidate ?? null);
           };
 
           await this.pc.setRemoteDescription(payload);

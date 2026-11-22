@@ -32,6 +32,15 @@ From the URL (scheme / `?transport=`); undefined when it names none.
 
 ***
 
+### urls
+
+> **urls**: `string`[]
+
+The URLs naming this server, canonical (see [canonicalIceServerUrl](../functions/canonicalIceServerUrl.md))
+and in configuration order; several when duplicates were merged.
+
+***
+
 ### username?
 
 > `optional` **username?**: `string`

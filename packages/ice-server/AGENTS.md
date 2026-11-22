@@ -39,6 +39,7 @@ Instructions for coding agents working in `packages/ice-server`.
 ## Validation
 
 * Protocol or Node server changes: run `npm test && npm run type`.
+* STUN codec changes (`src/stun/*`): `packages/ice` re-exports these modules, so also run `cd ../ice && npm run type && npm test`. Keep the MESSAGE-INTEGRITY Arrange helpers in `tests/messageIntegrityUtils.ts`.
 * Chrome harness changes: run `cd chrome-e2e && npm run type && npm run ci:silent`.
 * Browser interop fixes that touch STUN/TURN behavior: run the package tests and the Chrome harness together.
 

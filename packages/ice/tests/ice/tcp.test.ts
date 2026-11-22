@@ -17,8 +17,12 @@ import {
   createIncomingCheck,
   createRecordingTcpServer,
   createTcpCheckHarness,
+  createTcpOnlyConnections,
+  exchangeTcpOnlyCandidates,
+  expectDataFlows,
   getClosedTcpPort,
   getSelectedTcpSocket,
+  timeSettle,
 } from "../utils";
 
 describe("ICE-TCP nomination", () => {
@@ -87,7 +91,7 @@ describe("ICE-TCP nomination", () => {
       await harness.connection.checkStart(low).awaitable;
       await setTimeout(10);
 
-      // Assert: 高優先度 pair の結果が出るまで nomination は送らない。
+      // Assert: nomination の deadline 内は高優先度 pair の結果を待ち、nomination を送らない。
       expect(harness.protocol.sentMessages).toHaveLength(1);
       expect(harness.connection.nominated).toBeUndefined();
 
@@ -103,6 +107,96 @@ describe("ICE-TCP nomination", () => {
     } finally {
       await harness.connection.close();
     }
+  });
+});
+
+describe("ICE-TCP with an empty check list", () => {
+  test.each([
+    {
+      name: "only active TCP candidates",
+      offered: (candidate: { tcptype?: string }) =>
+        candidate.tcptype === "active",
+      expectActiveCandidates: true,
+    },
+    {
+      name: "no candidate",
+      offered: () => false,
+      expectActiveCandidates: false,
+    },
+  ])(
+    "connects through the peer's check when the peer offers $name",
+    async ({ offered, expectActiveCandidates }) => {
+      // Arrange: a (controlling) は b の TCP 候補をすべて知るが、b は a の候補を絞って受け取る。
+      const { a, b } = createTcpOnlyConnections();
+      await exchangeTcpOnlyCandidates(a, b, offered);
+
+      try {
+        // Arrange の確認: b は passive / active の候補を持つが、相手候補とペアにできるものがない
+        // (相手候補はネットワークインターフェースの数だけある active のみ、または空)。
+        const offeredCandidates = b.remoteCandidates.filter(
+          (c) => c.type !== "prflx",
+        );
+        expect(offeredCandidates.length > 0).toBe(expectActiveCandidates);
+        expect(offeredCandidates.every((c) => c.tcptype === "active")).toBe(
+          true,
+        );
+
+        // Act: 両側で connect する。b の check list は空のまま始まる。
+        await Promise.all([a.connect(), b.connect()]);
+
+        // Assert: b は a から届いた check で学習した peer-reflexive の pair を選び、接続する。
+        expect(b.state).toBe("connected");
+        expect(b.nominated?.remoteCandidate.type).toBe("prflx");
+        expect(b.nominated?.localCandidate.tcptype).toBe("passive");
+        expect(a.nominated?.localCandidate.tcptype).toBe("active");
+
+        // Assert: 選ばれた TCP 接続で双方向にデータが流れる。
+        await expectDataFlows(a, b, "active-to-passive");
+        await expectDataFlows(b, a, "passive-to-active");
+      } finally {
+        await Promise.all([a.close(), b.close()]);
+      }
+    },
+  );
+
+  test("fails when no check arrives within incomingCheckTimeout", async () => {
+    // Arrange: 相手候補が空で end-of-candidates 済み、check を送ってくる相手もいない。
+    const { b } = createTcpOnlyConnections({ incomingCheckTimeout: 0.3 });
+    await b.gatherCandidates();
+    b.remoteCandidates = [];
+    b.remoteUsername = "remote";
+    b.remotePassword = "remote-password";
+
+    try {
+      // Act: check list が空のまま connect する。
+      const { error, elapsedMs } = await timeSettle(b.connect());
+
+      // Assert: 即失敗ではなく、incomingCheckTimeout だけ待ってから失敗する。
+      expect((error as Error).message).toBe("ICE negotiation failed");
+      expect(elapsedMs).toBeGreaterThanOrEqual(250);
+      expect(elapsedMs).toBeLessThan(5000);
+    } finally {
+      await b.close();
+    }
+  });
+
+  test("close() ends the wait for an incoming check", async () => {
+    // Arrange: 相手候補が空のまま connect し、相手の check を待っている agent。
+    const { b } = createTcpOnlyConnections();
+    await b.gatherCandidates();
+    b.remoteCandidates = [];
+    b.remoteUsername = "remote";
+    b.remotePassword = "remote-password";
+    const connecting = timeSettle(b.connect());
+    await setTimeout(100);
+
+    // Act: 待機中に close する。
+    await b.close();
+    const { error, elapsedMs } = await connecting;
+
+    // Assert: 既定の待ち時間 (30 秒) を待たずに connect() が失敗で終わる。
+    expect((error as Error).message).toBe("ICE negotiation failed");
+    expect(elapsedMs).toBeLessThan(5000);
   });
 });
 

@@ -73,6 +73,23 @@ export function maxPayloadSizeForMtu(
   return payloadBudget - (payloadBudget % SCTP_PADDING_MULTIPLE);
 }
 
+/**
+ * What one DATA chunk of `payloadLength` user data bytes counts in the
+ * sender's flightSize and against cwnd / the peer's rwnd: the whole chunk on
+ * the wire (its 16-byte header and the payload padded to 4 bytes), not only
+ * the user data. RFC 9260 §6.1 / §7.2 count outstanding DATA chunks in bytes,
+ * and libwebrtc's dcsctp and usrsctp book the serialized chunk size. Counting
+ * only the user data let a cwnd of a few KiB hold thousands of 1-byte
+ * messages in flight, each in its own datagram, which overflowed the
+ * receiver's socket buffer and fed a retransmission storm.
+ */
+export function dataChunkBookSize(payloadLength: number): number {
+  const padding =
+    (SCTP_PADDING_MULTIPLE - (payloadLength % SCTP_PADDING_MULTIPLE)) %
+    SCTP_PADDING_MULTIPLE;
+  return SCTP_DATA_CHUNK_HEADER_SIZE + payloadLength + padding;
+}
+
 export function validateSctpMtu(mtu: number): void {
   if (!Number.isSafeInteger(mtu) || mtu <= 0) {
     throw new Error("SCTP MTU must be a positive integer");
@@ -128,7 +145,12 @@ export class SCTP {
   readonly stateChanged: {
     [key in SCTPConnectionState]: Event<[]>;
   } = createEventsFromList(SCTPConnectionStates);
-  readonly onReconfigStreams = new Event<[number[]]>();
+  /**
+   * Streams reset (RFC 6525): `"outgoing"` when the peer performed our
+   * request, `"incoming"` when we performed the peer's.
+   * @see tests/reconfig.test.ts "the requester sees outgoing, the peer incoming; pending until the peer answers"
+   */
+  readonly onReconfigStreams = new Event<[number[], "outgoing" | "incoming"]>();
   /**streamId: number, ppId: number, data: Buffer */
   readonly onReceive = new Event<[number, number, Buffer]>();
   onSackReceived: () => Promise<void> = async () => {};
@@ -201,6 +223,10 @@ export class SCTP {
   private advancedPeerAckTsn = tsnMinusOne(this.localTsn); // acknowledgement
   private partialBytesAcked = 0;
   private sentQueue = new FifoQueue<DataChunk>();
+  /** Gap-acked or reneged chunks that still need SACK reneging checks. */
+  private renegingCandidateCount = 0;
+  /** Chunks marked for retransmission; zero avoids scanning sentQueue on each SACK. */
+  private retransmitCount = 0;
   private transmitting = false;
   private transmitRequested = false;
 
@@ -701,6 +727,18 @@ export class SCTP {
     }
   }
 
+  /**
+   * A reset of outgoing stream `streamId` is queued or waits for the peer's
+   * response (RFC 6525).
+   * @see tests/reconfig.test.ts "the requester sees outgoing, the peer incoming; pending until the peer answers"
+   */
+  isOutgoingResetPending(streamId: number) {
+    return (
+      this.reconfigQueue.includes(streamId) ||
+      !!this.reconfigRequest?.streams.includes(streamId)
+    );
+  }
+
   /** The peer answered our outstanding reset request with Success - Performed. */
   private async completeOutgoingReset() {
     const streamIds = this.reconfigRequest!.streams.map((streamId) => {
@@ -708,7 +746,7 @@ export class SCTP {
       return streamId;
     });
 
-    this.onReconfigStreams.execute(streamIds);
+    this.onReconfigStreams.execute(streamIds, "outgoing");
 
     this.reconfigRequest = undefined;
     this.reconfigRequestInProgress = false;
@@ -843,7 +881,7 @@ export class SCTP {
     }
 
     // # close data channel
-    this.onReconfigStreams.execute(resetStreams);
+    this.onReconfigStreams.execute(resetStreams, "incoming");
 
     // DATA beyond the boundary belongs to the reset streams (SSN starts at 0).
     const streamIds = new Set<number>();
@@ -923,6 +961,10 @@ export class SCTP {
     ) {
       const sChunk = this.sentQueue.shift()!;
       done++;
+      this.setRetransmitPending(sChunk, false);
+      if (!sChunk.abandoned && (sChunk.acked || sChunk.reneged)) {
+        this.renegingCandidateCount--;
+      }
       if (!sChunk.acked) {
         doneBytes += sChunk.bookSize;
       }
@@ -950,11 +992,14 @@ export class SCTP {
           break;
         }
         if (seen.has(sChunk.tsn) && !sChunk.acked) {
+          if (!sChunk.abandoned && !sChunk.reneged) {
+            this.renegingCandidateCount++;
+          }
           doneBytes += sChunk.bookSize;
           sChunk.acked = true;
           sChunk.reneged = false;
           // A pending retransmission is moot once the peer holds the chunk.
-          sChunk.retransmit = false;
+          this.setRetransmitPending(sChunk, false);
           this.flightSizeDecrease(sChunk);
           highestNewlyAcked = sChunk.tsn;
         }
@@ -967,22 +1012,24 @@ export class SCTP {
     // miss indication towards Fast Retransmit. Chunks up to HTNA are struck by
     // the loop below, so only the ones beyond it are struck here.
     let reneged = false;
-    for (const sChunk of this.sentQueue) {
-      // Abandoned chunks are never retransmitted nor counted in flight again.
-      if (seen.has(sChunk.tsn) || sChunk.abandoned) continue;
-      if (sChunk.acked) {
-        sChunk.acked = false;
-        sChunk.reneged = true;
-        // Outstanding again, so it is counted in flight until resent or acked.
-        this.flightSizeIncrease(sChunk);
-      }
-      if (!sChunk.reneged) continue;
-      reneged = true;
-      if (
-        !sChunk.retransmit &&
-        (chunk.gaps.length === 0 || uint32Gt(sChunk.tsn, highestNewlyAcked))
-      ) {
-        loss = this.strikeChunk(sChunk) || loss;
+    if (this.renegingCandidateCount > 0) {
+      for (const sChunk of this.sentQueue) {
+        // Abandoned chunks are never retransmitted nor counted in flight again.
+        if (seen.has(sChunk.tsn) || sChunk.abandoned) continue;
+        if (sChunk.acked) {
+          sChunk.acked = false;
+          sChunk.reneged = true;
+          // Outstanding again, so it is counted in flight until resent or acked.
+          this.flightSizeIncrease(sChunk);
+        }
+        if (!sChunk.reneged) continue;
+        reneged = true;
+        if (
+          !sChunk.retransmit &&
+          (chunk.gaps.length === 0 || uint32Gt(sChunk.tsn, highestNewlyAcked))
+        ) {
+          loss = this.strikeChunk(sChunk) || loss;
+        }
       }
     }
 
@@ -1188,7 +1235,7 @@ export class SCTP {
       chunk.streamSeqNum = streamSeqNum;
       chunk.protocol = ppId;
       chunk.userData = userData.slice(pos, pos + this.maxPayloadSize);
-      chunk.bookSize = chunk.userData.length;
+      chunk.bookSize = dataChunkBookSize(chunk.userData.length);
       chunk.expiry = expiry;
       chunk.maxRetransmits = maxRetransmits;
 
@@ -1298,37 +1345,39 @@ export class SCTP {
     // Set when expired data is abandoned here, so the FORWARD-TSN goes out.
     let abandoned = false;
     let retransmitEarliest = true;
-    for (const dataChunk of this.sentQueue) {
-      if (dataChunk.retransmit && (dataChunk.acked || dataChunk.abandoned)) {
-        // Acked or abandoned after being marked; nothing to resend.
-        dataChunk.retransmit = false;
-      }
-      if (dataChunk.retransmit) {
-        // The lifetime may have run out while the chunk waited for cwnd.
-        if (this.isExpired(dataChunk) && this.maybeAbandon(dataChunk)) {
-          abandoned = true;
-          continue;
+    if (this.retransmitCount > 0) {
+      for (const dataChunk of this.sentQueue) {
+        if (dataChunk.retransmit && (dataChunk.acked || dataChunk.abandoned)) {
+          // Acked or abandoned after being marked; nothing to resend.
+          this.setRetransmitPending(dataChunk, false);
         }
-        if (this.fastRecoveryTransmit) {
-          this.fastRecoveryTransmit = false;
-        } else if (this.flightSize >= cwnd) {
-          break;
-        }
-        this.flightSizeIncrease(dataChunk);
+        if (dataChunk.retransmit) {
+          // The lifetime may have run out while the chunk waited for cwnd.
+          if (this.isExpired(dataChunk) && this.maybeAbandon(dataChunk)) {
+            abandoned = true;
+            continue;
+          }
+          if (this.fastRecoveryTransmit) {
+            this.fastRecoveryTransmit = false;
+          } else if (this.flightSize >= cwnd) {
+            break;
+          }
+          this.flightSizeIncrease(dataChunk);
 
-        dataChunk.misses = 0;
-        dataChunk.retransmit = false;
-        dataChunk.reneged = false;
-        dataChunk.sentCount++;
-        await this.sendChunk(dataChunk).catch((err: Error) => {
-          log("send data failed", err.message);
-        });
+          dataChunk.misses = 0;
+          this.setRetransmitPending(dataChunk, false);
+          dataChunk.reneged = false;
+          dataChunk.sentCount++;
+          await this.sendChunk(dataChunk).catch((err: Error) => {
+            log("send data failed", err.message);
+          });
 
-        if (retransmitEarliest) {
-          this.timer3Restart();
+          if (retransmitEarliest) {
+            this.timer3Restart();
+          }
         }
+        retransmitEarliest = false;
       }
-      retransmitEarliest = false;
     }
 
     // Drain queued outbound DATA; retransmission pacing is controlled by RTO/T3.
@@ -1438,6 +1487,12 @@ export class SCTP {
     this.flightSize -= chunk.bookSize;
   }
 
+  private setRetransmitPending(chunk: DataChunk, pending: boolean) {
+    if (chunk.retransmit === pending) return;
+    chunk.retransmit = pending;
+    this.retransmitCount += pending ? 1 : -1;
+  }
+
   // # timers
 
   /**t1 is wait for initAck or cookieAck */
@@ -1532,8 +1587,11 @@ export class SCTP {
     // for reneging but not retransmitted.
     this.sentQueue.forEach((chunk) => {
       if (chunk.acked || chunk.abandoned) return;
+      // Resent by this timer: Fast Retransmit may resend it once more.
+      chunk.fastRetransmitted = false;
+      chunk.misses = 0;
       if (!this.maybeAbandon(chunk)) {
-        chunk.retransmit = true;
+        this.setRetransmitPending(chunk, true);
       }
       this.flightSizeDecrease(chunk);
     });
@@ -1766,12 +1824,22 @@ export class SCTP {
   }
 
   /** Counts a miss indication; on the third, marks the chunk for Fast Retransmit (or abandons it). */
+  /**
+   * One miss indication for `chunk`; the third marks it for Fast Retransmit
+   * (RFC 9260 §7.2.4). A chunk is fast-retransmitted once: the SACKs that
+   * keep reporting it missing were mostly sent before its retransmission
+   * arrived, so striking it again would resend it every 3 SACKs (a storm
+   * under loss). A retransmission that is lost too is left to the T3-rtx
+   * timer, which makes the chunk eligible again.
+   */
   private strikeChunk(chunk: DataChunk) {
+    if (chunk.fastRetransmitted) return false;
     chunk.misses++;
     if (chunk.misses < 3) return false;
     chunk.misses = 0;
+    chunk.fastRetransmitted = true;
     if (!this.maybeAbandon(chunk)) {
-      chunk.retransmit = true;
+      this.setRetransmitPending(chunk, true);
     }
     chunk.acked = false;
     this.flightSizeDecrease(chunk);
@@ -1787,8 +1855,11 @@ export class SCTP {
    * released; bookSize and the TSN / stream metadata FORWARD-TSN needs stay.
    */
   private markAbandoned(chunk: DataChunk) {
+    if (!chunk.abandoned && (chunk.acked || chunk.reneged)) {
+      this.renegingCandidateCount--;
+    }
     chunk.abandoned = true;
-    chunk.retransmit = false;
+    this.setRetransmitPending(chunk, false);
     chunk.userData = EMPTY_PAYLOAD;
   }
 

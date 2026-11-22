@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import { createWebRtcTypeError } from "./errors";
-import { EventTarget } from "./helper";
+import { EventTarget, notifySafely } from "./helper";
 import { debug, Event } from "./imports/common";
 import type { RTCSctpTransport } from "./transport/sctp";
 import type { Callback, CallbackWithValue } from "./types/util";
@@ -134,27 +134,61 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
     this._bufferedAmountLowThreshold = value;
   }
 
-  setId(id: number) {
-    this.id = id;
+  /**
+   * Internal: `undefined` gives a reserved stream ID back.
+   * @see tests/issue/815.test.ts "a rollback gives back the IDs a pranswer reserved"
+   */
+  setId(id: number | undefined) {
+    this.id = id as number;
   }
 
+  /**
+   * Internal: W3C webrtc-pc 4.4.1.6 step 2.2.6, no stream ID could be
+   * generated: `closed`, then `error` and `close`, each listener isolated.
+   * @see tests/issue/815.test.ts "a channel waiting for an ID closes with OperationError when none is left"
+   * @see tests/issue/815.test.ts "close still fires when error listeners throw"
+   * @see tests/issue/815.test.ts "every error subscriber is notified even if one throws"
+   */
+  failWithError(error: Error) {
+    if (this.readyState === "closed") return;
+    this.readyState = "closed";
+    const onError = (e: unknown) => log("subscriber failed", e);
+    this.stateChange.executeIsolated(onError, "closed");
+    this.stateChanged.executeIsolated(onError, "closed");
+    this.error.executeIsolated((e) => log("error subscriber failed", e), error);
+    notifySafely(log, "onerror", () => this.onerror?.({ error }));
+    // Test: tests/issue/815.test.ts "a channel failing for lack of an ID without any listener throws nothing"
+    this.emitIsolated((e) => log("error listener failed", e), "error", {
+      error,
+    });
+    notifySafely(log, "onclose", () => this.onclose?.());
+    this.emitIsolated((e) => log("close listener failed", e), "close");
+    log("failed", error.message);
+  }
+
+  /**
+   * Internal. Every listener is isolated (DOM event semantics).
+   * @see tests/issue/815.test.ts "a throwing close listener of a registered channel skips no listener, channel or teardown"
+   * @see tests/issue/815.test.ts "pc.close() closes every pending channel even if a close listener throws"
+   */
   setReadyState(state: DCState) {
     if (state !== this.readyState) {
       this.readyState = state;
-      this.stateChange.execute(state);
-      this.stateChanged.execute(state);
+      const onError = (e: unknown) => log("state listener failed", state, e);
+      this.stateChange.executeIsolated(onError, state);
+      this.stateChanged.executeIsolated(onError, state);
 
       switch (state) {
         case "open":
-          if (this.onopen) this.onopen();
-          this.emit("open");
+          notifySafely(log, "onopen", () => this.onopen?.());
+          this.emitIsolated(onError, "open");
           break;
         case "closed":
-          if (this.onclose) this.onclose();
-          this.emit("close");
+          notifySafely(log, "onclose", () => this.onclose?.());
+          this.emitIsolated(onError, "close");
           break;
         case "closing":
-          if (this.onclosing) this.onclosing();
+          notifySafely(log, "onclosing", () => this.onclosing?.());
           break;
       }
       log("change state", state);
@@ -167,8 +201,11 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
       this.bufferedAmount + amount <= this.bufferedAmountLowThreshold;
     this.bufferedAmount += amount;
     if (crossesThreshold) {
-      this.bufferedAmountLow.execute();
-      this.emit("bufferedamountlow");
+      // Test: tests/issue/815.notification.test.ts "bufferedamountlow: later listeners run and sending continues"
+      const onError = (e: unknown) =>
+        log("bufferedamountlow listener failed", e);
+      this.bufferedAmountLow.executeIsolated(onError);
+      this.emitIsolated(onError, "bufferedamountlow");
     }
   }
 

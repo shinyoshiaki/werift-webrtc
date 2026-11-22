@@ -6,6 +6,7 @@ import {
   createLocalStunServer,
   createSilentUdpServer,
 } from "../../../../ice/tests/utils";
+import { type SeededRandom, seededRandom } from "../../../../pbt/src";
 import {
   MediaStreamTrack,
   type RTCDataChannel,
@@ -46,7 +47,6 @@ import {
   STEPS,
 } from "../model/generator";
 import { ModelOracles } from "../model/oracles";
-import { type SeededRandom, seededRandom } from "../shared/random";
 
 /**
  * Arrange and measurement of the leak property (`negotiationLeakProperty.test.ts`):
@@ -287,12 +287,11 @@ type PeerInternals = {
   };
   remoteCandidates: { queued: unknown[] } & Record<string, unknown>;
   router: {
-    ssrcTable: Record<number, unknown>;
+    routeEntries: { origin: string }[];
     ridTable: Record<string, unknown>;
     stagedSsrc: Map<number, unknown>;
     stagedRid: Map<string, unknown>;
     provisionalSsrc: Map<number, unknown>;
-    learnedSsrcs: Set<number>;
     extIdUriMap: Record<number, string>;
   };
   topology: object;
@@ -387,13 +386,43 @@ export function leakFootprint(pc: RTCPeerConnection): Footprint {
     dtlsTransports: pc.dtlsTransports.length,
     heldTransports: held.size,
     iceTransports: pc.iceTransports.length,
-    "router.ssrcTable": Object.keys(router.ssrcTable).length,
+    // SSRC の経路 (sender / SDP / パケット由来。別 transport の同じ SSRC は別の経路)。
+    "router.routes": router.routeEntries.length,
     "router.ridTable": Object.keys(router.ridTable).length,
     "router.stagedSsrc": router.stagedSsrc.size,
     "router.stagedRid": router.stagedRid.size,
     "router.provisionalSsrc": router.provisionalSsrc.size,
-    "router.learnedSsrcs": router.learnedSsrcs.size,
+    // パケットから学習した経路 (RID は RID ごと、fallback は receiver ごとに最大 8)。
+    "router.learnedRoutes": router.routeEntries.filter(
+      (r) => r.origin === "learned",
+    ).length,
     "router.extIdUriMap": Object.keys(router.extIdUriMap).length,
+    // パケットから学習した track の SSRC (RID と、a=ssrc のない m-line の fallback)。
+    "receiver.learnedTrackSsrcs": sum(
+      transceivers,
+      ({ receiver }) => receiver.learnedTrackSsrcs.size,
+    ),
+    // a=ssrc のない m-line の学習 SSRC (receiver ごとに最大 8、古いものから忘れる)。
+    "receiver.fallbackSsrcs": sum(
+      transceivers,
+      ({ receiver }) => receiver.fallbackSsrcs.length,
+    ),
+    // 保留中の description が SSRC-less の m-line に与えた内容 (commit まで適用しない)。
+    "receiver.deferredRemote": sum(transceivers, ({ receiver }) =>
+      receiver.deferredRemote ? 1 : 0,
+    ),
+    // RID 由来の RTX 対応と SSRC ごとの NACK 状態 (パケット駆動、receiver.stop で解放)。
+    "receiver.ridRtx": sum(
+      transceivers,
+      ({ receiver }) =>
+        Object.keys(receiver.ridByRtxSsrc).length +
+        Object.keys(receiver.rtxSsrcsByRid).length +
+        Object.keys(receiver.mediaSsrcByRid).length +
+        Object.keys(receiver.repairedMediaByRtx).length +
+        Object.keys(receiver.retiredSsrcsByRid).length +
+        (receiver as unknown as { nack: { ssrcs: number[] } }).nack.ssrcs
+          .length,
+    ),
     "ice.localGenerations": sum(ice, (t) => t.localGenerations.size),
     "ice.heldCandidateEvents": sum(
       ice,
@@ -1004,6 +1033,8 @@ const GROWTH_EXPIRY_MS = 8000;
  *   the SSRCs and m-lines negotiated (as in develop; the cycles keep SSRCs).
  * - sent packets awaiting transport-cc feedback: 5 s and 32768 per sender
  *   (`senderBWE.ts`); the cycles carry no RTP, `senderBWE.test.ts` checks it.
+ * - sent RTCP Sender Reports matched for RTT: 30 s and 32 per sender
+ *   (`senderReportHistory.ts`); `senderReportHistory.test.ts` checks it.
  */
 export const BOUNDED_METRICS: Record<
   string,
@@ -1023,6 +1054,7 @@ export const BOUNDED_METRICS: Record<
  * stable (a commit or rollback releases them).
  */
 export const STABLE_ZERO_METRICS = [
+  "receiver.deferredRemote",
   "router.stagedSsrc",
   "router.stagedRid",
   "router.provisionalSsrc",
@@ -1067,8 +1099,17 @@ async function arrangeCycleSession(c: NegotiationCase, observe: boolean) {
   // 増えるテスト側の保持なので、heap を見るときは付けない (application の登録だけ受ける)。
   const oracles = observe ? new ModelOracles(c) : bareOracles();
   // STUN server なし: サーバーへの問い合わせの timer (最長 5 s) が周期ごとの timer 数を揺らさない。
+  // host 候補は IPv4 loopback だけ: 計測する host の interface 数や NAT (docker の
+  // MASQUERADE が作る peer-reflexive 候補) で ICE generation ごとの pair 数が 1 つ揺れ、
+  // 状態の増加と区別できなくなるのを防ぐ。周期ごとの増加は 1 候補でも検出できる。
   const scope = await c.given(
-    createDuplexSession({ ...modelConfig(), iceServers: [] }),
+    createDuplexSession({
+      ...modelConfig(),
+      iceServers: [],
+      iceUseDefaultStunServer: false,
+      iceInterfaceAddresses: { udp4: "127.0.0.1" },
+      iceUseIpv6: false,
+    }),
   );
   const { a, b } = scope;
   oracles.application(scope.aVideo);
@@ -1076,7 +1117,14 @@ async function arrangeCycleSession(c: NegotiationCase, observe: boolean) {
   oracles.channel(scope.aChannel, a);
   oracles.channel(scope.bChannel, b);
   if (observe) oracles.watch(a, b);
-  const w: StepWorld = { c, oracles, saved: new Map(), created: 0 } as never;
+  const w: StepWorld = {
+    c,
+    oracles,
+    saved: new Map(),
+    // model の STEPS (takeTrack / detachTrack) が使う World の欄を揃える。
+    addTracked: new WeakSet(),
+    created: 0,
+  } as never;
   const audio = a.addTransceiver(new MediaStreamTrack({ kind: "audio" }), {
     direction: "sendrecv",
   });

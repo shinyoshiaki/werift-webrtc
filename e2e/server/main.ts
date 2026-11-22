@@ -15,6 +15,7 @@ import {
   bundle_max_compat_answer,
   bundle_max_compat_offer,
 } from "./handler/bundle/max-compat";
+import { bundle_tag_only_candidates } from "./handler/bundle/tagOnlyCandidates";
 import {
   combination_all_media_answer,
   combination_all_media_offer,
@@ -30,9 +31,12 @@ import {
   datachannel_binary_echo,
   datachannel_offer,
 } from "./handler/datachannel/datachannel";
+import { dtls_alert } from "./handler/datachannel/dtlsAlert";
 import { datachannel_ice_lite_answer } from "./handler/datachannel/iceLite";
 import { datachannel_ice_tcp } from "./handler/datachannel/iceTcp";
 import { datachannel_turn_relay } from "./handler/datachannel/turnRelay";
+import { ice_failover } from "./handler/ice/failover";
+import { ice_nomination } from "./handler/ice/nomination";
 import {
   ice_restart_node_trigger,
   ice_restart_web_trigger,
@@ -60,7 +64,7 @@ import {
 import {
   mediachannel_reject_unsupported_video,
   mediachannel_reuse_aggressive,
-  mediachannel_reuse_compatible,
+  mediachannel_reuse_standard,
 } from "./handler/mediachannel/reuse";
 import {
   mediachannel_rtx_client_answer,
@@ -73,6 +77,7 @@ import {
 import {
   mediachannel_simulcast_answer,
   mediachannel_simulcast_offer,
+  mediachannel_simulcast_rtx_answer,
 } from "./handler/mediachannel/simulcast";
 import { vp8PlaybackHandlers } from "./handler/mediachannel/vp8Playback";
 import { sim_gcc_twcc_chrome } from "./simulations/gccTwccChrome";
@@ -167,6 +172,8 @@ function attachWebSocketServer() {
       mediachannel_sendrecv_offer: new mediachannel_sendrecv_offer(),
       mediachannel_simulcast_answer: new mediachannel_simulcast_answer(),
       mediachannel_simulcast_offer: new mediachannel_simulcast_offer(),
+      mediachannel_simulcast_rtx_answer:
+        new mediachannel_simulcast_rtx_answer(),
       mediachannel_oneway_answer: new mediachannel_oneway_answer(),
       mediachannel_oneway_offer: new mediachannel_oneway_offer(),
       mediachannel_addTrack_answer: new mediachannel_addTrack_answer(),
@@ -179,6 +186,11 @@ function attachWebSocketServer() {
         new datachannel_close_client_create_server_close(),
       datachannel_close_server_create_client_close:
         new datachannel_close_server_create_client_close(),
+      ice_failover: new ice_failover(),
+      ice_nomination: new ice_nomination(),
+      dtls_alert_close_notify_from_werift: new dtls_alert(),
+      dtls_alert_close_notify_from_chrome: new dtls_alert(),
+      dtls_alert_bad_certificate: new dtls_alert(),
       ice_trickle_answer: new ice_trickle_answer(),
       ice_trickle_offer: new ice_trickle_offer(),
       mediachannel_rtx_client_answer: new mediachannel_rtx_client_answer(),
@@ -193,6 +205,7 @@ function attachWebSocketServer() {
       bundle_disable_offer: new bundle_disable_offer(),
       bundle_max_bundle_answer: new bundle_max_bundle_answer(),
       bundle_max_bundle_offer: new bundle_max_bundle_offer(),
+      bundle_tag_only_candidates: new bundle_tag_only_candidates(),
       mediachannel_removetrack_addtrack:
         new mediachannel_removetrack_addtrack(),
       mediachannel_addtrack_removefirst_addtrack:
@@ -206,7 +219,7 @@ function attachWebSocketServer() {
         new mediachannel_addtrack_removefirst_addtrack("aggressive"),
       mediachannel_offer_replace_second_aggressive:
         new mediachannel_offer_replace_second("aggressive"),
-      mediachannel_reuse_compatible: new mediachannel_reuse_compatible(),
+      mediachannel_reuse_standard: new mediachannel_reuse_standard(),
       mediachannel_reuse_aggressive: new mediachannel_reuse_aggressive(),
       mediachannel_reject_unsupported_video:
         new mediachannel_reject_unsupported_video(),

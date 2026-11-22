@@ -12,7 +12,7 @@
     "clean": "pkill -9 gst-launch",
     "debug": "cd debug && npm run dev",
     "dev": "vitest ./tests --browser.headless",
-    "firefox": "vitest run ./tests --browser.headless --config vitest.firefox.config.mts",
+    "firefox": "vitest run --browser.headless --config vitest.firefox.config.mts",
     "format": "biome check --write server tests simulations",
     "install:browsers": "node ensure-browser.js",
     "server": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../tools/node-ts/register.mjs ./server/main.ts",
@@ -25,7 +25,9 @@
     "knip": "npx knip --config ./knip.json",
     "chrome:sim": "vitest run --config ./simulations/vitest.sim.config.mts --browser.headless",
     "test:sim": "npm run install:browsers && npm run build && node simulations/run-sim.js",
-    "test:sim:netns": "node simulations/netns/run-netns-sim.js"
+    "test:sim:netns": "node simulations/netns/run-netns-sim.js",
+    "firefox:record": "node run-firefox.js",
+    "firefox:record:prune": "node firefox-runs-prune.js"
   },
   "dependencies": {
     "bowser": "^2.12.1",

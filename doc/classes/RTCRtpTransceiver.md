@@ -99,6 +99,10 @@ rollback can return one that no description committed to it.
 
 > **mLineIndex**: `number` \| `undefined`
 
+#### negotiatedCodecsStale
+
+> **negotiatedCodecsStale**: `boolean`
+
 #### offerDirection
 
 > **offerDirection**: `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
@@ -114,6 +118,16 @@ rollback can return one that no description committed to it.
 #### receiver
 
 > **receiver**: `object`
+
+##### receiver.deferredRemote
+
+> **deferredRemote**: `DeferredRemoteRtp` \| `undefined`
+
+##### receiver.learnedTrackSsrcs
+
+> **learnedTrackSsrcs**: `number`[]
+
+SSRCs of `trackBySSRC` that packets taught (not description state).
 
 ##### receiver.receiverTWCC
 
@@ -288,6 +302,16 @@ rollback can return one that no description committed to it.
 ### mLineIndex?
 
 > `optional` **mLineIndex?**: `number`
+
+***
+
+### negotiatedCodecsStale
+
+> **negotiatedCodecsStale**: `boolean` = `false`
+
+Internal: an application change (`markCodecsForResolution`) made the
+negotiated `codecs`, kept live, stale for the next answer: it resolves
+them again, as for empty codecs. The next write of `codecs` clears it.
 
 ***
 
@@ -487,10 +511,16 @@ RFC 8829 4.2.4. setDirectionに渡された最後の値を示します
 
 > **get** **heldByApplication**(): `boolean`
 
-Internal: the application sends on this transceiver (its sender has a
-track), so a rollback keeps it even if a remote offer created it. As in
-develop, only a track counts: stop(), a direction or codec preferences
-set on a remote-created transceiver do not keep it.
+Internal: the application uses this transceiver, so a rollback keeps it
+even if a remote offer created it. It is held once `addTrack()` attached a
+track to it (W3C rollback: only a transceiver addTrack never touched is
+removed), also after `replaceTrack(null)` / `removeTrack()` detached that
+track, or while its sender has a track (werift keeps one given a track by
+`replaceTrack()` alone). stop(), a direction or codec preferences set on a
+remote-created transceiver do not keep it. Only a remote-created
+transceiver can be removed, and `addTrack()` reusing one sets
+`reusedForAddTrack`; one `addTrack()` created has `createdBy: "addTrack"`.
+Both are instance state a rollback does not restore.
 
 ##### Returns
 
@@ -519,6 +549,20 @@ set on a remote-created transceiver do not keep it.
 ##### Returns
 
 `string`[]
+
+***
+
+### needsCodecResolution
+
+#### Get Signature
+
+> **get** **needsCodecResolution**(): `boolean`
+
+Internal: the next answer resolves this transceiver's codecs again.
+
+##### Returns
+
+`boolean`
 
 ## Methods
 
@@ -598,6 +642,11 @@ Internal: an application change makes the next offer / answer resolve
 this transceiver's codecs again. The live sender and receiver keep the
 committed codecs until a description is committed.
 
+A negotiated transceiver keeps `codecs` (the negotiated codecs that
+`getPayloadType()`, stats and the live tables use): its offers are
+resolved again every time anyway, keeping these payload types
+(`TransceiverManager.resolveOfferCodecs`).
+
 #### Returns
 
 `void`
@@ -654,6 +703,10 @@ Internal: return to a negotiation baseline taken by `snapshotNegotiationState`.
 
 `number` \| `undefined` = `...`
 
+###### negotiatedCodecsStale
+
+`boolean` = `...`
+
 ###### offerDirection
 
 `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"` = `...`
@@ -668,7 +721,17 @@ Internal: return to a negotiation baseline taken by `snapshotNegotiationState`.
 
 ###### receiver
 
-\{ `receiverTWCC`: `ReceiverTWCC` \| `undefined`; `receiveTables`: \{ `codecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `ssrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; `stagedCodecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `stagedSsrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; \}; `remoteStreamId`: `string` \| `undefined`; `remoteStreamIds`: `string`[]; `remoteTrackId`: `string` \| `undefined`; `trackByRID`: \{\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \}; `trackBySSRC`: \{\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \}; `tracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; `unboundTracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; \} = `...`
+\{ `deferredRemote`: `DeferredRemoteRtp` \| `undefined`; `learnedTrackSsrcs`: `number`[]; `receiverTWCC`: `ReceiverTWCC` \| `undefined`; `receiveTables`: \{ `codecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `ssrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; `stagedCodecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `stagedSsrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; \}; `remoteStreamId`: `string` \| `undefined`; `remoteStreamIds`: `string`[]; `remoteTrackId`: `string` \| `undefined`; `trackByRID`: \{\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \}; `trackBySSRC`: \{\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \}; `tracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; `unboundTracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; \} = `...`
+
+###### receiver.deferredRemote
+
+`DeferredRemoteRtp` \| `undefined` = `...`
+
+###### receiver.learnedTrackSsrcs
+
+`number`[] = `...`
+
+SSRCs of `trackBySSRC` that packets taught (not description state).
 
 ###### receiver.receiverTWCC
 
@@ -912,6 +975,10 @@ application choice and are not part of it.
 
 > **mLineIndex**: `number` \| `undefined`
 
+##### negotiatedCodecsStale
+
+> **negotiatedCodecsStale**: `boolean`
+
 ##### offerDirection
 
 > **offerDirection**: `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
@@ -927,6 +994,16 @@ application choice and are not part of it.
 ##### receiver
 
 > **receiver**: `object`
+
+###### receiver.deferredRemote
+
+> **deferredRemote**: `DeferredRemoteRtp` \| `undefined`
+
+###### receiver.learnedTrackSsrcs
+
+> **learnedTrackSsrcs**: `number`[]
+
+SSRCs of `trackBySSRC` that packets taught (not description state).
 
 ###### receiver.receiverTWCC
 

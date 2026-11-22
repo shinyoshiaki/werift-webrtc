@@ -25,8 +25,18 @@
  *
  * The generator follows the public API along the axes a reviewer explores:
  * - configuration, per seed (`--configs all`, default): bundlePolicy
- *   (max-bundle / balanced / max-compat / disable), rtcpMuxPolicy, and a
- *   relay-only session over a local TURN server;
+ *   (max-bundle / balanced / max-compat / disable), rtcpMuxPolicy, a
+ *   relay-only session over a local TURN server, and `standardPairing`
+ *   (`transceiverPairing: "standard"`, #816; develop ignores the unknown key
+ *   and keeps the v0.27.0 pairing, which is also the default `"byKind"`).
+ *   `--configs <name>` runs every seed with one configuration: `--configs
+ *   default` keeps the difference count against develop at 0, and
+ *   `--configs standardPairing` differs only where a remote offer no longer
+ *   pairs a transceiver `addTransceiver()` created (JSEP 5.10). The
+ *   `asymmetric*` configurations give peer b its codecs in another form
+ *   (payload types, H264 level / packetization-mode, Opus fmtp, no rtcp-fb),
+ *   so a codec negotiation commits is in the remote's form on one side
+ *   (#818: a re-offer lists it as negotiated);
  * - application operations: stop, replaceTrack, direction,
  *   setCodecPreferences, createDataChannel, restartIce;
  * - timing: `closeDuring` starts an operation and calls close() after 0..8
@@ -83,11 +93,63 @@ const CONFIGS = [
   "disable",
   "rtcpMuxRequire",
   "relay",
+  "standardPairing",
+  "asymmetricPt",
+  "asymmetricH264",
+  "asymmetricOpus",
+  "asymmetricFeedback",
 ] as const;
 type ConfigName = (typeof CONFIGS)[number];
 
+/**
+ * Codecs of peer b in an asymmetric configuration (#818): the codecs of
+ * `session()` in another form, so the codecs negotiation commits are in the
+ * remote's form on one side.
+ */
+function asymmetricCodecs(api: Api, name: ConfigName) {
+  const h264 = (parameters?: string) =>
+    api.useH264(parameters ? { parameters } : {});
+  switch (name) {
+    case "asymmetricPt":
+      return {
+        audio: [api.useOPUS({ payloadType: 109 })],
+        video: [api.useVP8({ payloadType: 120 }), api.useH264({ payloadType: 121 })],
+      };
+    case "asymmetricH264":
+      return {
+        audio: [api.useOPUS()],
+        video: [
+          api.useVP8(),
+          h264("profile-level-id=42e00d;packetization-mode=1;level-asymmetry-allowed=1"),
+          h264("profile-level-id=42e01f;packetization-mode=0;level-asymmetry-allowed=1"),
+        ],
+      };
+    case "asymmetricOpus":
+      return {
+        audio: [api.useOPUS({ parameters: "stereo=1;useinbandfec=1" })],
+        video: [api.useVP8(), api.useH264()],
+      };
+    case "asymmetricFeedback":
+      return {
+        audio: [api.useOPUS()],
+        video: [api.useVP8({ rtcpFeedback: [] }), api.useH264({ rtcpFeedback: [] })],
+      };
+    default:
+      return undefined;
+  }
+}
+
 /** Configuration of a seed's session (and a TURN server for "relay"). */
-async function sessionConfig(name: ConfigName) {
+async function sessionConfig(
+  name: ConfigName,
+  api: Api,
+): Promise<{
+  config: Record<string, unknown>;
+  configB?: Record<string, unknown>;
+  close?: () => unknown;
+}> {
+  const codecsB = asymmetricCodecs(api, name);
+  if (codecsB) return { config: {}, configB: { codecs: codecsB } };
   switch (name) {
     case "default":
       return { config: {} };
@@ -97,6 +159,8 @@ async function sessionConfig(name: ConfigName) {
       return { config: { bundlePolicy: name } };
     case "rtcpMuxRequire":
       return { config: { rtcpMuxPolicy: "require" } };
+    case "standardPairing":
+      return { config: { transceiverPairing: "standard" } };
     case "relay": {
       const { NodeTurnServer } = await import(
         pathToFileURL(join(root, "packages/ice-server/src/index.ts")).href
@@ -503,11 +567,16 @@ async function main() {
       ? ((args.get("config") as ConfigName | undefined) ?? "default")
       : configAxis === "all"
         ? rng(seed * 92821 + 5).pick(CONFIGS)
-        : "default";
-    const configured = await sessionConfig(configName);
+        : CONFIGS.includes(configAxis as ConfigName)
+          ? (configAxis as ConfigName)
+          : "default";
+    const configured = await sessionConfig(configName, api);
     let ctx: Ctx;
     try {
-      ctx = await withTimeout(session(api, configured.config), 15000);
+      ctx = await withTimeout(
+        session(api, configured.config, configured.configB),
+        15000,
+      );
     } catch (error) {
       lines.push(
         JSON.stringify({

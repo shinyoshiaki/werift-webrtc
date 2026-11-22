@@ -16,6 +16,10 @@
 
 ##### \_\_namedParameters
 
+###### bundleCandidates?
+
+[`BundleCandidates`](../type-aliases/BundleCandidates.md)
+
 ###### bundlePolicy?
 
 [`BundlePolicy`](../type-aliases/BundlePolicy.md)
@@ -24,19 +28,35 @@
 
 `string`
 
+###### iceOptionIce2?
+
+`boolean`
+
+Add `ice2` (RFC 8445 §10) to the local ice-options.
+
+###### iceRenomination?
+
+`boolean`
+
 ###### midSuffix?
 
 `boolean`
 
 ###### mLineReuse?
 
-[`MLineReuse`](../type-aliases/MLineReuse.md)
+`"standard"` \| `"aggressive"`
 
 #### Returns
 
 `SDPManager`
 
 ## Properties
+
+### bundleCandidates
+
+> `readonly` **bundleCandidates**: [`BundleCandidates`](../type-aliases/BundleCandidates.md)
+
+***
 
 ### bundlePolicy?
 
@@ -62,6 +82,22 @@
 
 ***
 
+### iceOptions
+
+> `readonly` **iceOptions**: `string`
+
+Local `a=ice-options` tokens written on every m-line.
+
+***
+
+### iceRenomination
+
+> `readonly` **iceRenomination**: `boolean`
+
+`PeerConfig.iceRenomination`: descriptions advertise `a=ice-options:renomination`.
+
+***
+
 ### midSuffix
 
 > `readonly` **midSuffix**: `boolean`
@@ -70,7 +106,7 @@
 
 ### mLineReuse
 
-> `readonly` **mLineReuse**: [`MLineReuse`](../type-aliases/MLineReuse.md)
+> `readonly` **mLineReuse**: `"standard"` \| `"aggressive"`
 
 ***
 
@@ -244,7 +280,7 @@
 
 ### buildOfferSdp()
 
-> **buildOfferSdp**(`transceivers`, `sctpTransport`): [`SessionDescription`](SessionDescription.md)
+> **buildOfferSdp**(`transceivers`, `sctpTransport`, `offerCodecs?`): [`SessionDescription`](SessionDescription.md)
 
 オファーSDPを構築
 
@@ -257,6 +293,12 @@
 ##### sctpTransport
 
 [`RTCSctpTransport`](RTCSctpTransport.md) \| `undefined`
+
+##### offerCodecs?
+
+`ReadonlyMap`\<[`RTCRtpTransceiver`](RTCRtpTransceiver.md), [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]\>
+
+offer codecs that differ from `transceiver.codecs` (resolveOfferCodecs)
 
 #### Returns
 
@@ -284,7 +326,7 @@ MediaDescriptionをSCTP用に作成
 
 ### createMediaDescriptionForTransceiver()
 
-> **createMediaDescriptionForTransceiver**(`transceiver`, `direction`): [`MediaDescription`](MediaDescription.md)
+> **createMediaDescriptionForTransceiver**(`transceiver`, `direction`, `codecs?`): [`MediaDescription`](MediaDescription.md)
 
 MediaDescriptionをトランシーバー用に作成
 
@@ -298,6 +340,12 @@ MediaDescriptionをトランシーバー用に作成
 
 `"inactive"` \| `"sendonly"` \| `"recvonly"` \| `"sendrecv"`
 
+##### codecs?
+
+[`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[] = `transceiver.codecs`
+
+codecs to describe; the transceiver's negotiated codecs by default
+
 #### Returns
 
 [`MediaDescription`](MediaDescription.md)
@@ -310,6 +358,7 @@ MediaDescriptionをトランシーバー用に作成
 
 拒否 / 停止した m-line を作成する (RFC 3264 §6 / RFC 8829 §5.3.1)。
 port は 0、proto と MID は元の m-line を保ち、fmt は少なくとも 1 token 残す。
+拒否 m-line は RTP/RTCP を流さないので `a=rtcp` / `a=rtcp-mux` を載せない (#705 以降の出力形式を保つ)。
 
 #### Parameters
 

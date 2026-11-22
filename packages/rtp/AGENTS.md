@@ -14,6 +14,7 @@ Instructions for coding agents working in `packages/rtp`.
 1. Read the root `AGENTS.md` before editing.
 2. Keep browser-facing imports free of Node-only APIs unless the supported Vite polyfill provides them.
 3. Write tests in Arrange / Act / Assert phases with Japanese Act / Assert comments.
+4. Put property tests in `tests/pbt/<name>/` on the shared base `packages/pbt` (rules in its `README.md`) and list them in `tests/pbt/suites.ts`.
 
 ## Don't
 
@@ -28,6 +29,7 @@ Instructions for coding agents working in `packages/rtp`.
 | browser entry smoke test | `npm run test:browser` |
 | type-check | `npm run type` |
 | public declaration check (`skipLibCheck: false`) | `npm run type:public` |
+| deep property search (parallel, more seeds) | `npm run pbt:deep` |
 
 ## Validation
 

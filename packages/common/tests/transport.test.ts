@@ -1,4 +1,6 @@
-import { TcpTransport, TlsTransport } from "../src/transport";
+import * as dgram from "node:dgram";
+
+import { TcpTransport, TlsTransport, UdpTransport } from "../src/transport";
 import {
   createHangingStreamServer,
   createLoopbackUdpTransport,
@@ -44,6 +46,71 @@ describe("stream transport connection timeout", () => {
 
     // Assert: OS の長い SYN timeout を待たず、指定時間付近で処理が戻る。
     expect(Date.now() - startedAt).toBeLessThan(1_000);
+  });
+});
+
+describe("UdpTransport bindAddress", () => {
+  test("binds the socket to bindAddress", async () => {
+    // Act: bindAddress を指定して初期化する
+    const transport = await UdpTransport.init("udp4", {
+      bindAddress: "127.0.0.1",
+    });
+
+    try {
+      // Assert: wildcard ではなく指定アドレスに bind される
+      expect(transport.address.address).toBe("127.0.0.1");
+    } finally {
+      await transport.close();
+    }
+  });
+
+  test("bindAddress takes precedence over interfaceAddresses", async () => {
+    // Act: interfaceAddresses (wildcard) と bindAddress を両方指定する
+    const transport = await UdpTransport.init("udp4", {
+      interfaceAddresses: { udp4: "0.0.0.0" },
+      bindAddress: "127.0.0.1",
+    });
+
+    try {
+      // Assert: bindAddress が優先される
+      expect(transport.address.address).toBe("127.0.0.1");
+    } finally {
+      await transport.close();
+    }
+  });
+
+  test("bindAddress with portRange binds a port of the range on that address", async () => {
+    // Act: portRange と bindAddress を指定して初期化する
+    const transport = await UdpTransport.init("udp4", {
+      bindAddress: "127.0.0.1",
+      portRange: [45400, 45500],
+    });
+
+    try {
+      // Assert: 指定アドレスの範囲内ポートに bind される
+      const { address, port } = transport.address;
+      expect(address).toBe("127.0.0.1");
+      expect(port).toBeGreaterThanOrEqual(45400);
+      expect(port).toBeLessThanOrEqual(45500);
+    } finally {
+      await transport.close();
+    }
+  });
+
+  test("rejects init and closes the socket when bindAddress is not assigned locally", async () => {
+    // Arrange: ソケットの close を記録する
+    const close = vi.spyOn(dgram.Socket.prototype, "close");
+
+    try {
+      // Act: このホストにない TEST-NET-1 アドレスへの bind を試みる
+      const init = UdpTransport.init("udp4", { bindAddress: "192.0.2.1" });
+
+      // Assert: EADDRNOTAVAIL で reject され、作成したソケットは閉じられる
+      await expect(init).rejects.toMatchObject({ code: "EADDRNOTAVAIL" });
+      expect(close).toHaveBeenCalledTimes(1);
+    } finally {
+      close.mockRestore();
+    }
   });
 });
 
@@ -196,5 +263,53 @@ describe("UdpTransport socket error handling", () => {
     // Assert: init の Promise は再 settle されず、例外も発生しない。
     expect(emitLate).not.toThrow();
     expect(transport.closed).toBe(true);
+  });
+});
+
+describe("transport failure reporting (failover of the selected ICE pair)", () => {
+  test("a datagram sent with confirm rejects with the OS send error; without it the error is not reported", async () => {
+    // Arrange: loopback に bind した transport と、送れない宛先 (broadcast) を用意する。
+    const transport = await createLoopbackUdpTransport();
+    const unsendable: [string, number] = ["255.255.255.255", 9];
+
+    try {
+      // Act / Assert: confirm 付きの送信は OS のエラー (code 付き) で reject する。
+      await expect(
+        transport.send(Buffer.from("x"), unsendable, { confirm: true }),
+      ).rejects.toMatchObject({ code: expect.any(String), syscall: "send" });
+
+      // Act / Assert: confirm なしの送信 (IP アドレス宛て) は従来どおりエラーを報告しない。
+      await expect(
+        transport.send(Buffer.from("x"), unsendable),
+      ).resolves.toBeUndefined();
+    } finally {
+      await transport.close();
+    }
+  });
+
+  test("a TCP transport whose peer closed the connection reports onClosed once; close() does not", async () => {
+    // Arrange: TCP サーバーと、それに接続した transport 2 つ (相手に切られる側・自分で閉じる側) を用意する。
+    const server = await createHangingStreamServer();
+    const closedByPeer = await TcpTransport.init(server.address);
+    const closedLocally = await TcpTransport.init(server.address);
+    const peerCloses: number[] = [];
+    const localCloses: number[] = [];
+    closedByPeer.onClosed.subscribe(() => peerCloses.push(Date.now()));
+    closedLocally.onClosed.subscribe(() => localCloses.push(Date.now()));
+
+    try {
+      // Act: 自分の側から 1 つを閉じ、サーバー側から残りの接続を切る。
+      await closedLocally.close();
+      await vi.waitFor(() => expect(server.sockets.size).toBe(1));
+      for (const socket of server.sockets) socket.destroy();
+
+      // Assert: 相手に切られた transport だけが onClosed を 1 回通知し、closed になる。
+      await vi.waitFor(() => expect(peerCloses).toHaveLength(1));
+      expect(closedByPeer.closed).toBe(true);
+      expect(localCloses).toEqual([]);
+    } finally {
+      await closedByPeer.close();
+      await server.close();
+    }
   });
 });

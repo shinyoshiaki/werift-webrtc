@@ -109,6 +109,16 @@ TURN server as configured, before any 300 (Try Alternate) redirect.
 
 ***
 
+### onAllocationLost
+
+> `readonly` **onAllocationLost**: `Event`\<\[`Error`\]\>
+
+The allocation is lost while in use (once, never after `close()`): the
+TCP/TLS connection to the server closed, a Refresh failed, or sending to
+the server failed with a routing error (`PATH_BROKEN_SEND_ERRORS`).
+
+***
+
 ### onData
 
 > `readonly` **onData**: `Event`\<\[`Buffer`\<`ArrayBufferLike`\>, readonly \[`string`, `number`\]\]\>
@@ -117,7 +127,9 @@ TURN server as configured, before any 300 (Try Alternate) redirect.
 
 ### onDataReceived
 
-> **onDataReceived**: `Event`\<\[`Buffer`\<`ArrayBufferLike`\>\]\>
+> **onDataReceived**: `Event`\<\[`Buffer`\<`ArrayBufferLike`\>, readonly \[`string`, `number`\]\]\>
+
+Application data (not STUN) and the remote address it came from.
 
 #### Implementation of
 
@@ -398,7 +410,12 @@ readonly \[`string`, `number`\]
 
 ### sendData()
 
-> **sendData**(`data`, `addr`): `Promise`\<`void`\>
+> **sendData**(`data`, `addr`, `options?`): `Promise`\<`void`\>
+
+Relay `data` to the peer `addr` (ChannelData, else a Send indication).
+`options.confirm` waits for the datagram's send error (a STUN check,
+see `onAllocationLost`); application data is confirmed only as a sample
+(`DataSendConfirmation`), for speed.
 
 #### Parameters
 
@@ -409,6 +426,10 @@ readonly \[`string`, `number`\]
 ##### addr
 
 readonly \[`string`, `number`\]
+
+##### options?
+
+`TransportSendOptions`
 
 #### Returns
 

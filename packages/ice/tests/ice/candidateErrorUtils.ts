@@ -1,0 +1,240 @@
+import * as dgram from "node:dgram";
+import { promises as dns } from "node:dns";
+import type { Address } from "../../../common/src";
+import { Candidate } from "../../src/candidate";
+import type {
+  IceCandidateErrorInfo,
+  IceServerReachedInfo,
+} from "../../src/candidateError";
+import type { Connection } from "../../src/ice";
+import type { IceOptions } from "../../src/iceBase";
+import { classes, methods } from "../../src/stun/const";
+import { Message, parseMessage } from "../../src/stun/message";
+import type { Protocol } from "../../src/types/model";
+import { getHostAddresses } from "../../src/utils";
+import { createTestConnection } from "../utils";
+
+/**
+ * Shared Arrange for the `onIceCandidateError` tests (candidate-error.test.ts).
+ */
+
+/** First IPv4 host address of the machine. */
+export const candidateErrorHost = getHostAddresses(true, false)[0]!;
+
+/** One IPv4 UDP host socket, so every STUN query comes from one base. */
+export const singleIpv4Socket = {
+  useIpv6: false,
+  interfaceAddresses: { udp4: candidateErrorHost },
+} as const;
+
+/** Every `onIceCandidateError` of `connection`, in order. */
+export function recordCandidateErrors(connection: Connection) {
+  const errors: IceCandidateErrorInfo[] = [];
+  connection.onIceCandidateError.subscribe((info) => errors.push(info));
+  return errors;
+}
+
+/** Every `onIceServerReached` of `connection`, in order. */
+export function recordServerReached(connection: Connection) {
+  const reached: IceServerReachedInfo[] = [];
+  connection.onIceServerReached.subscribe((info) => reached.push(info));
+  return reached;
+}
+
+/** An agent with one IPv4 UDP host socket and `options`, recording its errors. */
+export function createRecordingAgent(options: Partial<IceOptions> = {}) {
+  const connection = createTestConnection(true, {
+    ...singleIpv4Socket,
+    ...options,
+  });
+  return { connection, errors: recordCandidateErrors(connection) };
+}
+
+/**
+ * A UDP server that answers every request with `reply(request)` after
+ * `delayMs` (nothing for undefined). Requests are recorded.
+ */
+export async function createScriptedUdpServer(
+  reply: (request: Message, remote: Address) => Buffer | undefined,
+  { host = candidateErrorHost, delayMs = 0 } = {},
+) {
+  const socket = dgram.createSocket("udp4");
+  await new Promise<void>((resolve) => socket.bind(0, host, () => resolve()));
+  const requests: Message[] = [];
+  socket.on("message", (data, remote) => {
+    const request = parseMessage(data);
+    if (!request || request.messageClass !== classes.REQUEST) return;
+    requests.push(request);
+    const bytes = reply(request, [remote.address, remote.port]);
+    if (!bytes) return;
+    setTimeout(() => {
+      try {
+        socket.send(bytes, remote.port, remote.address);
+      } catch {
+        // closed meanwhile
+      }
+    }, delayMs);
+  });
+  return {
+    address: [host, socket.address().port] as Address,
+    requests,
+    close: () => new Promise<void>((resolve) => socket.close(() => resolve())),
+  };
+}
+
+/** Wire bytes of an error response to `request` with `code` and `reason`. */
+export function errorResponse(
+  request: Message,
+  code: number,
+  reason: string,
+  attributes: [string, unknown][] = [],
+) {
+  const response = new Message(
+    request.messageMethod,
+    classes.ERROR,
+    request.transactionId,
+  ).setAttribute("ERROR-CODE", [code, reason]);
+  for (const [key, value] of attributes) {
+    response.setAttribute(key as never, value);
+  }
+  return response.bytes;
+}
+
+/** A STUN server answering every Binding request with the error `code`. */
+export function createErrorStunServer(code: number, reason: string) {
+  return createScriptedUdpServer((request) =>
+    errorResponse(request, code, reason),
+  );
+}
+
+/** A STUN server answering Binding success responses without XOR-MAPPED-ADDRESS. */
+export function createNoMappingStunServer() {
+  return createScriptedUdpServer(
+    (request) =>
+      new Message(methods.BINDING, classes.RESPONSE, request.transactionId)
+        .bytes,
+  );
+}
+
+/**
+ * A UDP-only TURN server rejecting every Allocate with an unsigned 401 and a
+ * realm / nonce (a credential it never accepts). Nothing listens on TCP at
+ * its port, so the TCP fallback is refused.
+ */
+export function createRejectingUdpTurnServer(reason = "Unauthorized") {
+  return createScriptedUdpServer((request) =>
+    errorResponse(request, 401, reason, [
+      ["REALM", "werift.test"],
+      ["NONCE", Buffer.from("nonce-1")],
+    ]),
+  );
+}
+
+/** A host candidate of the test address and `port`. */
+export function hostCandidate(port = 50000) {
+  return new Candidate("1", 1, "udp", 1, candidateErrorHost, port, "host");
+}
+
+/**
+ * A Protocol whose STUN requests are answered by `request` (no network);
+ * `localCandidate` is a host candidate unless `withLocalCandidate` is false.
+ */
+export function createFakeStunProtocol(
+  request: (message: Message, addr: Address) => Promise<[Message, Address]>,
+  { withLocalCandidate = true } = {},
+) {
+  const sent: Message[] = [];
+  const protocol = {
+    type: "fake",
+    localCandidate: withLocalCandidate ? hostCandidate() : undefined,
+    request: async (message: Message, addr: Address) => {
+      sent.push(message);
+      return request(message, addr);
+    },
+  } as unknown as Protocol;
+  return { protocol, sent };
+}
+
+/** An errno error as Node's socket / DNS functions raise it. */
+export function errnoError(code: string) {
+  return Object.assign(new Error(`${code} test`), { code });
+}
+
+/** Enumerated IPv4 sockets plus the loopback address used by these STUN tests. */
+export const enumeratedIpv4Sockets: Partial<IceOptions> = {
+  useIpv6: false,
+  interfaceAddresses: undefined,
+  additionalHostAddresses: ["127.0.0.1"],
+};
+
+/**
+ * A STUN server that answers only the `answered`-th (0-based) local port
+ * that asks it (a success mapping it to itself) and never the others: one
+ * socket reaches it, the rest do not.
+ */
+export function createFirstPortOnlyStunServer(answered = 0) {
+  const ports: number[] = [];
+  return createScriptedUdpServer((request, remote) => {
+    if (!ports.includes(remote[1])) ports.push(remote[1]);
+    if (ports.indexOf(remote[1]) !== answered) return undefined;
+    return new Message(
+      methods.BINDING,
+      classes.RESPONSE,
+      request.transactionId,
+    ).setAttribute("XOR-MAPPED-ADDRESS", remote).bytes;
+  });
+}
+
+/**
+ * A UDP server answering every request with an error response that has no
+ * ERROR-CODE attribute (a STUN server, or a TURN server for Allocate): the
+ * server answers, but with no STUN error code.
+ */
+export function createCodelessErrorServer() {
+  return createScriptedUdpServer(
+    (request) =>
+      new Message(request.messageMethod, classes.ERROR, request.transactionId)
+        .bytes,
+  );
+}
+
+/**
+ * An IPv4 host socket (the test address) and an IPv6 one on loopback: the
+ * IPv6 socket queries no STUN server (STUN queries are IPv4 only).
+ */
+export const ipv4AndIpv6Sockets: Partial<IceOptions> = {
+  useIpv6: true,
+  interfaceAddresses: { udp4: candidateErrorHost, udp6: "::1" },
+};
+
+/**
+ * Make the resolver fail for `hostname` with `code` (other names resolve
+ * as usual), so a DNS failure is classified the same however fast or slow
+ * the environment's resolver is. Undone by `vi.restoreAllMocks()`.
+ */
+export function failDnsLookup(hostname: string, code = "ENOTFOUND") {
+  const lookup = dns.lookup.bind(dns);
+  return vi.spyOn(dns, "lookup").mockImplementation(((
+    name: string,
+    ...rest: unknown[]
+  ) => {
+    if (name === hostname) return Promise.reject(errnoError(code));
+    return (lookup as (...args: unknown[]) => Promise<unknown>)(name, ...rest);
+  }) as typeof dns.lookup);
+}
+
+/**
+ * Make the resolver never answer for `hostname` (other names resolve as
+ * usual): a query to it can only end by the STUN gather timeout. Undone by
+ * `vi.restoreAllMocks()`.
+ */
+export function hangDnsLookup(hostname: string) {
+  const lookup = dns.lookup.bind(dns);
+  return vi.spyOn(dns, "lookup").mockImplementation(((
+    name: string,
+    ...rest: unknown[]
+  ) => {
+    if (name === hostname) return new Promise<never>(() => {});
+    return (lookup as (...args: unknown[]) => Promise<unknown>)(name, ...rest);
+  }) as typeof dns.lookup);
+}

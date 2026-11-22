@@ -12,9 +12,11 @@ import {
   installPolyfill,
   type MediaRegister,
 } from "../../src/polyfill";
-import { setUdpSocketFactory } from "../../src/polyfill/sourceIo";
+import type { UdpSocketFactory } from "../../src/polyfill/sourceIo";
 
 const TYPESCRIPT_COMPILE_TIMEOUT_MS = 120_000;
+export const TYPESCRIPT_COMPILE_TEST_TIMEOUT_MS =
+  TYPESCRIPT_COMPILE_TIMEOUT_MS + 5_000;
 
 export function compilePolyfillFixture(fixtureName: string) {
   const project = path.join(__dirname, fixtureName);
@@ -116,10 +118,14 @@ export function createHangingNodeStream() {
 }
 
 export async function withUdpSocketCounter<T>(
-  run: (sockets: { created: number; open: () => number }) => Promise<T>,
+  run: (sockets: {
+    created: number;
+    open: () => number;
+    createSocket: UdpSocketFactory;
+  }) => Promise<T>,
 ): Promise<T> {
   const sockets: Array<{ closed: boolean }> = [];
-  setUdpSocketFactory(() => {
+  const createCountedSocket: UdpSocketFactory = () => {
     const socket = createSocket("udp4");
     const rec = { closed: false };
     socket.once("close", () => {
@@ -127,19 +133,16 @@ export async function withUdpSocketCounter<T>(
     });
     sockets.push(rec);
     return socket;
+  };
+  return run({
+    get created() {
+      return sockets.length;
+    },
+    open() {
+      return sockets.filter((socket) => !socket.closed).length;
+    },
+    createSocket: createCountedSocket,
   });
-  try {
-    return await run({
-      get created() {
-        return sockets.length;
-      },
-      open() {
-        return sockets.filter((socket) => !socket.closed).length;
-      },
-    });
-  } finally {
-    setUdpSocketFactory();
-  }
 }
 
 /** Decode serialized RTP packets (from {@link waitForRtp}) as VP8 payloads. */

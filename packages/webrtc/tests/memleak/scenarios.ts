@@ -333,6 +333,12 @@ export function createDataChannelScenario(env: MemleakEnv): Scenario {
   };
 }
 
+/**
+ * media シナリオで未受信のまま送ってよい RTP パケット数。これを超えたら受信を
+ * 待つ (loopback の UDP 受信バッファあふれを避ける)。
+ */
+const MEDIA_SEND_WINDOW = 256;
+
 export function createMediaScenario(env: MemleakEnv): Scenario {
   const budget = computeBudgets(env).media;
   const framesPerCycle = budget.unitsPerCycle;
@@ -386,9 +392,14 @@ export function createMediaScenario(env: MemleakEnv): Scenario {
         await exchangeOfferAnswer(sendonly, recvonly);
         await Promise.all([waitConnected(sendonly), senderReady]);
 
-        // 時間加速: 30fps ペーシング無しでタイトループ送信
+        // 時間加速: 30fps のペーシングはせず、受信側に追いつかれる速さで送る。
+        // 未受信が MEDIA_SEND_WINDOW を超えたら少し待つ (loopback の UDP 受信
+        // バッファがあふれてカーネルが捨てる (RcvbufErrors) のを避ける)。それ
+        // でも落ちた分は追加で送り、受信が framesPerCycle に届くまで続ける
+        // (RTP には再送がない)。処理量は受信数で数える。
         const payload = Buffer.alloc(64, 0x11);
-        for (let i = 0; i < framesPerCycle; i++) {
+        const maxFrames = framesPerCycle * 2;
+        for (let i = 0; received < framesPerCycle && i < maxFrames; i++) {
           const packet = new RtpPacket(
             new RtpHeader({
               sequenceNumber: i % 65536,
@@ -400,6 +411,13 @@ export function createMediaScenario(env: MemleakEnv): Scenario {
           );
           track.writeRtp(packet);
           await yieldOccasionally(i, 64);
+          if (i + 1 - received > MEDIA_SEND_WINDOW) {
+            await new Promise<void>((r) => setTimeout(r, 1));
+          }
+          // 送り終えたら、落ちた分の追加送信の前に遅れて届く分を待つ。
+          if (i + 1 >= framesPerCycle && received < framesPerCycle) {
+            await new Promise<void>((r) => setTimeout(r, 5));
+          }
         }
 
         await receiveDone;

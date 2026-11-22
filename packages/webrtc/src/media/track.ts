@@ -31,32 +31,25 @@ export type RtpReceiveInfo = {
   type: RtpReceivePacketType;
 };
 
-const sourceCodecsByTrack = new WeakMap<
-  MediaStreamTrack,
-  readonly RTCRtpCodecParameters[]
->();
-const sourceCodecsCapturedByTrack = new WeakSet<MediaStreamTrack>();
-
 export function setTrackSourceCodecs(
   track: MediaStreamTrack,
   codecs: readonly RTCRtpCodecParameters[] | undefined,
 ) {
-  sourceCodecsCapturedByTrack.add(track);
-  if (codecs == undefined) sourceCodecsByTrack.delete(track);
-  else sourceCodecsByTrack.set(track, codecs);
+  track.sourceCodecsCaptured = true;
+  track.sourceCodecs = codecs;
 }
 
 export function getTrackSourceCodecs(
   track: MediaStreamTrack | undefined | null,
 ) {
-  return track == undefined ? undefined : sourceCodecsByTrack.get(track);
+  return track?.sourceCodecs;
 }
 
 export function captureTrackSourceCodecs(track: MediaStreamTrack) {
-  if (sourceCodecsCapturedByTrack.has(track)) return;
-  sourceCodecsCapturedByTrack.add(track);
+  if (track.sourceCodecsCaptured) return;
+  track.sourceCodecsCaptured = true;
   if (track.codec != undefined) {
-    sourceCodecsByTrack.set(track, [track.codec]);
+    track.sourceCodecs = [track.codec];
   }
 }
 
@@ -145,6 +138,14 @@ export class MediaStreamTrack extends EventTarget {
 
   stopped = false;
   muted = true;
+  /**
+   * @internal The codecs the source produces, set by
+   * {@link setTrackSourceCodecs} or captured from `codec` when the track is
+   * first attached to a sender ({@link captureTrackSourceCodecs}).
+   */
+  sourceCodecs?: readonly RTCRtpCodecParameters[];
+  /** @internal Whether {@link sourceCodecs} is already decided. */
+  sourceCodecsCaptured = false;
   private broadcastSource: TrackBroadcastSource;
 
   constructor(
@@ -208,6 +209,15 @@ export class MediaStreamTrack extends EventTarget {
     this.broadcastSource.deliverRtcp(rtcp);
   };
 
+  /**
+   * Tell the senders of this track that the RTP written with {@link writeRtp}
+   * now comes from another source (for example a recreated upstream
+   * connection). Each `RTCRtpSender` continues its output sequence number /
+   * timestamp from the last sent packet (timestamp step 1; use
+   * `RTCRtpSender.replaceRTP` to choose the step) and drops queued packets of
+   * the old source. `header` is kept for compatibility and is not used for the
+   * offsets. Without an `RTCRtpSender`, use `RtpTimelineRewriter`.
+   */
   notifySourceChanged(header: Pick<RtpHeader, "sequenceNumber" | "timestamp">) {
     this.broadcastSource.deliverSourceChanged(header);
   }
@@ -244,8 +254,8 @@ export class MediaStreamTrack extends EventTarget {
       header: this.header,
       broadcastSource: this.broadcastSource,
     });
-    if (sourceCodecsCapturedByTrack.has(this)) {
-      setTrackSourceCodecs(cloned, getTrackSourceCodecs(this));
+    if (this.sourceCodecsCaptured) {
+      setTrackSourceCodecs(cloned, this.sourceCodecs);
     } else {
       captureTrackSourceCodecs(cloned);
     }

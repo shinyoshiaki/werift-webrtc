@@ -76,7 +76,7 @@ async function hasDirectTcpAllocation(pc: RTCPeerConnection) {
 }
 
 describe("datachannel/ice tcp", () => {
-  test("exchanges data over direct ICE-TCP between Chrome and werift", async ({
+  it("exchanges data over direct ICE-TCP between Chrome and werift", async ({
     skip,
   }: {
     skip: (message?: string) => void;

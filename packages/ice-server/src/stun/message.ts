@@ -1,4 +1,4 @@
-import { createHmac, randomBytes } from "crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 
 import { crc32 } from "../../../common/src";
 
@@ -19,9 +19,29 @@ import {
   FINGERPRINT_XOR,
   HEADER_LENGTH,
   INTEGRITY_LENGTH,
+  INTEGRITY_SHA256_MIN_VALUE_LENGTH,
+  INTEGRITY_SHA256_VALUE_LENGTH,
   isStunMessage,
+  type MessageIntegrityAlgorithm,
+  type MessageIntegrityMode,
   type methods,
 } from "./const";
+
+/** HMAC-SHA1 length of MESSAGE-INTEGRITY (RFC 8489 §14.5). */
+const INTEGRITY_SHA1_VALUE_LENGTH = INTEGRITY_LENGTH - 4;
+
+/**
+ * Whether `length` is an allowed MESSAGE-INTEGRITY-SHA256 value length:
+ * 16 to 32 bytes in steps of 4 (RFC 8489 §14.6).
+ */
+export function isValidIntegritySha256Length(length: number) {
+  return (
+    Number.isInteger(length) &&
+    length >= INTEGRITY_SHA256_MIN_VALUE_LENGTH &&
+    length <= INTEGRITY_SHA256_VALUE_LENGTH &&
+    length % 4 === 0
+  );
+}
 
 export function parseMessage(
   data: Buffer,
@@ -39,9 +59,13 @@ export function parseMessage(
   const attributeRepository = new AttributeRepository();
   const rawAttributes: RawAttribute[] = [];
   const alternateServers: unknown[] = [];
-  // When integrityKey is provided, MESSAGE-INTEGRITY must be present and valid
-  // (RFC 5389 short-term credentials / RFC 7675 authenticated consent responses).
-  let messageIntegrityVerified = false;
+  // When integrityKey is provided, MESSAGE-INTEGRITY or
+  // MESSAGE-INTEGRITY-SHA256 must be present and valid (RFC 8489 short-term
+  // credentials / RFC 7675 authenticated consent responses). Both are checked
+  // where they appear and decided after the loop: with both present only
+  // MESSAGE-INTEGRITY-SHA256 counts (RFC 8489 §9.1.4).
+  let integrityValid: boolean | undefined;
+  let integritySha256Valid: boolean | undefined;
   let sawIntegrity = false;
   let sawIntegritySha256 = false;
 
@@ -109,13 +133,25 @@ export function parseMessage(
           return undefined;
         }
       } else if (attrName === "MESSAGE-INTEGRITY" && integrityKey) {
-        const integrity = messageIntegrity(data.slice(0, pos), integrityKey);
-        const expected =
-          attributeRepository.getAttributeValue("MESSAGE-INTEGRITY");
-        if (!integrity.equals(expected)) {
+        integrityValid = integrityMatches(
+          payload,
+          computeIntegrity(
+            data.slice(0, pos),
+            integrityKey,
+            "sha1",
+            INTEGRITY_SHA1_VALUE_LENGTH,
+          ),
+        );
+      } else if (attrName === "MESSAGE-INTEGRITY-SHA256" && integrityKey) {
+        // A truncation outside 16..32 / not a multiple of 4 is malformed
+        // (RFC 8489 §14.6).
+        if (!isValidIntegritySha256Length(attrLen)) {
           return undefined;
         }
-        messageIntegrityVerified = true;
+        integritySha256Valid = integrityMatches(
+          payload,
+          computeIntegrity(data.slice(0, pos), integrityKey, "sha256", attrLen),
+        );
       }
     } else {
       rawAttributes.push({
@@ -128,9 +164,14 @@ export function parseMessage(
     pos = valueEnd + padLen;
   }
 
-  // Reject unsigned messages when the caller required authentication.
-  if (integrityKey && !messageIntegrityVerified) {
-    return undefined;
+  // Reject unsigned or forged messages when the caller required
+  // authentication. MESSAGE-INTEGRITY-SHA256 takes precedence: a message
+  // carrying both is verified with it alone (RFC 8489 §9.1.4).
+  if (integrityKey) {
+    const verified = sawIntegritySha256 ? integritySha256Valid : integrityValid;
+    if (!verified) {
+      return undefined;
+    }
   }
 
   return new Message(
@@ -211,20 +252,82 @@ export class Message extends AttributeRepository {
     return Buffer.concat([header, this.transactionId, body]);
   }
 
+  /**
+   * Integrity attribute this message is signed with: MESSAGE-INTEGRITY-SHA256
+   * when present (it takes precedence, RFC 8489 §9.1.4), otherwise
+   * MESSAGE-INTEGRITY, otherwise undefined. A parsed message only keeps the
+   * integrity attributes parseMessage accepted in their RFC 8489 positions.
+   */
+  get integrityAlgorithm(): MessageIntegrityAlgorithm | undefined {
+    const keys = this.attributesKeys;
+    if (keys.includes("MESSAGE-INTEGRITY-SHA256")) return "sha256";
+    if (keys.includes("MESSAGE-INTEGRITY")) return "sha1";
+    return undefined;
+  }
+
+  /** Add MESSAGE-INTEGRITY (HMAC-SHA1) over the current attributes. */
   addMessageIntegrity(key: Buffer) {
+    // MESSAGE-INTEGRITY precedes MESSAGE-INTEGRITY-SHA256 (RFC 8489 §14.6).
+    if (this.attributesKeys.includes("MESSAGE-INTEGRITY-SHA256")) {
+      throw new Error(
+        "MESSAGE-INTEGRITY must be added before MESSAGE-INTEGRITY-SHA256",
+      );
+    }
     this.setAttribute("MESSAGE-INTEGRITY", this.messageIntegrity(key));
     return this;
   }
 
+  /** HMAC-SHA1 MESSAGE-INTEGRITY value for the current attributes. */
   messageIntegrity(key: Buffer) {
-    const checkData = setBodyLength(
+    return computeIntegrity(
       this.bytes,
-      this.bytes.length - HEADER_LENGTH + INTEGRITY_LENGTH,
+      key,
+      "sha1",
+      INTEGRITY_SHA1_VALUE_LENGTH,
     );
-    return Buffer.from(
-      createHmac("sha1", key).update(checkData).digest("hex"),
-      "hex",
+  }
+
+  /**
+   * Add MESSAGE-INTEGRITY-SHA256 (HMAC-SHA256, RFC 8489 §14.6) over the
+   * current attributes, including a preceding MESSAGE-INTEGRITY.
+   * `length` truncates the HMAC: 16 to 32 bytes in steps of 4.
+   */
+  addMessageIntegritySha256(
+    key: Buffer,
+    length: number = INTEGRITY_SHA256_VALUE_LENGTH,
+  ) {
+    if (!isValidIntegritySha256Length(length)) {
+      throw new RangeError(
+        `MESSAGE-INTEGRITY-SHA256 length must be 16..32 in steps of 4: ${length}`,
+      );
+    }
+    // Only FINGERPRINT may follow MESSAGE-INTEGRITY-SHA256 (RFC 8489 §14.6).
+    if (this.attributesKeys.includes("FINGERPRINT")) {
+      throw new Error(
+        "MESSAGE-INTEGRITY-SHA256 must be added before FINGERPRINT",
+      );
+    }
+    this.setAttribute(
+      "MESSAGE-INTEGRITY-SHA256",
+      computeIntegrity(this.bytes, key, "sha256", length),
     );
+    return this;
+  }
+
+  /**
+   * Sign with the short-term credential `key` using the integrity attributes
+   * `mode` selects (`"sha1"` = MESSAGE-INTEGRITY, `"sha256"` =
+   * MESSAGE-INTEGRITY-SHA256, `"both"` = both in RFC 8489 order). Chain
+   * `addFingerprint()` afterwards.
+   */
+  addIntegrity(key: Buffer, mode: MessageIntegrityMode = "sha1") {
+    if (mode === "sha1" || mode === "both") {
+      this.addMessageIntegrity(key);
+    }
+    if (mode === "sha256" || mode === "both") {
+      this.addMessageIntegritySha256(key);
+    }
+    return this;
   }
 
   addFingerprint() {
@@ -281,14 +384,31 @@ function messageFingerprint(data: Buffer) {
   return (crc32(checkData) ^ FINGERPRINT_XOR) >>> 0;
 }
 
-function messageIntegrity(data: Buffer, key: Buffer) {
+/**
+ * HMAC over `data` (the message up to the integrity attribute) with the
+ * header length rewritten to end right after an integrity attribute of
+ * `length` value bytes, truncated to `length` (RFC 8489 §14.5 / §14.6).
+ */
+function computeIntegrity(
+  data: Buffer,
+  key: Buffer,
+  algorithm: MessageIntegrityAlgorithm,
+  length: number,
+) {
   const checkData = setBodyLength(
     data,
-    data.length - HEADER_LENGTH + INTEGRITY_LENGTH,
+    data.length - HEADER_LENGTH + 4 + length + paddingLength(length),
   );
-  return Buffer.from(
-    createHmac("sha1", key).update(checkData).digest("hex"),
-    "hex",
+  return createHmac(algorithm, key)
+    .update(checkData)
+    .digest()
+    .subarray(0, length);
+}
+
+/** Constant-time comparison of a received and a computed integrity value. */
+function integrityMatches(received: Buffer, expected: Buffer) {
+  return (
+    received.length === expected.length && timingSafeEqual(received, expected)
   );
 }
 

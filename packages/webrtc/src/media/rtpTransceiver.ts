@@ -3,11 +3,7 @@ import type { RTCDtlsTransport } from "..";
 import { SenderDirections } from "../const";
 import { createWebRtcTypeError } from "../errors";
 import { Event } from "../imports/common";
-import {
-  getApplicationStopRevision,
-  noteApplicationStop,
-  type TransceiverNegotiationState,
-} from "../negotiation/internalState";
+import type { TransceiverNegotiationState } from "../negotiation/internalState";
 import type { Kind } from "../types/domain";
 import { cloneCodecParameters } from "./codec";
 import type {
@@ -25,6 +21,13 @@ import {
 } from "./stats";
 import type { MediaStream, MediaStreamTrack } from "./track";
 
+/**
+ * @internal The operation that created a transceiver. Under
+ * `transceiverPairing: "standard"` only an `"addTrack"` one may be associated
+ * with a remote offer m-section whose MID it does not have (RFC 8829 5.10).
+ */
+export type TransceiverOrigin = "addTrack" | "addTransceiver" | "remote";
+
 export class RTCRtpTransceiver {
   public readonly kind: Kind;
   public receiver: RTCRtpReceiver;
@@ -36,6 +39,20 @@ export class RTCRtpTransceiver {
   readonly onTrack = new Event<[MediaStreamTrack, RTCRtpTransceiver]>();
   mid: string | null = null;
   mLineIndex?: number;
+  /**
+   * @internal Which operation created this transceiver (JSEP 5.10 pairing,
+   * see {@link TransceiverOrigin}). An application property: it is not part
+   * of the negotiation snapshot, so a rollback does not change it, except
+   * for the promotion of a remote one the application reused with
+   * `addTrack()` (`reusedForAddTrack`).
+   */
+  createdBy: TransceiverOrigin = "addTransceiver";
+  /**
+   * @internal A transceiver a remote offer created that `addTrack()` reused.
+   * A rollback that keeps it promotes it to `createdBy: "addTrack"`
+   * (JSEP 4.1.8.2), so a later remote offer can associate it again.
+   */
+  reusedForAddTrack = false;
   /**should not be reused because it has been used for sending before. */
   usedForSender = false;
   private _currentDirection?: CurrentDirection;
@@ -43,6 +60,7 @@ export class RTCRtpTransceiver {
   _codecs: RTCRtpCodecParameters[] = [];
   set codecs(codecs: RTCRtpCodecParameters[]) {
     this._codecs = codecs;
+    this.negotiatedCodecsStale = false;
   }
   get codecs() {
     return this._codecs;
@@ -53,11 +71,28 @@ export class RTCRtpTransceiver {
   pendingLocalOfferCodecs?: RTCRtpCodecParameters[];
   codecPreferencesNeedResolution = false;
   /**
+   * Internal: an application change (`markCodecsForResolution`) made the
+   * negotiated `codecs`, kept live, stale for the next answer: it resolves
+   * them again, as for empty codecs. The next write of `codecs` clears it.
+   */
+  negotiatedCodecsStale = false;
+  /**
    * Counts application changes to the codecs this transceiver may use
    * (`setCodecPreferences()`, a track attached by `addTrack()`). A rollback
    * keeps such a change instead of restoring the baseline's resolved codecs.
    */
   private codecChangeRevision = 0;
+  /**
+   * Counts application `stop()` calls. An application operation: it is not
+   * restored by a rollback, which keeps a stop made during the rolled-back
+   * negotiation.
+   */
+  private _applicationStopRevision = 0;
+
+  /** @internal How many times the application called `stop()`. */
+  get applicationStopRevision() {
+    return this._applicationStopRevision;
+  }
 
   get codecPreferences(): readonly RTCRtpCodecParameters[] | undefined {
     return this._codecPreferences;
@@ -83,10 +118,33 @@ export class RTCRtpTransceiver {
    * Internal: an application change makes the next offer / answer resolve
    * this transceiver's codecs again. The live sender and receiver keep the
    * committed codecs until a description is committed.
+   *
+   * A negotiated transceiver keeps `codecs` (the negotiated codecs that
+   * `getPayloadType()`, stats and the live tables use): its offers are
+   * resolved again every time anyway, keeping these payload types
+   * (`TransceiverManager.resolveOfferCodecs`).
    */
   markCodecsForResolution() {
     this.codecChangeRevision++;
-    this._codecs = [];
+    if (this.hasNegotiatedCodecs) this.negotiatedCodecsStale = true;
+    else this._codecs = [];
+  }
+
+  /** Internal: the next answer resolves this transceiver's codecs again. */
+  get needsCodecResolution() {
+    return (
+      this._codecs.length === 0 ||
+      this.negotiatedCodecsStale ||
+      this.codecPreferencesNeedResolution
+    );
+  }
+
+  /** a committed answer gave this transceiver its current codecs */
+  private get hasNegotiatedCodecs() {
+    return (
+      this._currentDirection != undefined &&
+      this._currentDirection !== "stopped"
+    );
   }
   options: Partial<TransceiverOptions> = {};
   /**stop() 済み、または停止が確定した transceiver */
@@ -200,6 +258,7 @@ export class RTCRtpTransceiver {
         ...this.pendingLocalOfferCodecs,
       ],
       codecPreferencesNeedResolution: this.codecPreferencesNeedResolution,
+      negotiatedCodecsStale: this.negotiatedCodecsStale,
       codecChangeRevision: this.codecChangeRevision,
       headerExtensions: this.headerExtensions,
       offerDirection: this.offerDirection,
@@ -209,7 +268,7 @@ export class RTCRtpTransceiver {
       rejected: this.rejected,
       pendingRejection: this.pendingRejection,
       firedReceiving: this.firedReceiving,
-      applicationStopRevision: getApplicationStopRevision(this),
+      applicationStopRevision: this._applicationStopRevision,
       dtlsTransport: this.dtlsTransport,
       sender: this.sender.snapshotSendParams(),
       receiver: this.receiver.snapshotNegotiationState(),
@@ -227,10 +286,16 @@ export class RTCRtpTransceiver {
     // stays: the next offer / answer resolves the codecs again.
     if (this.codecChangeRevision === state.codecChangeRevision) {
       this.codecs = state.codecs;
+      this.negotiatedCodecsStale = state.negotiatedCodecsStale;
       this.codecPreferencesNeedResolution =
         state.codecPreferencesNeedResolution;
     } else {
-      this.codecs = [];
+      // A negotiated baseline keeps its codecs live (markCodecsForResolution).
+      this.codecs =
+        state.currentDirection != undefined &&
+        state.currentDirection !== "stopped"
+          ? state.codecs
+          : [];
       this.codecPreferencesNeedResolution = true;
     }
     this.headerExtensions = state.headerExtensions;
@@ -240,7 +305,7 @@ export class RTCRtpTransceiver {
     // negotiation stays.
     this.stopping =
       state.stopping ||
-      getApplicationStopRevision(this) !== state.applicationStopRevision;
+      this._applicationStopRevision !== state.applicationStopRevision;
     this.stopped = state.stopped;
     this.rejected = state.rejected;
     this.pendingRejection = state.pendingRejection;
@@ -251,13 +316,23 @@ export class RTCRtpTransceiver {
   }
 
   /**
-   * Internal: the application sends on this transceiver (its sender has a
-   * track), so a rollback keeps it even if a remote offer created it. As in
-   * develop, only a track counts: stop(), a direction or codec preferences
-   * set on a remote-created transceiver do not keep it.
+   * Internal: the application uses this transceiver, so a rollback keeps it
+   * even if a remote offer created it. It is held once `addTrack()` attached a
+   * track to it (W3C rollback: only a transceiver addTrack never touched is
+   * removed), also after `replaceTrack(null)` / `removeTrack()` detached that
+   * track, or while its sender has a track (werift keeps one given a track by
+   * `replaceTrack()` alone). stop(), a direction or codec preferences set on a
+   * remote-created transceiver do not keep it. Only a remote-created
+   * transceiver can be removed, and `addTrack()` reusing one sets
+   * `reusedForAddTrack`; one `addTrack()` created has `createdBy: "addTrack"`.
+   * Both are instance state a rollback does not restore.
    */
   get heldByApplication() {
-    return !!this.sender.track;
+    return (
+      this.createdBy === "addTrack" ||
+      this.reusedForAddTrack ||
+      !!this.sender.track
+    );
   }
 
   get msid() {
@@ -288,7 +363,7 @@ export class RTCRtpTransceiver {
    * 冪等で、2 回目以降は何もしない。
    */
   stop() {
-    noteApplicationStop(this);
+    this._applicationStopRevision++;
     if (this.stopping) {
       return;
     }

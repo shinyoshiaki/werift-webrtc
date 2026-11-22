@@ -50,11 +50,25 @@ that entry also releases the fallback allocation.
 
 ### onDataReceived
 
-> **onDataReceived**: [`Event`](Event.md)\<\[`Buffer`\<`ArrayBufferLike`\>\]\>
+> **onDataReceived**: [`Event`](Event.md)\<\[`Buffer`\<`ArrayBufferLike`\>, readonly \[`string`, `number`\]\]\>
+
+Application data (not STUN) and the remote address it came from.
 
 #### Implementation of
 
 [`Protocol`](../interfaces/Protocol.md).[`onDataReceived`](../interfaces/Protocol.md#ondatareceived)
+
+***
+
+### onPathBroken
+
+> `readonly` **onPathBroken**: [`Event`](Event.md)\<\[readonly \[`string`, `number`\] \| `undefined`, `Error`\]\>
+
+See `Protocol.onPathBroken`: the TURN allocation is lost (every path of this protocol).
+
+#### Implementation of
+
+[`Protocol`](../interfaces/Protocol.md).[`onPathBroken`](../interfaces/Protocol.md#onpathbroken)
 
 ***
 
