@@ -225,8 +225,9 @@ export class CandidatePair implements CandidatePairStats {
    * was answered: `rtt` (the stats' `currentRoundTripTime`), the totals and
    * the samples of {@link smoothedRtt}.
    */
-  recordRoundTrip(rtt: number) {
-    this.rtt = rtt;
+  recordRoundTrip(rtt: number, { latest = true }: { latest?: boolean } = {}) {
+    // `latest: false`: a response to an older check than the one `rtt` came from.
+    if (latest) this.rtt = rtt;
     this.totalRoundTripTime += rtt;
     this.roundTripTimeMeasurements++;
     this.rttSamples.push(rtt);
