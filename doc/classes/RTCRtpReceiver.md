@@ -839,11 +839,9 @@ until the transaction commits, and rollback drops the staged value.
 
 > **readsRepairedRid**(`ssrc`, `repairedRid`): `boolean`
 
-Internal (router): a packet of `ssrc`, already routed here, naming the
-repaired RID `repairedRid` is handled by that RID: `ssrc` is the RTX
-SSRC of a committed `a=ssrc-group:FID` of this RID m-line, or an SSRC no
-RID, track or SDP RTX pair claims yet (for example the RTX SSRC of a FID
-pair a commit removed). An RTX SSRC a repaired RID bound keeps its RID.
+Internal (router): a packet of `ssrc` routed here is handled by its
+repaired RID `repairedRid`
+(tests/media/firefoxSimulcastRepairedRidRoute.test.ts "simulcast (RID) RTX routed by SSRC with a repaired RID (readsRepairedRid)").
 
 #### Parameters
 
@@ -1362,6 +1360,21 @@ Internal: capture the decode tables for a negotiation rollback baseline.
 #### Returns
 
 `void`
+
+***
+
+### takeDroppedFidRtxSsrcs()
+
+> **takeDroppedFidRtxSsrcs**(): `number`[]
+
+Internal (router): FID RTX SSRCs a commit removed that the description
+no longer describes otherwise; their description routes go
+(tests/media/firefoxSimulcastRepairedRidRoute.test.ts "確定で FID の組が外れた RTX SSRC を BUNDLE の別 m-line が MID と repaired RID 付きで使うと、その m-line の RID のトラックへ復元される";
+tests/media/firefoxSimulcastRepairedRidRoute.test.ts "RID の m-line が FID の組を外して SSRC で送る記述に変わっても、a=ssrc の RTX として記述された RTX SSRC は経路を失わず復元される").
+
+#### Returns
+
+`number`[]
 
 ***
 

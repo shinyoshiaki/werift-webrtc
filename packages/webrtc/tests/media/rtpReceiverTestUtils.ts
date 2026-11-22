@@ -677,3 +677,15 @@ export async function receiveFirefoxSimulcastBundleOffer(sdp: string) {
   };
   return { pc, router, route, deliveredOf, remoteOffer };
 }
+
+/**
+ * Arrange: the m-line of {@link firefoxSimulcastSdp} sending one stream by
+ * SSRC instead of RIDs (no `a=rid` / `a=simulcast`): `a=ssrc` of `media` and
+ * `rtx` with their `a=ssrc-group:FID`.
+ */
+export function firefoxSingleStreamOfferWithFid(media: number, rtx: number) {
+  return firefoxSimulcastOfferWithFid([[media, rtx]])
+    .split("\r\n")
+    .filter((line) => !/^a=(rid|simulcast):/.test(line))
+    .join("\r\n");
+}

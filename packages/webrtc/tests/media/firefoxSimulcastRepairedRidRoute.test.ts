@@ -2,11 +2,13 @@ import { describe, expect, test, vi } from "vitest";
 import type { RTCRtpReceiver } from "../../src";
 import type { RtpRouter } from "../../src/media/router";
 import {
+  collectDeliveredRtp,
   createSimulcastMediaPacket,
   createSimulcastRtxFor,
   firefoxSimulcastBundleOfferWithFid,
   firefoxSimulcastLayers,
   firefoxSimulcastOfferWithFid,
+  firefoxSingleStreamOfferWithFid,
   receiveFirefoxSimulcastBundleOffer,
   receiveFirefoxSimulcastOffer,
   retransmissionsOf,
@@ -188,6 +190,46 @@ describe("simulcast (RID) RTX routed by SSRC with a repaired RID (readsRepairedR
       expect(router.ssrcTable[rtxSsrc]).toBe(mid1Receiver);
       expect(retransmissionsOf(delivered.mid1)).toEqual([[otherHighSsrc, 2]]);
       expect(retransmissionsOf(delivered.mid0)).toEqual([]);
+    } finally {
+      await pc.close();
+    }
+  });
+
+  test("RID の m-line が FID の組を外して SSRC で送る記述に変わっても、a=ssrc の RTX として記述された RTX SSRC は経路を失わず復元される", async () => {
+    // Arrange: RTX SSRC を high の媒体と FID で組にした RID の offer を確定する。
+    const { pc, route, remoteOffer, receiver } = await arrange([
+      [high.ssrc, rtxSsrc],
+    ]);
+    const { router } = pc as unknown as { router: RtpRouter };
+    try {
+      // Act: 同じ m-line を、同じ媒体 SSRC と RTX SSRC を a=ssrc / FID で記述し RID を持たない記述にして確定する。
+      await remoteOffer(firefoxSingleStreamOfferWithFid(high.ssrc, rtxSsrc));
+
+      // Assert: RTX SSRC は SSRC 記述の RTX として残り、経路はこの受信者のまま。
+      expect(router.ssrcTable[rtxSsrc]).toBe(receiver);
+
+      // Act: 媒体 7, 9 を SSRC だけで送り、欠落 8 を repaired RID なしの RTX で再送する。
+      const track = receiver.trackBySSRC[high.ssrc];
+      const delivered = collectDeliveredRtp(track);
+      for (const sequenceNumber of [7, 9]) {
+        route(
+          createSimulcastMediaPacket({
+            ssrc: high.ssrc,
+            sequenceNumber,
+            mid: "0",
+          }),
+        );
+      }
+      route(
+        createSimulcastRtxFor(high.ssrc, 8, {
+          rtxSsrc,
+          rtxSequenceNumber: 10,
+          mid: "0",
+        }),
+      );
+
+      // Assert: 欠落 8 は SSRC のトラックへ復元される。
+      expect(retransmissionsOf(delivered)).toEqual([[high.ssrc, 8]]);
     } finally {
       await pc.close();
     }

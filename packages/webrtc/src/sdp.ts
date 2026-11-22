@@ -292,7 +292,7 @@ export class SessionDescription {
             case "rid":
               {
                 const [rid, rest] = divide(value, " ");
-                // `<direction>[ <restrictions>]` (RFC 8851)
+                // (tests/sdp.test.ts "a=rid の方向と制約を分けて読み、書き戻すと元の行になる")
                 const [direction, ...restrictions] = (rest ?? "").split(" ");
 
                 currentMedia.simulcastParameters.push(

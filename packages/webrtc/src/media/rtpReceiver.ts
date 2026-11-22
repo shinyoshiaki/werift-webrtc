@@ -141,22 +141,17 @@ export class RTCRtpReceiver {
   }
   private readonly ssrcByRtx: { [rtxSsrc: number]: number } = {};
   /**
-   * RTX SSRC → media SSRC of the `a=ssrc-group:FID` of the committed
-   * description of an m-line sent by RID. An RTX packet of such an RTX SSRC
-   * without a repaired RID repairs the RID that carries (or carried) that
-   * media SSRC, derived at each packet (see {@link mediaSsrcOfRtx}): nothing
-   * is bound from it, so a change of the table leaves no stale state. The
-   * RID's current media SSRC and the hole / duplicate checks still decide.
+   * RTX SSRC → media SSRC of the committed FID pairs of a RID m-line, read
+   * per packet by {@link mediaSsrcOfRtx}
+   * (tests/media/firefoxSimulcastSsrc.test.ts "再 offer が 2 レイヤーの FID の RTX SSRC を交換して確定したら、repaired RID がなくても RTX は新しい対応先のレイヤーで復元される").
    */
   private readonly ridFidMediaByRtx: { [rtxSsrc: number]: number } = {};
   private readonly stagedCodecs: { [pt: number]: RTCRtpCodecParameters } = {};
   private readonly stagedSsrcByRtx: { [rtxSsrc: number]: number } = {};
   /**
-   * The pending FID state: the whole FID table of the latest pending
-   * description (see `prepareReceive`). A pair of it that would change a
-   * current pair, or take an RTX SSRC the session bound from a repaired RID,
-   * waits here only; the commit replaces {@link ridFidMediaByRtx} with it, so
-   * a pair the committed description no longer lists does not survive.
+   * The latest pending description's whole FID table; the commit replaces
+   * {@link ridFidMediaByRtx} with it
+   * (tests/media/firefoxSimulcastSsrc.test.ts "pranswer を 2 回適用してから answer で確定しても、FID 表は最後の answer の組だけになり、repaired RID のない RTX はその組で復元される").
    */
   private stagedRidFidTable?: { [rtxSsrc: number]: number };
   /** SSRCs of `trackBySSRC` learned from RID packets rather than SDP. */
@@ -181,10 +176,7 @@ export class RTCRtpReceiver {
   /** SSRCs retired by a media SSRC change, per RID, oldest first. */
   readonly retiredSsrcsByRid: { [rid: string]: number[] } = {};
   private readonly forgottenSsrcs: number[] = [];
-  /**
-   * RTX SSRCs a committed description no longer pairs by FID on this RID
-   * m-line (see {@link takeDroppedFidRtxSsrcs}).
-   */
+  /** FID RTX SSRCs a commit removed ({@link takeDroppedFidRtxSsrcs}). */
   private readonly droppedFidRtxSsrcs: number[] = [];
   private readonly rejectedSsrcs: number[] = [];
   private readonly nack = new NackHandler(this);
@@ -577,12 +569,11 @@ export class RTCRtpReceiver {
     }
     params.ridRtxPairs?.forEach(({ ssrc, rtxSsrc }) => {
       const existing = this.ridFidMediaByRtx[rtxSsrc];
-      // A pending description does not take an RTX SSRC the current session
-      // already bound to a RID (learned from a repaired RID): it waits for
-      // the commit, so the current RTX keeps restoring until then.
       const inUse = existing === undefined && rtxSsrc in this.ridByRtxSsrc;
       const changes = existing !== undefined && existing !== ssrc;
-      // A conflicting pair waits in `stagedRidFidTable` until the commit.
+      // Staged until the commit
+      // (tests/media/firefoxSimulcastSsrc.test.ts "保留中の offer が同じ RTX SSRC に別の FID 媒体 SSRC を割り当てても、現行セッションの RTX は復元され、rollback 後も元の対応に戻る";
+      // tests/media/firefoxSimulcastSsrc.test.ts "現行通信が repaired RID で RID high に学習した RTX SSRC を、保留中の offer が RID low の FID に記載しても、確定まで high の RTX は復元され、rollback 後も復元される").
       if (deferConflicts && (changes || inUse)) return;
       if (changes) this.unbindRtxSsrc(rtxSsrc);
       this.ridFidMediaByRtx[rtxSsrc] = ssrc;
@@ -614,7 +605,7 @@ export class RTCRtpReceiver {
     Object.assign(this.ssrcByRtx, this.stagedSsrcByRtx);
     const before = { ...this.ridFidMediaByRtx };
     if (this.stagedRidFidTable) {
-      // The committed description lists the FID pairs as a whole.
+      // (tests/media/firefoxSimulcastSsrc.test.ts "再 offer が FID の組を外して確定したら、repaired RID のない RTX はその組で復元されない")
       clearTable(this.ridFidMediaByRtx);
       Object.assign(this.ridFidMediaByRtx, this.stagedRidFidTable);
     }
@@ -1210,13 +1201,9 @@ export class RTCRtpReceiver {
   };
 
   /**
-   * Internal (router): a packet of `ssrc`, already routed here, naming the
-   * repaired RID `repairedRid` is handled by that RID: `ssrc` is the RTX
-   * SSRC of a committed `a=ssrc-group:FID` of this RID m-line, or an SSRC no
-   * RID, track or SDP RTX pair claims yet. An RTX SSRC a repaired RID bound
-   * keeps its RID. (The RTX SSRC of a FID pair a commit removed loses its
-   * description route, {@link takeDroppedFidRtxSsrcs}, and is routed as an
-   * unknown SSRC.)
+   * Internal (router): a packet of `ssrc` routed here is handled by its
+   * repaired RID `repairedRid`
+   * (tests/media/firefoxSimulcastRepairedRidRoute.test.ts "simulcast (RID) RTX routed by SSRC with a repaired RID (readsRepairedRid)").
    */
   readsRepairedRid(ssrc: number, repairedRid: string) {
     if (!this.trackByRID[repairedRid]) return false;
@@ -1293,10 +1280,8 @@ export class RTCRtpReceiver {
     for (const rtxSsrc of [...(this.rtxSsrcsByRid[rid] ?? [])]) {
       if (this.repairedMediaByRtx[rtxSsrc] === old) {
         if (rtxSsrc in this.ridFidMediaByRtx) {
-          // An RTX SSRC the description pairs by FID stays the layer's RTX
-          // SSRC (its RID follows the FID media SSRC, see `ridOfFidMedia`):
-          // it only no longer counts as having repaired the old media, and
-          // restores holes of the new media SSRC alone (`NackHandler.canRepair`).
+          // A FID RTX SSRC stays the layer's
+          // (tests/media/firefoxSimulcastSsrc.test.ts "repaired RID がなくても、旧媒体 SSRC を修復した FID の RTX SSRC は、媒体 SSRC の切り替え後に新しい媒体の欠落を復元する").
           delete this.repairedMediaByRtx[rtxSsrc];
         } else {
           this.unbindRtxSsrc(rtxSsrc);
@@ -1307,10 +1292,8 @@ export class RTCRtpReceiver {
   }
 
   /**
-   * The RID that carries `media` now, or carried it before a media SSRC
-   * change retired it: the RID an RTX SSRC the FID pairs with `media`
-   * repairs. A retired media SSRC stays the RID's while the RID remembers it
-   * ({@link MAX_RETIRED_SSRCS_PER_RID}).
+   * The RID carrying `media`, or having carried it before a media SSRC change
+   * (tests/media/firefoxSimulcastSsrc.test.ts "repaired RID がなく、切り替え前に RTX を受信していなくても、切り替え後に初めて届いた FID の RTX SSRC は新しい媒体の欠落を復元する").
    */
   private ridOfFidMedia(media: number) {
     for (const [rid, current] of Object.entries(this.mediaSsrcByRid)) {
@@ -1323,9 +1306,9 @@ export class RTCRtpReceiver {
   }
 
   /**
-   * The committed FID table replaced `before`: an RTX SSRC whose pair was
-   * added, changed or removed loses what a repaired RID taught about it, so
-   * an RTX packet without a repaired RID follows the new pair alone.
+   * An RTX SSRC whose FID pair the commit added, changed or removed forgets
+   * its repaired-RID binding
+   * (tests/media/firefoxSimulcastSsrc.test.ts "repaired RID で結合を学習した後に FID が加わり、さらに FID の媒体 SSRC が変わって確定しても、新しい媒体を学習するまでは旧媒体の欠落を復元しない").
    */
   private unbindChangedFidRtx(before: { [rtxSsrc: number]: number }) {
     for (const rtx of new Set([
@@ -1418,16 +1401,10 @@ export class RTCRtpReceiver {
   }
 
   /**
-   * Internal (router): SSRCs whose packet-driven route is no longer wanted:
-   * retired by a media SSRC change of their RID or evicted by a bound. The
-   * router drops their learned routes after each packet.
-   */
-  /**
-   * Internal (router): the RTX SSRCs whose FID pair a committed description
-   * removed and that it describes no other way (no FID pair, track SSRC or
-   * RTX pair of an `a=ssrc` encoding). Their description routes go, so a
-   * later packet of the SSRC is routed as an unknown one (MID and repaired
-   * RID, possibly of another m-line of the BUNDLE).
+   * Internal (router): FID RTX SSRCs a commit removed that the description
+   * no longer describes otherwise; their description routes go
+   * (tests/media/firefoxSimulcastRepairedRidRoute.test.ts "確定で FID の組が外れた RTX SSRC を BUNDLE の別 m-line が MID と repaired RID 付きで使うと、その m-line の RID のトラックへ復元される";
+   * tests/media/firefoxSimulcastRepairedRidRoute.test.ts "RID の m-line が FID の組を外して SSRC で送る記述に変わっても、a=ssrc の RTX として記述された RTX SSRC は経路を失わず復元される").
    */
   takeDroppedFidRtxSsrcs() {
     if (this.droppedFidRtxSsrcs.length === 0) return [];
@@ -1439,6 +1416,11 @@ export class RTCRtpReceiver {
     );
   }
 
+  /**
+   * Internal (router): SSRCs whose packet-driven route is no longer wanted:
+   * retired by a media SSRC change of their RID or evicted by a bound. The
+   * router drops their learned routes after each packet.
+   */
   takeForgottenSsrcs() {
     return this.forgottenSsrcs.length === 0
       ? []
@@ -1475,18 +1457,15 @@ export class RTCRtpReceiver {
     const rtxSsrc = rtx.header.ssrc;
     const bySdp = this.ssrcByRtx[rtxSsrc];
     if (bySdp !== undefined) return bySdp;
-    // The RID the packet repairs: the repaired RID it names; else, for an
-    // RTX SSRC the committed FID pairs with a media SSRC, the RID carrying
-    // (or having carried) that media SSRC; else the RID a repaired RID bound
-    // the RTX SSRC to. Then the RID rules below.
+    // The repaired RID, else the FID media SSRC's RID, else the bound RID
+    // (tests/media/firefoxSimulcastSsrc.test.ts "FID の RTX SSRC から、すでに受信済みの番号の遅延 RTX が来ても重複して配送しない").
     const fidMedia = this.ridFidMediaByRtx[rtxSsrc];
     const rid =
       repairedRid ??
       (fidMedia !== undefined
         ? this.ridOfFidMedia(fidMedia)
         : this.ridByRtxSsrc[rtxSsrc]);
-    // A media SSRC change of the RID retired the RTX SSRC (it was not the
-    // RID's FID RTX then): its packets are dropped however they name the RID.
+    // (tests/media/router.test.ts "同じ RID の媒体 SSRC が切り替わると旧 SSRC の欠落の要求と台帳は同時に消え、遅れて届いた旧 RTX は破棄される")
     if (rid !== undefined && this.isRetired(rid, rtxSsrc)) return undefined;
     const media = rid === undefined ? undefined : this.mediaSsrcByRid[rid];
     if (media === undefined) return undefined;

@@ -78,12 +78,12 @@ export function negotiateRemoteCodecs(
   });
 }
 
-/** The remote sends this m-line's layers by RID (`a=rid:<id> send`). */
+/**
+ * The remote sends this m-line's layers by RID
+ * (tests/media/firefoxSimulcastSsrc.test.ts "simulcast (RID) receive with a=ssrc / ssrc-group:FID (Firefox)").
+ */
 function receivesByRid(media: MediaDescription) {
-  // The parsed direction keeps the restrictions (`send max-width=1280`).
-  return media.simulcastParameters.some(
-    (param) => `${param.direction}`.split(" ", 1)[0] === "send",
-  );
+  return media.simulcastParameters.some((param) => param.direction === "send");
 }
 
 function simulcastFromSendEncodings(
@@ -968,14 +968,12 @@ export class TransceiverManager {
     media: MediaDescription,
     transceiver: RTCRtpTransceiver,
   ): RTCRtpReceiveParameters {
-    // An m-line the remote sends by RID routes its layers by RID alone: its
-    // `a=ssrc` lines do not name their RID, so they give no SSRC track or
-    // route; packets naming a RID or repaired RID teach each layer's SSRCs
+    // An m-line sent by RID takes no SSRC track or route from `a=ssrc`
     // (tests/media/firefoxSimulcastSsrc.test.ts "werift の offer に対する Firefox の answer でも、トラックは RID ごとの 1 本だけで、両レイヤーの RTX は RID のトラックへ復元される").
     const byRid = receivesByRid(media);
     const ssrcs = byRid ? [] : media.ssrc;
-    // The FID pairs still say which media SSRC an RTX SSRC repairs, with or
-    // without a repaired RID extension.
+    // Its FID pairs still pair the RTX SSRCs
+    // (tests/media/firefoxSimulcastSsrc.test.ts "repaired RID がなく、切り替え前に RTX を受信していなくても、切り替え後に初めて届いた FID の RTX SSRC は新しい媒体の欠落を復元する").
     const ridRtxPairs = byRid
       ? media.ssrcGroup
           .filter(

@@ -147,36 +147,23 @@ const RETIRED_UFRAG_HISTORY = 64;
  * - RTP / router: new routing keys at once, conflicting ones staged until K
  *   (`RtpRouter`); codec and direction of current m-lines follow the
  *   effective-value rules. R restores the baseline tables.
- * - RID m-line FID table (`a=ssrc-group:FID` of an m-line the remote sends
- *   by RID: RTX SSRC → media SSRC, `RTCRtpReceiver.ridFidMediaByRtx`; no
- *   SSRC track or media-SSRC route is made from it, the RID's media SSRC is
- *   learned from packets). Pending (remote offer / pranswer,
- *   `prepareReceive` with deferred conflicts): a pair for an RTX SSRC the
- *   current session knows nothing about applies at once; a pair that changes
- *   a current pair, or names an RTX SSRC the session already bound to a RID
- *   from a repaired RID, waits in the staged table, so the current RTX keeps
- *   restoring into its current RID. The staged table
- *   (`RTCRtpReceiver.stagedRidFidTable`) is the latest description's whole
- *   FID table; a later pranswer replaces it. The router routes the RTX SSRC to the
- *   receiver, staging a conflicting route and keeping one the receiver
- *   learned from packets. K (`commitStagedReceive`; `resyncCodecs` when the
- *   final answer is the remote one) replaces the table by the committed
- *   description's pairs as a whole, so a pair it no longer lists does not
- *   survive, and drops the repaired-RID binding of every RTX SSRC whose pair
- *   was added, changed or removed. After K the router drops the description
- *   route of an RTX SSRC the committed description no longer describes
- *   (`RtpRouter.releaseDroppedFidRtx`), so a later packet of it is routed as
- *   an unknown SSRC by MID and repaired RID (another m-line of the BUNDLE
- *   may use it); a route packets taught stays. R restores the table and its staged
- *   values from the `RTCRtpReceiver` baseline (`snapshotReceiveTables` /
- *   `restoreReceiveTables`) and the routes from `RtpRouter.snapshotRoutes`.
- *   The RID an RTX packet repairs is derived per packet from the current
- *   table (the RID carrying, or having carried, its FID media SSRC), so no
- *   binding of the rolled-back pairs is left; restore still requires a hole
- *   of that RID's current media SSRC (tests:
- *   tests/media/firefoxSimulcastSsrc.test.ts,
- *   tests/media/firefoxSimulcastFidMatrix.test.ts,
- *   tests/media/firefoxSimulcastRepairedRidRoute.test.ts).
+ * - RID m-line FID table (`RTCRtpReceiver.ridFidMediaByRtx`, the
+ *   `a=ssrc-group:FID` of an m-line the remote sends by RID; no SSRC track or
+ *   media route comes from it). Pending: a new pair applies at once; one that
+ *   changes a current pair or takes an RTX SSRC bound from a repaired RID is
+ *   staged
+ *   (tests/media/firefoxSimulcastSsrc.test.ts "保留中の offer が同じ RTX SSRC に別の FID 媒体 SSRC を割り当てても、現行セッションの RTX は復元され、rollback 後も元の対応に戻る";
+ *   tests/media/firefoxSimulcastSsrc.test.ts "現行通信が repaired RID で RID high に学習した RTX SSRC を、保留中の offer が RID low の FID に記載しても、確定まで high の RTX は復元され、rollback 後も復元される").
+ *   K replaces the table as a whole
+ *   (tests/media/firefoxSimulcastSsrc.test.ts "pranswer を 2 回適用してから answer で確定しても、FID 表は最後の answer の組だけになり、repaired RID のない RTX はその組で復元される";
+ *   tests/media/firefoxSimulcastSsrc.test.ts "再 offer が FID の組を外して確定したら、repaired RID のない RTX はその組で復元されない"),
+ *   drops the repaired-RID binding of each changed pair
+ *   (tests/media/firefoxSimulcastSsrc.test.ts "repaired RID で結合を学習した後に FID が加わり、さらに FID の媒体 SSRC が変わって確定しても、新しい媒体を学習するまでは旧媒体の欠落を復元しない")
+ *   and the router route of each removed pair
+ *   (tests/media/firefoxSimulcastRepairedRidRoute.test.ts "確定で FID の組が外れた RTX SSRC を BUNDLE の別 m-line が MID と repaired RID 付きで使うと、その m-line の RID のトラックへ復元される").
+ *   R restores table and routes
+ *   (tests/media/firefoxSimulcastSsrc.test.ts "保留中の offer だけが記述した FID の RTX SSRC は、rollback で経路ごと元に戻る").
+ *   Orderings: tests/media/firefoxSimulcastFidMatrix.test.ts "simulcast (RID) RTX restore across FID changes (ordering matrix)".
  * - Codecs: every offer lists what each transceiver can use now, whatever
  *   the last answer kept, and the negotiated codecs as negotiated (payload
  *   type, fmtp, rtcp-fb; paired with the configured codecs by the rule
@@ -341,7 +328,7 @@ export class NegotiationTransaction {
     for (const transceiver of this.transceivers.getTransceivers()) {
       transceiver.receiver.commitStagedReceive();
     }
-    // FID pairs of RID m-lines the commit removed take their routes along.
+    // (tests/media/firefoxSimulcastRepairedRidRoute.test.ts "確定で FID の組が外れた RTX SSRC を BUNDLE の別 m-line が MID と repaired RID 付きで使うと、その m-line の RID のトラックへ復元される")
     this.router.releaseDroppedFidRtx();
     this.transceivers.notifyCommittedRemoteTracks();
     // The recycling offer is final: the displaced transceiver stops for good.
