@@ -19,6 +19,20 @@ controlling 側の werift が、選択中のペアを「書き込み可否 → �
 
 初回実装は [0752292b6](review-diff:packages/ice/src/nomination/selectionController.ts:commit:0752292b6) と、テスト用 UDP 中継のタイマー後始末を直した c71d9123a です。今回の再レビュー（4 回目）では、「非受信」の起点の取り方を failover と共通化する修正（94e4eeff1 / c846a3a8a / 831ee3dd8）が入っています。ベースブランチ `main` との差分には他チケットの取り込みが大量に含まれるので、チケット固有のコミットだけを見れば足ります。
 
+## 1.0 受け入れテスト（ここだけ見れば目的の達成を確認できます）
+
+[packages/ice/tests/ice/selection-acceptance.test.ts:19](review-file:packages/ice/tests/ice/selection-acceptance.test.ts:19) は実ソケットとローカル TURN で、priority が同じ relay 2 本の片方だけを UDP 中継で遅くします。準備処理は [packages/ice/tests/utils.ts](review-diff:packages/ice/tests/utils.ts) の `createRttSwitchRealPair` です。
+
+| テスト | 確認すること |
+| --- | --- |
+| `(semi-aggressive) M1・M3〜M5: …` | RTT の差がない間は動かない。選択中の relay を RTT +100 ms にすると、両端が速い relay へ移り同じ 5-tuple を使う。平滑化 RTT の差は 10 ms 以上で、connected のままデータが双方向に届く |
+| `(renomination) M1・M3〜M5: …` | 同上。指名は NOMINATION の値で送る |
+
+- 実行: `cd packages/ice && npx vitest run tests/ice/selection-acceptance.test.ts`（2 件で約 20 秒。backup の RTT 標本が 3 回分そろうのを待つため）
+- 10 回連続で通過しました
+- わざと壊して落ちることを確かめた箇所（両モードとも落ちる）: RTT 比較の無効化（M1）、check・監視の結果での再評価の削除（M3）、RTT 標本の記録の停止（M4）、切り替え時の指名の削除（M5）
+- M2（受信状態の保留）は、実ソケットでは時刻の境界を安定して作れないので、受け入れテストには入れていません。保留の振る舞いは [packages/ice/tests/ice/selection-controller.test.ts](review-file:packages/ice/tests/ice/selection-controller.test.ts) の fake timer のテストで確認しています
+
 ## 1.1 再レビューでの修正（4 回目）
 
 「非受信になった時刻」を `SelectionController` と failover 監視で別々に数えていたため、判定がずれる場合がありました。たとえば、2.5 秒の無受信のあとで未応答の check が遅れて確定すると、保留 1 秒の起点が食い違います。この場合、保留の途中で RTT により切り替わった移行を failover とみなし、旧ペアを demote してしまう恐れがありました。

@@ -64,6 +64,26 @@
 - [ ] `npm run type`、`npm run test:small`、`npm run e2e` で退行がない
 - [ ] `changelog.md` と生成ドキュメントを更新する（オプションを足した場合）
 
+## 7.1 受け入れテスト
+
+`packages/ice/tests/ice/selection-acceptance.test.ts` を追加しました。
+
+- **Before → After:** priority が同じ 2 本の relay の一方で接続しているとき、選択中の relay だけが遅くなるとします。従来は priority だけで判断するので遅い relay に留まりました。今は controlling 側が平滑化 RTT を比べて速い relay を指名し、両端がそこへ移ってデータが届きます。semi-aggressive と renomination で同じ期待です。
+- **準備処理:** 実ソケットとローカル TURN を使い、relay ごとに UDP 中継を置きます。共通の準備処理は `tests/utils.ts` の `createRttSwitchRealPair` で、backup のペアを取り出す `relayPairOf` を足しました。
+- **実行結果:** 10 回連続で通過しました（1 回あたり 2 件で約 20 秒）。
+
+一時 worktree で実装を 1 か所ずつ壊し、受け入れテストが落ちることを確かめました。
+
+| 壊した箇所 | 結果 |
+| --- | --- |
+| M1: `shouldSwitch` の RTT 比較を無効にする | 両モードとも失敗（速い relay へ移らない） |
+| M3: `onLinkChanged` での `switching.evaluate()` をやめる | 両モードとも失敗 |
+| M4: `recordRoundTrip` で RTT 標本を記録しない | 両モードとも失敗（前提の「backup の RTT が測れる」で止まる） |
+| M5: 切り替え時に `selection.nominate` しない | 両モードとも失敗 |
+
+- **修正前のリビジョンとの比較:** していません。修正前には `smoothedRtt` がないので、テストは前提確認の段階で落ちます。これでは priority だけで判断する挙動を確かめられないため、M1 を壊した結果で代わりとしました。
+- **M2（受信状態の保留）を外した理由:** 実ソケットでは「2.5 s の無受信」「未応答の確定」「保留 1 s」の境界を安定して作れません。M2 は `tests/ice/selection-controller.test.ts` の fake timer のテストで確認しています。
+
 ## 8. 未確定事項
 
 1. `receiving_switching_delay` などの libwebrtc の既定値（定数の定義ファイルは未確認）

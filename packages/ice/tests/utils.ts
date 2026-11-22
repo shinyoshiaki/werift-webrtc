@@ -4466,11 +4466,23 @@ export async function createRttSwitchRealPair({
     if (!proxy) throw new Error(`rtt switch: no proxy for relay ${index}`);
     return proxy;
   };
+  /** `a`'s pair on relay candidate `index` (the peer has one host candidate). */
+  const relayPairOf = (index: number) => {
+    const relay = relays[index];
+    const pair = a.checkList.find(
+      (pair) =>
+        pair.localCandidate.host === relay.host &&
+        pair.localCandidate.port === relay.port,
+    );
+    if (!pair) throw new Error(`rtt switch: no pair for relay ${index}`);
+    return pair;
+  };
   return {
     a,
     b,
     relays,
     relayIndexOf,
+    relayPairOf,
     /** Delay every datagram of relay `index` of `a` by `ms` each way. */
     delay: (index: number, ms: number) => proxyOf(index).setDelay(ms),
     close: async () => {
