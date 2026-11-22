@@ -4,6 +4,12 @@ import type { Extension } from "../../typings/domain";
 
 const { decode, encode, types } = binaryData;
 
+/**
+ * use_srtp extension (RFC 5764).
+ *
+ * Wire: ProtectionProfiles (uint16 length + profiles) + opaque srtp_mki<0..255>
+ * `mki` holds the MKI *payload only* (length byte is added on serialize).
+ */
 export class UseSRTP {
   static type = 14; // 9.  IANA Considerations
   static readonly spec = {
@@ -14,36 +20,89 @@ export class UseSRTP {
   type: number = UseSRTP.type;
   data: Buffer = Buffer.from([]);
   profiles: number[] = [];
-  mki: Buffer = Buffer.from([0x00]);
+  /** MKI payload only (not including the length byte). */
+  mki: Buffer = Buffer.alloc(0);
 
   constructor(props: Partial<UseSRTP> = {}) {
     Object.assign(this, props);
   }
 
-  static create(profiles: number[], mki: Buffer) {
+  static create(profiles: number[], mki: Buffer = Buffer.alloc(0)) {
     const v = new UseSRTP({
       profiles,
-      mki,
+      mki: Buffer.from(mki),
     });
     return v;
   }
 
-  static deSerialize(buf: Buffer) {
+  static deSerialize(buf: Buffer, options: { lenient?: boolean } = {}) {
     const useSrtp = new UseSRTP(decode(buf, UseSRTP.spec));
-    const profileLength = useSrtp.data.readUInt16BE();
-
-    const profiles = new Array(profileLength / 2);
-    for (let i = 0; i < profiles.length; i++) {
-      profiles[i] = useSrtp.data.readUInt16BE(i * 2 + 2);
+    if (options.lenient) {
+      UseSRTP.parseProfilesAndMkiLenient(useSrtp);
+    } else {
+      UseSRTP.parseProfilesAndMki(useSrtp);
     }
-    useSrtp.profiles = profiles;
-    useSrtp.mki = useSrtp.data.slice(profileLength + 2);
     return useSrtp;
   }
 
+  /**
+   * Parse without length checks (`handshakeValidation: "lenient"`, the DTLS
+   * 1.2 behavior before the strict checks): the declared profile list is
+   * read as far as the data reaches and the rest after the MKI length byte
+   * is the MKI.
+   */
+  private static parseProfilesAndMkiLenient(useSrtp: UseSRTP): void {
+    const data = useSrtp.data;
+    const profileLength = data.length >= 2 ? data.readUInt16BE(0) : 0;
+    const profiles: number[] = [];
+    for (let i = 0; i + 1 < profileLength && 2 + i + 2 <= data.length; i += 2) {
+      profiles.push(data.readUInt16BE(2 + i));
+    }
+    useSrtp.profiles = profiles;
+    useSrtp.mki = Buffer.from(data.subarray(2 + profileLength + 1));
+  }
+
+  /**
+   * Parse extension data (profiles + MKI) into profiles[] and mki payload.
+   * Strict length checks (RFC 5764).
+   */
+  private static parseProfilesAndMki(useSrtp: UseSRTP): void {
+    const data = useSrtp.data;
+    if (data.length < 2) {
+      throw new Error("use_srtp: truncated profiles length");
+    }
+    const profileLength = data.readUInt16BE(0);
+    if (profileLength % 2 !== 0) {
+      throw new Error("use_srtp: profiles length must be even");
+    }
+    if (data.length < 2 + profileLength + 1) {
+      throw new Error("use_srtp: truncated after profiles");
+    }
+    const profiles: number[] = [];
+    for (let i = 0; i < profileLength; i += 2) {
+      profiles.push(data.readUInt16BE(2 + i));
+    }
+    const mkiOffset = 2 + profileLength;
+    const mkiLen = data.readUInt8(mkiOffset);
+    if (data.length !== mkiOffset + 1 + mkiLen) {
+      throw new Error(
+        `use_srtp: MKI length mismatch (declared ${mkiLen}, remaining ${data.length - mkiOffset - 1})`,
+      );
+    }
+    useSrtp.profiles = profiles;
+    useSrtp.mki = Buffer.from(
+      data.subarray(mkiOffset + 1, mkiOffset + 1 + mkiLen),
+    );
+  }
+
   serialize() {
+    if (this.mki.length > 255) {
+      throw new Error("use_srtp: MKI longer than 255 bytes");
+    }
     const profileLength = Buffer.alloc(2);
     profileLength.writeUInt16BE(this.profiles.length * 2);
+    const mkiLen = Buffer.alloc(1);
+    mkiLen.writeUInt8(this.mki.length, 0);
     const data = Buffer.concat([
       profileLength,
       ...this.profiles.map((profile) => {
@@ -51,17 +110,18 @@ export class UseSRTP {
         buf.writeUInt16BE(profile);
         return buf;
       }),
+      mkiLen,
       this.mki,
     ]);
     this.data = data;
     return encode(this, UseSRTP.spec);
   }
 
-  static fromData(buf: Buffer) {
+  static fromData(buf: Buffer, options: { lenient?: boolean } = {}) {
     const head = Buffer.alloc(4);
     head.writeUInt16BE(UseSRTP.type);
     head.writeUInt16BE(buf.length, 2);
-    return UseSRTP.deSerialize(Buffer.concat([head, buf]));
+    return UseSRTP.deSerialize(Buffer.concat([head, buf]), options);
   }
 
   get extension(): Extension {

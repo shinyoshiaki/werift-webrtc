@@ -79,6 +79,16 @@ custom transports need not implement it; the built-in UDP transport does.
 
 ***
 
+### peerAuthenticated?
+
+> `optional` **peerAuthenticated?**: `boolean`
+
+When true, the transport path is already peer-authenticated (e.g. ICE).
+DTLS 1.2 may treat protected records as association-authenticated even
+without a UDP 5-tuple pin (ICE does not expose source address on RX).
+
+***
+
 ### remoteAddress?
 
 > `optional` **remoteAddress?**: readonly \[`string`, `number`\]

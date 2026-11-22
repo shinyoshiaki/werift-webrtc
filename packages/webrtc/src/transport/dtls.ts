@@ -1,9 +1,21 @@
 import { createPrivateKey, randomUUID, X509Certificate } from "node:crypto";
 import type { AddressInfo } from "net";
 import { setTimeout } from "timers/promises";
+import { DirectHandshakeCarrier } from "../../../dtls/src/carrier/direct";
+import {
+  createDtlsClientInternal,
+  createDtlsServerInternal,
+  refragmentPendingFlightIfNeeded,
+} from "../../../dtls/src/internal";
+import type { Connection } from "../../../ice/src";
+import { attachSpedToConnection } from "../../../ice/src/internal/sped";
+import {
+  getConnectionSpedRuntime,
+  setConnectionSpedRuntime,
+} from "../../../ice/src/internal/sped-bind";
 import type { DebugConfig } from "../api/peerConfig";
 import { EventTarget as DomEventTarget, notifySafely } from "../helper";
-import { Event, type Transport } from "../imports/common";
+import { type Address, Event, type Transport } from "../imports/common";
 import {
   AlertDesc,
   AlertLevel,
@@ -12,6 +24,8 @@ import {
   DtlsClient,
   DtlsServer,
   type DtlsSocket,
+  DtlsVersion,
+  type HandshakeValidation,
   HashAlgorithm,
   NamedCurveAlgorithm,
   normalizePem,
@@ -52,6 +66,7 @@ import {
   normalizeFingerprintValue,
 } from "../utils";
 import type { RTCIceTransport } from "./ice";
+import { IceSpedTransport } from "./sped";
 
 /**
  * Upper bound (ms) for waiting until close_notify / a fatal alert has been
@@ -109,19 +124,26 @@ export interface RTCDtlsTransportErrorEvent {
 
 const log = debug("werift:packages/webrtc/src/transport/dtls.ts");
 
-/**
- * Internal: the remote certificate matched none of the remote fingerprints
- * (reported as `errorDetail: "fingerprint-failure"`). Other verification
- * errors (no certificate, no usable fingerprint) stay `"dtls-failure"`.
- */
+function spedHandshakeProtocolVersions(
+  versions: readonly DtlsVersion[] | undefined,
+): DtlsVersion[] {
+  return (versions ?? []).filter((version) => version === DtlsVersion.V1_3);
+}
+
+export interface DtlsTransportConfig {
+  debug?: DebugConfig;
+  protocolVersions?: readonly DtlsVersion[];
+  helloRetryRequest?: boolean;
+  /** PeerConfig.dtlsHandshakeValidation (DTLS 1.2 handshake validation). */
+  handshakeValidation?: HandshakeValidation;
+}
+
 class FingerprintMismatchError extends Error {
   constructor() {
     super("remote certificate fingerprint mismatch");
     this.name = "FingerprintMismatchError";
   }
 }
-
-/** The RTCError for a failed check of the remote certificate. */
 const certificateVerificationError = (reason: unknown) =>
   reason instanceof FingerprintMismatchError
     ? new RTCError({ errorDetail: "fingerprint-failure" }, reason.message)
@@ -138,17 +160,30 @@ export type DtlsSendRtpResult = {
   sendingAtMs: number;
 };
 
-function formatDtlsVersion(version?: { major: number; minor: number }) {
-  if (!version) {
+function formatDtlsVersion(socket?: DtlsSocket) {
+  if (!socket) {
     return;
   }
-
+  if (socket.isDtls13) {
+    return "DTLS 1.3";
+  }
+  const version = socket.dtls.version;
   if (version.major === 0xfe && version.minor === 0xfd) {
     return "DTLS 1.2";
   }
   if (version.major === 0xfe && version.minor === 0xff) {
     return "DTLS 1.0";
   }
+}
+
+function formatDtlsCipher(socket?: DtlsSocket) {
+  if (!socket) {
+    return;
+  }
+  if (socket.isDtls13) {
+    return "TLS_AES_128_GCM_SHA256";
+  }
+  return socket.cipher.cipher?.name;
 }
 
 function formatSrtpCipher(profile?: number) {
@@ -170,7 +205,7 @@ export interface DtlsTransportStats {
 }
 
 export class RTCDtlsTransport implements DtlsTransportStats {
-  readonly config: { debug?: DebugConfig };
+  readonly config: DtlsTransportConfig;
   readonly iceTransport: RTCIceTransport;
   public localCertificate?: RTCCertificate | undefined;
   private readonly srtpProfiles: SrtpProfile[];
@@ -179,6 +214,8 @@ export class RTCDtlsTransport implements DtlsTransportStats {
    * share, see `acquireTransportReceiverTWCC`.
    */
   sharedReceiverTWCC?: SharedReceiverTWCC;
+  /** @internal Set from PeerConfig.sped; not a public RTCDtlsTransport option. */
+  sped = false;
 
   id = randomUUID().toString();
   state: DtlsState = "new";
@@ -219,6 +256,8 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   dtls?: DtlsSocket;
   srtp!: SrtpSession;
   srtcp!: SrtcpSession;
+  lastError?: Error;
+  private startPromise?: Promise<void>;
 
   readonly onStateChange = new Event<[DtlsState]>();
   readonly onRtcp = new Event<[RtcpPacket]>();
@@ -252,7 +291,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   private remoteParameters?: RTCDtlsParameters;
 
   constructor(
-    config: { debug?: DebugConfig },
+    config: DtlsTransportConfig,
     iceTransport: RTCIceTransport,
     localCertificate?: RTCCertificate,
     srtpProfiles: SrtpProfile[] = [],
@@ -354,6 +393,19 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   }
 
   async start() {
+    if (this.state === "connected") {
+      return;
+    }
+    if (this.state === "closed") {
+      throw new Error("RTCDtlsTransport is closed");
+    }
+    if (this.state === "failed") {
+      throw this.lastError ?? new Error("dtls failed");
+    }
+    if (this.startPromise) {
+      await this.startPromise;
+      return;
+    }
     if (this.state !== "new") {
       throw new Error("state must be new");
     }
@@ -374,107 +426,20 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     }
 
     this.setState("connecting");
-    // A connecting listener may have stopped the transport synchronously
-    // (stop() ran before any socket existed): start() then ends here,
-    // without creating a socket nobody would close, and closed stays.
-    // (Narrowed by the check above, the state may have changed meanwhile.)
-    if (this.isFinalState) {
-      log("stopped while notifying connecting", this.state as DtlsState);
-      return;
-    }
+    if (this.isFinalState) return;
+    this.startPromise = this.completeHandshake();
+    await this.startPromise;
+  }
 
-    // The certificate is checked during the handshake, so that a mismatch is
-    // reported to the peer with a fatal bad_certificate alert before either
-    // side considers the connection established.
-    const verifyRemoteCertificate = (certificate: Buffer) => {
-      this.verifyRemoteCertificateFingerprint(certificate);
-      return true;
-    };
-
-    await new Promise<void>(async (r, f) => {
-      this.settleStart = r;
-      if (this.role === "server") {
-        this.dtls = new DtlsServer({
-          cert: this.localCertificate?.certPem,
-          key: this.localCertificate?.privateKey,
-          signatureHash: this.localCertificate?.signatureHash,
-          transport: createIceTransport(this.iceTransport.connection),
-          srtpProfiles: this.srtpProfiles,
-          extendedMasterSecret: true,
-          certificateRequest: true,
-          verifyRemoteCertificate,
-        });
-      } else {
-        this.dtls = new DtlsClient({
-          cert: this.localCertificate?.certPem,
-          key: this.localCertificate?.privateKey,
-          signatureHash: this.localCertificate?.signatureHash,
-          transport: createIceTransport(this.iceTransport.connection),
-          srtpProfiles: this.srtpProfiles,
-          extendedMasterSecret: true,
-          verifyRemoteCertificate,
-        });
-      }
-      this.dtls.onData.subscribe((buf) => {
-        if (
-          this.config.debug?.inboundPacketLoss &&
-          this.config.debug?.inboundPacketLoss / 100 < Math.random()
-        ) {
-          return;
-        }
-        this.dataReceiver(buf);
-      });
-      // close_notify from the peer, also during the handshake: closed (with
-      // statechange, the peer caused it; W3C RTCDtlsTransportState "closed").
-      // close_notify is not a fatal alert, so neither failed nor an error
-      // event. closed / failed are final.
-      this.dtls.onClose.subscribe(() => {
-        if (this.isFinalState) return;
-        log("dtls closed by the peer");
-        try {
-          this.setState("closed");
-        } finally {
-          // Settle start() even if a statechange listener threw: it returns
-          // with closed (transport activation then ends a connection attempt
-          // that never connected as failed).
-          r();
-        }
-      });
-      this.dtls.onConnect.once(r);
-      // A handshake error, or a fatal alert received or sent while
-      // connecting or after the connection was established.
-      this.dtls.onError.subscribe((error) => {
-        log("dtls failed", error);
-        try {
-          this.fail(error);
-        } finally {
-          // Settle start() even if a statechange listener threw. A local
-          // certificate rejection rejects with the verifier's error (e.g.
-          // "remote certificate fingerprint mismatch").
-          f(
-            error instanceof DtlsAlertError &&
-              error.source === "local" &&
-              error.reason instanceof Error
-              ? error.reason
-              : error,
-          );
-        }
-      });
-
-      if (this.dtls instanceof DtlsClient) {
-        await setTimeout(100);
-        if (this.isFinalState) {
-          // stop() / a failure during the wait: settle start().
-          r();
-          return;
-        }
-        this.dtls.connect().catch((error) => {
-          this.fail(error);
-          log("dtls connect failed", error);
-          f(error);
-        });
-      }
-    });
+  private async completeHandshake() {
+    const sped = this.sped;
+    const addressValidation = sped
+      ? "ice-authenticated"
+      : this.config.helloRetryRequest
+        ? "dtls-cookie"
+        : "ice-authenticated";
+    if (sped) await this.startWithSped(addressValidation);
+    else await this.startSerial(addressValidation);
 
     // A fatal alert raced with the end of the handshake.
     // (Narrowed by the checks above, the state may have changed meanwhile.)
@@ -488,9 +453,10 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       this.verifyRemoteCertificateFingerprint(this.dtls?.remoteCertificate);
     } catch (error) {
       const dtls = this.dtls;
+      this.lastError =
+        error instanceof Error ? error : new Error(String(error));
       this.fail(certificateVerificationError(error));
-      // Tell the peer (whose handshake already completed); a fatal alert
-      // closes the DTLS transport once it has been sent.
+      this.abortSpedSession();
       void dtls?.sendAlert(AlertLevel.fatal, AlertDesc.BadCertificate, {
         timeoutMs: DTLS_ALERT_SEND_TIMEOUT_MS,
       });
@@ -503,6 +469,365 @@ export class RTCDtlsTransport implements DtlsTransportStats {
     this.setState("connected");
 
     log("dtls connected");
+  }
+
+  private async startSerial(
+    addressValidation: "dtls-cookie" | "ice-authenticated",
+  ) {
+    await new Promise<void>((r, f) => {
+      this.settleStart = r;
+      void this.startSerialSocket(addressValidation, r, f, () =>
+        setTimeout(100),
+      );
+    });
+  }
+
+  /**
+   * Create the direct (non-SPED) DTLS socket with the configured versions,
+   * bind its events to `r` / `f` and start the client handshake after
+   * `beforeConnect`.
+   */
+  private async startSerialSocket(
+    addressValidation: "dtls-cookie" | "ice-authenticated",
+    r: () => void,
+    f: (error: Error) => void,
+    beforeConnect: () => Promise<unknown>,
+  ) {
+    if (this.role === "server") {
+      this.dtls = new DtlsServer({
+        cert: this.localCertificate?.certPem,
+        key: this.localCertificate?.privateKey,
+        signatureHash: this.localCertificate?.signatureHash,
+        transport: createIceTransport(this.iceTransport.connection),
+        srtpProfiles: this.srtpProfiles,
+        extendedMasterSecret: true,
+        certificateRequest: true,
+        protocolVersions: this.config.protocolVersions,
+        peerIdentityMode: "authenticated-single-peer",
+        handshakeValidation: this.config.handshakeValidation,
+        addressValidation,
+        verifyRemoteCertificate: (certificate) => {
+          this.verifyRemoteCertificateDuringHandshake(certificate);
+          return true;
+        },
+      });
+    } else {
+      this.dtls = new DtlsClient({
+        cert: this.localCertificate?.certPem,
+        key: this.localCertificate?.privateKey,
+        signatureHash: this.localCertificate?.signatureHash,
+        transport: createIceTransport(this.iceTransport.connection),
+        srtpProfiles: this.srtpProfiles,
+        extendedMasterSecret: true,
+        protocolVersions: this.config.protocolVersions,
+        peerIdentityMode: "authenticated-single-peer",
+        handshakeValidation: this.config.handshakeValidation,
+        addressValidation,
+        verifyRemoteCertificate: (certificate) => {
+          this.verifyRemoteCertificateDuringHandshake(certificate);
+          return true;
+        },
+      });
+    }
+    this.bindDtlsSocketEvents(r, f);
+
+    const client = this.dtls;
+    if (client instanceof DtlsClient) {
+      await beforeConnect();
+      if (this.isFinalState) {
+        // stop() / a failure during the wait: settle start().
+        r();
+        return;
+      }
+      client.connect().catch((error) => {
+        if (!(this.lastError instanceof FingerprintMismatchError)) {
+          this.lastError =
+            error instanceof DtlsAlertError &&
+            error.source === "local" &&
+            error.reason instanceof Error
+              ? error.reason
+              : error;
+        }
+        this.fail(error);
+        log("dtls connect failed", error);
+        f(error);
+      });
+    }
+  }
+
+  private async startWithSped(
+    addressValidation: "dtls-cookie" | "ice-authenticated",
+  ) {
+    const ice = this.iceTransport.connection as Connection;
+    const transport = new IceSpedTransport(ice);
+    const carrier = new DirectHandshakeCarrier(transport);
+    carrier.setWireSendEnabled(false);
+    carrier.setRetransmissionMode("external");
+
+    let lastFlight: Buffer[] = [];
+    let handshakeDone = false;
+    let dtlsSocket: DtlsSocket | undefined;
+    let settle: { r: () => void; f: (error: Error) => void } | undefined;
+    let switchedToStandardDtls = false;
+    /**
+     * No SPED handshake data can have reached the peer's DTLS: it has no SPED
+     * (it ignores the attributes), or the selected path is relay / TURN,
+     * which carries no SPED, before support was decided and before any
+     * handshake packet was embedded. If DTLS 1.2 is offered too, run the
+     * standard DTLS handshake with the configured versions (draft §3.3.4
+     * "fall back to standard unencapsulated DTLS"), as `sped: false` would:
+     * the SPED flight is DTLS 1.3 only, so sending it directly would leave a
+     * DTLS 1.2-only peer (e.g. werift before DTLS 1.3) without a common
+     * version. Otherwise the original flight is sent directly with the same
+     * bytes, which a peer that injected it can still answer.
+     */
+    const switchToStandardDtls = () => {
+      if (switchedToStandardDtls || !settle || this.isFinalState) {
+        return false;
+      }
+      switchedToStandardDtls = true;
+      const spedSocket = dtlsSocket;
+      carrier.events.onFlightCreated = () => {};
+      carrier.cancelAllTimers();
+      transport.onData = () => {};
+      void transport.close();
+      handle.runtime.abort();
+      if (getConnectionSpedRuntime(ice) === handle.runtime) {
+        setConnectionSpedRuntime(ice, undefined);
+      }
+      ice.forgetSpedBindingResponseCache();
+      // startSerialSocket replaces this.dtls synchronously, so the SPED
+      // socket's events no longer reach this transport (bindDtlsSocketEvents)
+      // before it is closed. The carrier no longer sends anything, so the
+      // close puts no alert on the wire.
+      const { r, f } = settle;
+      void this.startSerialSocket("ice-authenticated", r, f, () =>
+        this.waitIceConnected(),
+      );
+      void spedSocket?.close().catch(() => {});
+      return true;
+    };
+    const handle = attachSpedToConnection(ice, {
+      inject: async (bytes, peer, generation) => {
+        if (ice.generation !== generation) {
+          return;
+        }
+        await carrier.inject(bytes, peer ? [peer[0], peer[1]] : undefined);
+      },
+      onSessionReset: () => {
+        if (switchedToStandardDtls) {
+          return;
+        }
+        carrier.invalidateInboundInjects?.();
+        if (this.state === "connected" || handshakeDone) {
+          handle.runtime.completeHandshake();
+          return;
+        }
+        // New ICE generation starts SPED probing again.
+        carrier.setWireSendEnabled(false);
+        carrier.setRetransmissionMode("external");
+        if (this.state === "connecting" && lastFlight.length > 0) {
+          handle.onFlightCreated(lastFlight);
+        }
+      },
+      onSessionAbort: () => {
+        carrier.invalidateInboundInjects?.();
+        carrier.cancelAllTimers();
+      },
+      onFallbackFlight: async () => {
+        const { session } = handle.runtime;
+        if (
+          (session.peerSupport === "unsupported" ||
+            (session.peerSupport === "unknown" &&
+              !session.handshakeDataSent)) &&
+          (this.config.protocolVersions ?? []).includes(DtlsVersion.V1_2) &&
+          switchToStandardDtls()
+        ) {
+          return false;
+        }
+        carrier.setWireSendEnabled(true);
+      },
+      onHandshakeComplete: () => {
+        handshakeDone = true;
+        carrier.setWireSendEnabled(true);
+        transport.markApplicationReady();
+      },
+      setRetransmissionMode: (mode) => carrier.setRetransmissionMode(mode),
+      updateRtt: (rttMs) => carrier.updateRtt(rttMs),
+      resetRtt: () => carrier.resetRtt(),
+      setMtu: (mtu) => carrier.setMtu(mtu),
+      refragmentPendingFlight: () => {
+        if (dtlsSocket) {
+          refragmentPendingFlightIfNeeded(dtlsSocket);
+        }
+      },
+    });
+    transport.setRuntime(handle.runtime);
+
+    carrier.events.onFlightCreated = (_flightId, packets) => {
+      if (handle.runtime.isStaleCarrierFlight()) {
+        return;
+      }
+      lastFlight = packets.map((packet) => Buffer.from(packet.bytes));
+      handle.onFlightCreated(lastFlight, { fromCarrier: true });
+    };
+
+    const common = {
+      cert: this.localCertificate?.certPem,
+      key: this.localCertificate?.privateKey,
+      signatureHash: this.localCertificate?.signatureHash,
+      transport,
+      srtpProfiles: this.srtpProfiles,
+      extendedMasterSecret: true,
+      // SPED is DTLS 1.3 only. Dual [1.3,1.2] would park a 1.2 HVR probe
+      // and leave the server without an engine13 inject handler.
+      protocolVersions: spedHandshakeProtocolVersions(
+        this.config.protocolVersions,
+      ),
+      peerIdentityMode: "authenticated-single-peer" as const,
+      handshakeValidation: this.config.handshakeValidation,
+      addressValidation,
+      verifyRemoteCertificate: (certificate: Buffer) => {
+        this.verifyRemoteCertificateDuringHandshake(certificate);
+        return true;
+      },
+      handshakeCarrier: carrier,
+    };
+
+    await new Promise<void>(async (r, f) => {
+      this.settleStart = r;
+      settle = { r, f };
+      if (this.role === "server") {
+        this.dtls = createDtlsServerInternal({
+          ...common,
+          certificateRequest: true,
+        });
+      } else {
+        this.dtls = createDtlsClientInternal(common);
+      }
+      dtlsSocket = this.dtls;
+      this.bindDtlsSocketEvents(r, f);
+      this.dtls.onConnect.once(() => {
+        handle.onHandshakeComplete();
+      });
+
+      const spedClient = this.dtls;
+      if (spedClient instanceof DtlsClient) {
+        spedClient.connect().catch((error) => {
+          // Replaced by standard DTLS (switchToStandardDtls): closing it
+          // rejects this handshake, which no longer concerns this transport.
+          if (this.dtls !== spedClient) return;
+          if (!(this.lastError instanceof FingerprintMismatchError)) {
+            this.lastError =
+              error instanceof DtlsAlertError &&
+              error.source === "local" &&
+              error.reason instanceof Error
+                ? error.reason
+                : error;
+          }
+          this.fail(error);
+          this.abortSpedSession();
+          log("dtls connect failed", error);
+          f(error);
+        });
+      }
+    });
+  }
+
+  private bindDtlsSocketEvents(r: () => void, f: (error: Error) => void) {
+    const socket = this.dtls;
+    if (!socket) {
+      return;
+    }
+    // A SPED socket replaced by standard DTLS (switchToStandardDtls) no
+    // longer drives this transport.
+    const replaced = () => this.dtls !== socket;
+    socket.onData.subscribe((buf) => {
+      if (replaced()) return;
+      if (
+        this.config.debug?.inboundPacketLoss &&
+        this.config.debug?.inboundPacketLoss / 100 < Math.random()
+      ) {
+        return;
+      }
+      this.dataReceiver(buf);
+    });
+    // close_notify from the peer, also during the handshake: closed (with
+    // statechange, the peer caused it; W3C RTCDtlsTransportState "closed").
+    // close_notify is not a fatal alert, so neither failed nor an error
+    // event. closed / failed are final.
+    socket.onClose.subscribe(() => {
+      if (replaced()) return;
+      if (this.isFinalState) {
+        r();
+        return;
+      }
+      log("dtls closed by the peer");
+      try {
+        if (this.state === "connecting") {
+          this.abortSpedSession();
+        }
+        this.setState("closed");
+      } finally {
+        // Settle start() even if a statechange listener threw: it returns
+        // with closed (transport activation then ends a connection attempt
+        // that never connected as failed).
+        r();
+      }
+    });
+    socket.onConnect.once(() => {
+      if (!replaced()) r();
+    });
+    // A handshake error, or a fatal alert received or sent while
+    // connecting or after the connection was established.
+    socket.onError.subscribe((error) => {
+      if (replaced()) return;
+      log("dtls failed", error);
+      const reason =
+        error instanceof DtlsAlertError &&
+        error.source === "local" &&
+        error.reason instanceof Error
+          ? error.reason
+          : error;
+      if (!(this.lastError instanceof FingerprintMismatchError)) {
+        this.lastError = reason;
+      }
+      try {
+        this.fail(error);
+      } finally {
+        this.abortSpedSession();
+        // Settle start() even if a statechange listener threw. A local
+        // certificate rejection rejects with the verifier's error (e.g.
+        // "remote certificate fingerprint mismatch").
+        f(reason);
+      }
+    });
+  }
+
+  /**
+   * Resolves once ICE has a usable pair, or ICE / this transport reached a
+   * final state (the caller then rechecks isFinalState).
+   */
+  private async waitIceConnected() {
+    const usable = () =>
+      this.isFinalState ||
+      ["connected", "completed", "failed", "closed"].includes(
+        this.iceTransport.state,
+      );
+    while (!usable()) {
+      await Promise.race([
+        this.iceTransport.onStateChange.asPromise(),
+        setTimeout(100),
+      ]);
+    }
+  }
+
+  private abortSpedSession() {
+    // Only a SPED transport has a session; any other (default) transport may
+    // run over an ICE connection without SPED wiring.
+    if (!this.sped) return;
+    const ice = this.iceTransport.connection as Connection;
+    getConnectionSpedRuntime(ice)?.abort();
   }
 
   /** Settles a pending start() (set while the handshake is awaited). */
@@ -552,6 +877,17 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       "error",
       event,
     );
+  }
+
+  private verifyRemoteCertificateDuringHandshake(certificate: Buffer): boolean {
+    try {
+      this.verifyRemoteCertificateFingerprint(certificate);
+      return true;
+    } catch (error) {
+      this.lastError =
+        error instanceof Error ? error : new Error(String(error));
+      throw error;
+    }
   }
 
   private verifyRemoteCertificateFingerprint(remoteCertificate?: Buffer) {
@@ -826,6 +1162,17 @@ export class RTCDtlsTransport implements DtlsTransportStats {
   }
 
   /**
+   * Stats-only remote certificate. The DTLS socket throws if the association
+   * is torn down, so skip the getter unless this transport is connected.
+   * Unexpected throws while connected are left to propagate.
+   */
+  private remoteCertificateForStats() {
+    if (!this.dtls || this.state !== "connected") {
+      return;
+    }
+    return this.dtls.remoteCertificate;
+  }
+  /**
    * Change the state and notify. Each notification is isolated: an
    * exception thrown by a listener is logged and never interrupts the
    * caller (stop() cleanup, settling start(), failing the transport).
@@ -972,12 +1319,12 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       localCertificateId: this.localCertificate
         ? generateStatsId("certificate", this.id, "local")
         : undefined,
-      remoteCertificateId: this.dtls?.remoteCertificate
+      remoteCertificateId: this.remoteCertificateForStats()
         ? generateStatsId("certificate", this.id, "remote")
         : undefined,
       dtlsRole: this.role === "auto" ? undefined : this.role,
-      tlsVersion: formatDtlsVersion(this.dtls?.dtls.version),
-      dtlsCipher: this.dtls?.cipher.cipher?.name,
+      tlsVersion: formatDtlsVersion(this.dtls),
+      dtlsCipher: formatDtlsCipher(this.dtls),
       srtpCipher: formatSrtpCipher(this.dtls?.srtp.srtpProfile),
       iceRestarts: this.iceTransport.iceRestarts,
     };
@@ -1001,10 +1348,11 @@ export class RTCDtlsTransport implements DtlsTransportStats {
       }
     }
 
+    const remoteCertificate = this.remoteCertificateForStats();
     if (
       this.remoteParameters &&
       this.remoteParameters.fingerprints.length > 0 &&
-      this.dtls?.remoteCertificate
+      remoteCertificate
     ) {
       const certStats: RTCCertificateStats = {
         type: "certificate",
@@ -1012,9 +1360,7 @@ export class RTCDtlsTransport implements DtlsTransportStats {
         timestamp,
         fingerprint: this.remoteParameters.fingerprints[0].value,
         fingerprintAlgorithm: this.remoteParameters.fingerprints[0].algorithm,
-        base64Certificate: Buffer.from(this.dtls.remoteCertificate).toString(
-          "base64",
-        ),
+        base64Certificate: Buffer.from(remoteCertificate).toString("base64"),
       };
       stats.push(certStats);
     }
@@ -1147,25 +1493,48 @@ class IceTransport implements Transport {
   private readonly unSubscribe: () => void;
 
   closed: boolean = false;
+  /**
+   * ICE selected-pair path is already authenticated — DTLS 1.2 must not treat
+   * AEAD-protected alerts as "pre-auth" merely because UDP pin is unavailable.
+   */
+  readonly peerAuthenticated = true;
   constructor(ice: IceConnection) {
     this.ice = ice;
     this.unSubscribe = ice.onData.subscribe((buf) => {
       if (isDtls(buf)) {
         if (this.onData) {
-          this.onData(buf);
+          this.onData(buf, this.remotePeer());
         }
       }
     }).unSubscribe;
   }
-  onData: (buf: Buffer) => void = () => {};
+  onData: (buf: Buffer, addr?: Address) => void = () => {};
 
+  /**
+   * DTLS 1.3 cookie HRR / anti-amp keys the peer from the RX 5-tuple.
+   * ICE already demuxed to the nominated pair, so expose that remote address
+   * instead of an empty AddressInfo (which made cookie HRR undeliverable).
+   */
   get address() {
-    return {} as AddressInfo;
+    const [address, port] = this.remotePeer();
+    return { address, port, family: address.includes(":") ? "IPv6" : "IPv4" };
   }
+
+  get rinfo() {
+    const [address, port] = this.remotePeer();
+    return { address, port };
+  }
+
+  /**
+   * The DTLS association may record a datagram source here (as on a UDP
+   * transport). ICE routes every send over the nominated pair, so the value
+   * is not used: ignore it instead of throwing on the read-only accessor.
+   */
+  set rinfo(_rinfo: { address?: string; port?: number } | undefined) {}
 
   type: string = "ice";
 
-  readonly send = (data: Buffer) => {
+  readonly send = (data: Buffer, _addr?: Address) => {
     if (this.closed) return Promise.resolve();
     return this.ice.send(data);
   };
@@ -1175,6 +1544,14 @@ class IceTransport implements Transport {
     if (this.closed) return;
     this.closed = true;
     this.unSubscribe();
+  }
+
+  private remotePeer(): Address {
+    const nominated = this.ice.nominated;
+    if (nominated) {
+      return nominated.remoteAddr;
+    }
+    return ["0.0.0.0", 0];
   }
 }
 

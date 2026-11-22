@@ -14,7 +14,7 @@ import {
   RTCIceTransport,
   RTCPeerConnection,
 } from "../../src";
-import { iceTransportPair } from "../fixture";
+import { iceTransportPair, preparedIceTransportPair } from "../fixture";
 import {
   connectPeerConnections,
   connectWithIceConfigs,
@@ -1151,6 +1151,29 @@ describe("iceTransport", () => {
     await Promise.all([transport1.stop(), transport2.stop()]);
     expect(transport1.state).toBe("closed");
     expect(transport2.state).toBe("closed");
+  });
+
+  test("concurrent start() calls all settle once ICE connects", async () => {
+    // Arrange: gather 済みで remote params を設定した未開始の transport ペア
+    const [transport1, transport2] = await preparedIceTransportPair();
+
+    try {
+      // Act: 再交渉ごとの connect() を模して同じ transport の start() を重ねて呼ぶ
+      const starts = [
+        transport1.start(),
+        transport1.start(),
+        transport1.start(),
+        transport2.start(),
+        transport2.start(),
+      ];
+
+      // Assert: 待機中の呼び出しも含めて全て成功し、両側が connected になる
+      await expect(Promise.all(starts)).resolves.toBeDefined();
+      expect(transport1.state).toBe("connected");
+      expect(transport2.state).toBe("connected");
+    } finally {
+      await Promise.all([transport1.stop(), transport2.stop()]);
+    }
   });
 
   test("gather includes TCP host candidates when enabled", async () => {

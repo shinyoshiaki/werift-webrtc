@@ -8,6 +8,14 @@
 
 ## Enumeration Members
 
+### ack
+
+> **ack**: `26`
+
+DTLS 1.3 ACK (RFC 9147)
+
+***
+
 ### alert
 
 > **alert**: `21`
