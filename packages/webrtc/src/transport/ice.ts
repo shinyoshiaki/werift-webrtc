@@ -4,6 +4,7 @@ import {
   Connection,
   type IceCandidateErrorInfo,
   type IceConnection,
+  IceGatheringErrorReason,
   type IceOptions,
   IceRestartedError,
   isCandidateAllowedByGatherOptions,
@@ -232,6 +233,12 @@ export class RTCIceTransport {
   readonly onIceCandidateError = new Event<[IceCandidateErrorDetails]>();
   /** URLs of a STUN / TURN server that answered while gathering (see RTCIceGatherer.onIceServerReached). */
   readonly onIceServerReached = new Event<[string[]]>();
+  /**
+   * The current generation's gathering reported an error (werift extension,
+   * not W3C; see RTCIceGatherer.onGatheringError). Nothing is fired once the
+   * transport is closed.
+   */
+  readonly onGatheringError = new Event<[IceGatheringErrorDetails]>();
   readonly onNegotiationNeeded = new Event<[]>();
 
   constructor(iceGather: RTCIceGatherer) {
@@ -251,6 +258,10 @@ export class RTCIceTransport {
     this.iceGather.onIceServerReached = (urls) => {
       if (this.state === "closed") return;
       this.onIceServerReached.execute(urls);
+    };
+    this.iceGather.onGatheringError = (details) => {
+      if (this.state === "closed") return;
+      this.onGatheringError.execute(details);
     };
     this.iceGather.onGatheringStateChange.subscribe(() => {
       this.ongatheringstatechange?.();
@@ -630,6 +641,7 @@ export class RTCIceTransport {
     // (Connection.waitForIncomingCheck wakes on that end).
     const gathering = this.gather();
     if (regather) {
+      // A failure was reported (onGatheringError) by gather() itself.
       void gathering.catch((error) => log("restart gathering failed", error));
     } else {
       await gathering;
@@ -900,6 +912,7 @@ export class RTCIceTransport {
     this.onIceCandidate.complete();
     this.onIceCandidateError.complete();
     this.onIceServerReached.complete();
+    this.onGatheringError.complete();
     this.onNegotiationNeeded.complete();
   }
 
@@ -1022,6 +1035,20 @@ export type IceCandidateErrorDetails = {
   errorText: string;
 };
 
+/**
+ * A gathering error of an ICE transport (werift extension, not W3C): the
+ * `IceGatheringErrorInfo` of the ICE agent without its generation
+ * (only the current generation's errors are given).
+ */
+export type IceGatheringErrorDetails = {
+  /** Why (new reasons may be added: handle unknown values). */
+  reason: IceGatheringErrorReason;
+  /** Human-readable description, for logs. Not a stable identifier. */
+  errorText: string;
+  /** The original exception, when there is one. */
+  cause?: unknown;
+};
+
 export class RTCIceGatherer {
   private options: Partial<IceOptions>;
 
@@ -1036,9 +1063,19 @@ export class RTCIceGatherer {
    * an error response): called with the URLs naming it.
    */
   onIceServerReached: (urls: string[]) => void = () => {};
+  /**
+   * The current generation's gathering reported an error (see
+   * {@link IceGatheringErrorDetails}). Besides the errors of the ICE agent
+   * (`IceConnection.onGatheringError`), a `gatherCandidates()` that rejects
+   * gives `gathering-failed` when the agent did not report it itself (an
+   * agent without onGatheringError); the gathering then still completes.
+   */
+  onGatheringError: (details: IceGatheringErrorDetails) => void = () => {};
   gatheringState: IceGathererState = "new";
   readonly connection: IceConnection;
   private unreachableUrls = { generation: -1, urls: new Set<string>() };
+  /** The latest generation whose `gathering-failed` was given. */
+  private failureReportedGeneration = -1;
 
   readonly onGatheringStateChange = new Event<[IceGathererState]>();
 
@@ -1062,6 +1099,22 @@ export class RTCIceGatherer {
       } catch (error) {
         log("onIceServerReached listener threw", error);
       }
+    });
+    this.connection.onGatheringError?.subscribe((info) => {
+      if (
+        info.generation !== this.connection.generation ||
+        this.connection.state === "closed"
+      ) {
+        return;
+      }
+      if (info.reason === IceGatheringErrorReason.gatheringFailed) {
+        this.failureReportedGeneration = info.generation;
+      }
+      this.reportGatheringError({
+        reason: info.reason,
+        errorText: info.errorText,
+        ...(info.cause !== undefined ? { cause: info.cause } : {}),
+      });
     });
     this.connection.onIceCandidateError?.subscribe((info) => {
       // Only the generation gathering now (the ICE agent drops stale ones).
@@ -1104,7 +1157,37 @@ export class RTCIceGatherer {
     if (this.gatheringState === "new") {
       this.setState("gathering");
       const generation = this.connection.generation;
-      await this.connection.gatherCandidates();
+      const complete = () => {
+        this.onIceCandidate(undefined);
+        this.setState("complete");
+      };
+      try {
+        await this.connection.gatherCandidates();
+      } catch (error) {
+        // The gathering of this generation is over: it is reported
+        // (gathering-failed, unless the ICE agent did) and completes with
+        // end-of-candidates, so iceGatheringState never stays "gathering".
+        // The rejection still reaches the caller, which logs it without
+        // failing setLocalDescription (SecureTransportManager.gatherCandidates).
+        if (this.connection.generation === generation) {
+          if (this.connection.state === "closed") {
+            this.setState("complete");
+          } else {
+            if (this.failureReportedGeneration !== generation) {
+              this.failureReportedGeneration = generation;
+              this.reportGatheringError({
+                reason: IceGatheringErrorReason.gatheringFailed,
+                errorText: `gathering failed: ${
+                  error instanceof Error ? error.message : String(error)
+                }`,
+                cause: error,
+              });
+            }
+            complete();
+          }
+        }
+        throw error;
+      }
       // ICE restart で世代が置き換わった場合は新世代自身の完了通知に任せる。
       if (this.connection.generation !== generation) return;
       // gathering 中に閉じた transport は候補を終え、集約状態を先へ進める。
@@ -1115,10 +1198,6 @@ export class RTCIceGatherer {
       const replaced = () =>
         this.connection.generation !== generation ||
         this.connection.state === "closed";
-      const complete = () => {
-        this.onIceCandidate(undefined);
-        this.setState("complete");
-      };
       if (
         this.connection.localCandidatesEnd ||
         !this.connection.waitForLocalCandidatesEnd
@@ -1140,6 +1219,15 @@ export class RTCIceGatherer {
 
   setIceServers(options: Partial<IceOptions>) {
     this.connection.setIceServers(options);
+  }
+
+  /** A throwing listener must not stop the gathering. */
+  private reportGatheringError(details: IceGatheringErrorDetails) {
+    try {
+      this.onGatheringError(details);
+    } catch (error) {
+      log("onGatheringError listener threw", error);
+    }
   }
 
   /**

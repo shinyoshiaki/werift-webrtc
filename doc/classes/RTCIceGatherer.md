@@ -36,6 +36,28 @@
 
 ***
 
+### onGatheringError
+
+> **onGatheringError**: (`details`) => `void`
+
+The current generation's gathering reported an error (see
+[IceGatheringErrorDetails](../type-aliases/IceGatheringErrorDetails.md)). Besides the errors of the ICE agent
+(`IceConnection.onGatheringError`), a `gatherCandidates()` that rejects
+gives `gathering-failed` when the agent did not report it itself (an
+agent without onGatheringError); the gathering then still completes.
+
+#### Parameters
+
+##### details
+
+[`IceGatheringErrorDetails`](../type-aliases/IceGatheringErrorDetails.md)
+
+#### Returns
+
+`void`
+
+***
+
 ### onGatheringStateChange
 
 > `readonly` **onGatheringStateChange**: [`Event`](Event.md)\<\[`"complete"` \| `"new"` \| `"gathering"`\]\>

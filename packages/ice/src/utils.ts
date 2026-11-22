@@ -38,6 +38,17 @@ export function isLinkLocalAddress(info: os.NetworkInterfaceInfo) {
   );
 }
 
+/**
+ * The candidate host addresses of the local interfaces of `family` (4 or 6),
+ * as werift gathers them (loopback, tunnel and, unless
+ * `useLinkLocalAddress`, link-local addresses excluded).
+ *
+ * @throws the `SystemError` of `os.networkInterfaces()` when the interfaces
+ * cannot be enumerated (e.g. `AF_NETLINK` denied by systemd's
+ * `RestrictAddressFamilies=`): the caller decides how to go on. ICE
+ * gathering itself does not use this function and never throws for it (see
+ * `Connection.onGatheringError`).
+ */
 export function nodeIpAddress(
   family: number,
   {
@@ -57,6 +68,12 @@ export function nodeIpAddress(
   );
 }
 
+/**
+ * {@link nodeIpAddress} of IPv4 then IPv6, as enabled.
+ *
+ * @throws the `SystemError` of `os.networkInterfaces()` when the interfaces
+ * cannot be enumerated, like {@link nodeIpAddress}.
+ */
 export function getHostAddresses(
   useIpv4: boolean,
   useIpv6: boolean,

@@ -88,6 +88,17 @@ Whether gathering contacts a STUN or TURN server.
 
 ***
 
+### onGatheringError?
+
+> `readonly` `optional` **onGatheringError?**: [`Event`](../classes/Event.md)\<\[[`IceGatheringErrorInfo`](../type-aliases/IceGatheringErrorInfo.md)\]\>
+
+The current generation's gathering reported an error (see
+[IceGatheringErrorInfo](../type-aliases/IceGatheringErrorInfo.md)): the interfaces could not be enumerated,
+it ended without any local candidate, or it failed unexpectedly.
+Optional like onIceCandidateError.
+
+***
+
 ### onIceCandidate
 
 > `readonly` **onIceCandidate**: [`Event`](../classes/Event.md)\<\[[`Candidate`](../classes/Candidate.md)\]\>

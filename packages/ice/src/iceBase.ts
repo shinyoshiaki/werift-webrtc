@@ -6,6 +6,7 @@ import {
   MissingMappedAddressError,
 } from "./candidateError";
 import type { MdnsLookup } from "./dns/lookup";
+import type { IceGatheringErrorInfo } from "./gatheringError";
 import type { Cancelable } from "./helper";
 import {
   type Address,
@@ -88,6 +89,13 @@ export interface IceConnection {
    * (see {@link IceServerReachedInfo}). Optional like onIceCandidateError.
    */
   readonly onIceServerReached?: Event<[IceServerReachedInfo]>;
+  /**
+   * The current generation's gathering reported an error (see
+   * {@link IceGatheringErrorInfo}): the interfaces could not be enumerated,
+   * it ended without any local candidate, or it failed unexpectedly.
+   * Optional like onIceCandidateError.
+   */
+  readonly onGatheringError?: Event<[IceGatheringErrorInfo]>;
 
   restart(): void;
   /** Record the remote `a=ice-options` tokens (see remoteIceOptions). */

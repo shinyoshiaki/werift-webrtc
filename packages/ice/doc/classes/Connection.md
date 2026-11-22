@@ -124,6 +124,29 @@ Resolves remote mDNS candidates; closed (pending lookups cancelled) by restart()
 
 ***
 
+### onGatheringError
+
+> `readonly` **onGatheringError**: `Event`\<\[[`IceGatheringErrorInfo`](../type-aliases/IceGatheringErrorInfo.md)\]\>
+
+The current generation's gathering reported an error (werift extension,
+see [IceGatheringErrorInfo](../type-aliases/IceGatheringErrorInfo.md)), synchronously:
+- `interface-enumeration-failed`: os.networkInterfaces() threw; once per
+  generation, and the gathering goes on without enumerated addresses.
+- `no-candidates`: the generation's gathering ended without any local
+  candidate, whatever the cause (also after the other reasons).
+- `gathering-failed`: gatherCandidates() hit an unexpected exception; the
+  gathering of the generation ends and gatherCandidates() still rejects.
+
+Nothing is fired for a replaced generation or after close (the event
+completes then); a listener that throws does not stop the gathering. New
+reasons may be added: handle unknown values.
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`onGatheringError`](../interfaces/IceConnection.md#ongatheringerror)
+
+***
+
 ### onIceCandidate
 
 > `readonly` **onIceCandidate**: `Event`\<\[[`Candidate`](Candidate.md)\]\>

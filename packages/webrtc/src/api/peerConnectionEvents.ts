@@ -5,7 +5,11 @@ import type {
   RTCRtpReceiver,
   RTCRtpTransceiver,
 } from "../media";
-import type { RTCIceCandidate } from "../transport/ice";
+import type {
+  IceGatheringErrorDetails,
+  RTCIceCandidate,
+  RTCIceTransport,
+} from "../transport/ice";
 import type { Callback, CallbackWithValue } from "../types/util";
 
 // Events RTCPeerConnection dispatches and the `on*` handler attributes.
@@ -124,6 +128,15 @@ export class RTCPeerConnectionIceErrorEvent extends Event {
     this.errorText = init.errorText ?? "";
   }
 }
+
+/**
+ * A gathering error of one ICE transport (`RTCPeerConnection.onIceGatheringError`,
+ * a werift extension, not W3C): see {@link IceGatheringErrorDetails}.
+ */
+export type RTCIceGatheringErrorEvent = IceGatheringErrorDetails & {
+  /** The transport whose gathering reported it. */
+  readonly iceTransport: RTCIceTransport;
+};
 
 export interface RTCDataChannelEvent {
   type?: "datachannel";

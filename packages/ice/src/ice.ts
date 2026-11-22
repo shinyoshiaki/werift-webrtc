@@ -21,6 +21,10 @@ import {
   type FailoverThresholds,
   resolveFailoverThresholds,
 } from "./failover";
+import {
+  type IceGatheringErrorInfo,
+  IceGatheringErrorReason,
+} from "./gatheringError";
 import { cancelable, PQueue, randomString } from "./helper";
 import {
   BACKUP_UNKNOWN_RTT_RESPONSE_TIMEOUT,
@@ -59,6 +63,7 @@ import { getDefaultRouteAddresses } from "./internal/defaultRoute";
 import {
   getAssignedInterfaceAddresses,
   getHostInterfaceAddresses,
+  readNetworkInterfaces,
 } from "./internal/hostInterfaces";
 import { resolveHostAddresses } from "./internal/resolveHostAddresses";
 import {
@@ -82,6 +87,10 @@ const log = debug("werift-ice : packages/ice/src/ice.ts : log");
 
 /** Fallback STUN server when none is configured (constructor / setIceServers). */
 const DEFAULT_STUN_SERVER: Address = ["stun.l.google.com", 19302];
+/** The message of a thrown value, for an `errorText`. */
+const errorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : String(error);
+
 /**
  * The URL `onIceCandidateError` names the built-in default STUN server by:
  * it is in no configuration, so werift synthesizes one.
@@ -414,6 +423,23 @@ export class Connection implements IceConnection {
    * synthesized URL {@link DEFAULT_STUN_SERVER_URL} in `server.urls`.
    */
   readonly onIceCandidateError = new Event<[IceCandidateErrorInfo]>();
+  /**
+   * The current generation's gathering reported an error (werift extension,
+   * see {@link IceGatheringErrorInfo}), synchronously:
+   * - `interface-enumeration-failed`: os.networkInterfaces() threw; once per
+   *   generation, and the gathering goes on without enumerated addresses.
+   * - `no-candidates`: the generation's gathering ended without any local
+   *   candidate, whatever the cause (also after the other reasons).
+   * - `gathering-failed`: gatherCandidates() hit an unexpected exception; the
+   *   gathering of the generation ends and gatherCandidates() still rejects.
+   *
+   * Nothing is fired for a replaced generation or after close (the event
+   * completes then); a listener that throws does not stop the gathering. New
+   * reasons may be added: handle unknown values.
+   */
+  readonly onGatheringError = new Event<[IceGatheringErrorInfo]>({
+    onListenerError: (error) => log("onGatheringError listener threw", error),
+  });
   /**
    * A STUN or TURN server of the current generation's gathering answered:
    * a STUN query or TURN allocation gave a candidate, or the server sent an
@@ -769,123 +795,206 @@ export class Connection implements IceConnection {
     if (!this.localCandidatesStart) {
       this.localCandidatesStart = true;
       const generation = this.generation;
-
-      // An ICE restart allocates TURN afresh, which is how a restart recovers
-      // from an allocation that died: the previous one leaves the generation.
-      const previousTurn = this.protocols.filter(
-        (protocol) => protocol.localCandidate?.type === "relay",
-      );
-      // The generation keeps only the sockets a fresh gathering with the
-      // current options would open: a relay-only policy or useTcp turned off
-      // since the previous generation closes the kept host (UDP / TCP)
-      // sockets, so they are neither advertised, paired nor reachable.
-      const excluded = this.protocols.filter(
-        (protocol) =>
-          !previousTurn.includes(protocol) &&
-          !!protocol.localCandidate &&
-          !isCandidateAllowedByGatherOptions(
-            protocol.localCandidate,
-            this.options,
-          ),
-      );
-      this.protocols = this.protocols.filter(
-        (protocol) =>
-          !previousTurn.includes(protocol) && !excluded.includes(protocol),
-      );
-      void Promise.allSettled(
-        [...previousTurn, ...excluded].map((protocol) => protocol.close()),
-      );
-
-      // ICE restart keeps transport protocols; re-advertise their host candidates
-      // with the new generation / ufrag before gathering additional addresses.
-      for (const [family, wildcard] of this.gatherer.wildcardProtocols) {
-        if (!this.protocols.includes(wildcard)) {
-          // Closed with the excluded sockets, or still opening for the
-          // replaced generation: a fresh one is opened if needed.
-          this.gatherer.wildcardProtocols.delete(family);
+      try {
+        await this.gatherGeneration(generation);
+      } catch (error) {
+        // An unexpected exception ends this generation's gathering instead
+        // of leaving it started but never ended: a later call would
+        // otherwise skip gathering and report "completed" without a word,
+        // and connect() / waitForLocalCandidatesEnd() would wait for an end
+        // that never comes. Resetting `localCandidatesStart` to gather again
+        // is not done, as the sockets this attempt opened stay advertised.
+        // The failure is reported (gathering-failed, then no-candidates when
+        // nothing was gathered) and this call still rejects.
+        log("gatherCandidates failed", error);
+        this.emitGatheringError(
+          generation,
+          IceGatheringErrorReason.gatheringFailed,
+          `gathering failed: ${errorMessage(error)}`,
+          error,
+        );
+        if (this.isGathering(generation) && !this.localCandidatesEnd) {
+          this.endLocalCandidates(generation);
         }
-      }
-      for (const protocol of this.protocols) {
-        if (protocol.localCandidate) {
-          protocol.localCandidate.generation = this.generation;
-          protocol.localCandidate.ufrag = this.localUsername;
-          // A wildcard socket's local candidate is one of its
-          // server-reflexive candidates, re-advertised below.
-          if (!this.gatherer.isWildcardProtocol(protocol)) {
-            this.appendLocalCandidate(protocol.localCandidate);
-          }
-          for (const reflexive of this.gatherer.reflexiveBySocket.get(
-            protocol,
-          ) ?? []) {
-            this.appendLocalCandidate(this.withGeneration(reflexive));
-          }
-        }
-      }
-
-      // A family bound to an explicit interface address gathers only that
-      // address, so the advertised host candidate is the socket's address.
-      const address = resolveHostAddresses({
-        enumerated: getHostInterfaceAddresses(
-          this.options.useIpv4,
-          this.options.useIpv6,
-          {
-            useLinkLocalAddress: this.options.useLinkLocalAddress,
-          },
-        ),
-        assigned: getAssignedInterfaceAddresses(),
-        interfaceAddresses: this.options.interfaceAddresses,
-        additionalHostAddresses: this.options.additionalHostAddresses,
-        useIpv4: this.options.useIpv4,
-        useIpv6: this.options.useIpv6,
-        log,
-      });
-
-      // The default-route address of each family: the source address of the
-      // route to the configured STUN / TURN servers (none without one: no
-      // other address is probed). Its host candidate gets the highest local preference, and its
-      // socket is a representative of the family's server-reflexive queries.
-      // Probed while the sockets bind: no server work waits for it.
-      const defaultRoutes = this.untilClosed(
-        getDefaultRouteAddresses(this.options.useIpv4, this.options.useIpv6, [
-          ...this.stunServers.map(([host]) => host),
-          ...this.turnServers.map(({ address: [host] }) => host),
-        ]),
-      ).then((routes) => routes ?? []);
-
-      const { primary, background } = this.gatherer.candidatePromises(
-        address,
-        this.options.stunGatherTimeout,
-        generation,
-        defaultRoutes,
-      );
-      // close() ends the gathering at once: the continuations above close
-      // whatever a server query still opens for a closed agent.
-      await this.untilClosed(Promise.allSettled(primary));
-
-      // A later ICE restart (or close) owns the agent now: this gathering
-      // neither completes that generation nor touches its state.
-      if (!this.isGathering(generation)) return;
-      const pending = background.filter(({ settled }) => !settled);
-      if (pending.length === 0) {
-        this.localCandidatesEnd = true;
-        this.wakeIncomingCheckWaits();
-      } else {
-        // The other host sockets' server-reflexive candidates trickle in;
-        // end-of-candidates follows the last of them.
-        this.localCandidatesEndPromise = this.untilClosed(
-          Promise.allSettled(pending.map(({ query }) => query)),
-        ).then(() => {
-          if (!this.isGathering(generation)) return;
-          this.localCandidatesEnd = true;
-          this.wakeIncomingCheckWaits();
-          if (this.checksBegun) this.concludeCheckListIfExhausted();
-        });
+        throw error;
       }
     }
     // Gathering that finishes after connectivity checks began (an ICE restart
     // keeps gathering from its servers) must not overwrite their state: the
     // agent stays "new" while checking, and only the checks' outcome moves it.
     if (this.state === "new" && !this.checksBegun) this.setState("completed");
+  }
+
+  /** The gathering of `generation` started by {@link Connection.gatherCandidates}. */
+  private async gatherGeneration(generation: number) {
+    // An ICE restart allocates TURN afresh, which is how a restart recovers
+    // from an allocation that died: the previous one leaves the generation.
+    const previousTurn = this.protocols.filter(
+      (protocol) => protocol.localCandidate?.type === "relay",
+    );
+    // The generation keeps only the sockets a fresh gathering with the
+    // current options would open: a relay-only policy or useTcp turned off
+    // since the previous generation closes the kept host (UDP / TCP)
+    // sockets, so they are neither advertised, paired nor reachable.
+    const excluded = this.protocols.filter(
+      (protocol) =>
+        !previousTurn.includes(protocol) &&
+        !!protocol.localCandidate &&
+        !isCandidateAllowedByGatherOptions(
+          protocol.localCandidate,
+          this.options,
+        ),
+    );
+    this.protocols = this.protocols.filter(
+      (protocol) =>
+        !previousTurn.includes(protocol) && !excluded.includes(protocol),
+    );
+    void Promise.allSettled(
+      [...previousTurn, ...excluded].map((protocol) => protocol.close()),
+    );
+
+    // ICE restart keeps transport protocols; re-advertise their host candidates
+    // with the new generation / ufrag before gathering additional addresses.
+    for (const [family, wildcard] of this.gatherer.wildcardProtocols) {
+      if (!this.protocols.includes(wildcard)) {
+        // Closed with the excluded sockets, or still opening for the
+        // replaced generation: a fresh one is opened if needed.
+        this.gatherer.wildcardProtocols.delete(family);
+      }
+    }
+    for (const protocol of this.protocols) {
+      if (protocol.localCandidate) {
+        protocol.localCandidate.generation = this.generation;
+        protocol.localCandidate.ufrag = this.localUsername;
+        // A wildcard socket's local candidate is one of its
+        // server-reflexive candidates, re-advertised below.
+        if (!this.gatherer.isWildcardProtocol(protocol)) {
+          this.appendLocalCandidate(protocol.localCandidate);
+        }
+        for (const reflexive of this.gatherer.reflexiveBySocket.get(protocol) ??
+          []) {
+          this.appendLocalCandidate(this.withGeneration(reflexive));
+        }
+      }
+    }
+
+    // One enumeration serves both the host addresses and the check of
+    // which additionalHostAddresses are assigned locally. Where it is not
+    // allowed (os.networkInterfaces() throws, e.g. AF_NETLINK denied by
+    // systemd's RestrictAddressFamilies=) the gathering goes on without
+    // enumerated addresses: the explicit interfaceAddresses, the
+    // additionalHostAddresses (bound to the wildcard address, as none is
+    // known to be assigned), STUN and TURN may still give candidates.
+    const enumeration = readNetworkInterfaces();
+    if (enumeration.error !== undefined) {
+      log("network interface enumeration failed", enumeration.error);
+      this.emitGatheringError(
+        generation,
+        IceGatheringErrorReason.interfaceEnumerationFailed,
+        `network interface enumeration failed: ${errorMessage(enumeration.error)}`,
+        enumeration.error,
+      );
+    }
+
+    // A family bound to an explicit interface address gathers only that
+    // address, so the advertised host candidate is the socket's address.
+    const address = resolveHostAddresses({
+      enumerated: getHostInterfaceAddresses(
+        this.options.useIpv4,
+        this.options.useIpv6,
+        {
+          useLinkLocalAddress: this.options.useLinkLocalAddress,
+        },
+        enumeration.interfaces,
+      ),
+      assigned: getAssignedInterfaceAddresses(enumeration.interfaces),
+      interfaceAddresses: this.options.interfaceAddresses,
+      additionalHostAddresses: this.options.additionalHostAddresses,
+      useIpv4: this.options.useIpv4,
+      useIpv6: this.options.useIpv6,
+      log,
+    });
+
+    // The default-route address of each family: the source address of the
+    // route to the configured STUN / TURN servers (none without one: no
+    // other address is probed). Its host candidate gets the highest local preference, and its
+    // socket is a representative of the family's server-reflexive queries.
+    // Probed while the sockets bind: no server work waits for it.
+    const defaultRoutes = this.untilClosed(
+      getDefaultRouteAddresses(this.options.useIpv4, this.options.useIpv6, [
+        ...this.stunServers.map(([host]) => host),
+        ...this.turnServers.map(({ address: [host] }) => host),
+      ]),
+    ).then((routes) => routes ?? []);
+
+    const { primary, background } = this.gatherer.candidatePromises(
+      address,
+      this.options.stunGatherTimeout,
+      generation,
+      defaultRoutes,
+    );
+    // close() ends the gathering at once: the continuations above close
+    // whatever a server query still opens for a closed agent.
+    await this.untilClosed(Promise.allSettled(primary));
+
+    // A later ICE restart (or close) owns the agent now: this gathering
+    // neither completes that generation nor touches its state.
+    if (!this.isGathering(generation)) return;
+    const pending = background.filter(({ settled }) => !settled);
+    if (pending.length === 0) {
+      this.endLocalCandidates(generation);
+    } else {
+      // The other host sockets' server-reflexive candidates trickle in;
+      // end-of-candidates follows the last of them.
+      this.localCandidatesEndPromise = this.untilClosed(
+        Promise.allSettled(pending.map(({ query }) => query)),
+      ).then(() => {
+        if (!this.isGathering(generation)) return;
+        this.endLocalCandidates(generation);
+        if (this.checksBegun) this.concludeCheckListIfExhausted();
+      });
+    }
+  }
+
+  /**
+   * End the gathering of `generation` (the current one): `no-candidates` is
+   * reported first when it gave no local candidate (the candidates an ICE
+   * restart re-advertised count), whatever the cause.
+   */
+  private endLocalCandidates(generation: number) {
+    if (this.localCandidates.length === 0) {
+      this.emitGatheringError(
+        generation,
+        IceGatheringErrorReason.noCandidates,
+        "gathering ended without any local candidate",
+      );
+    }
+    this.localCandidatesEnd = true;
+    this.wakeIncomingCheckWaits();
+  }
+
+  /**
+   * Report a gathering error of `generation` (see onGatheringError). Nothing
+   * is reported for a replaced generation or after close; a listener that
+   * throws does not stop the gathering.
+   */
+  private emitGatheringError(
+    generation: number,
+    reason: IceGatheringErrorReason,
+    errorText: string,
+    cause?: unknown,
+  ) {
+    if (!this.isGathering(generation) || this.closing.signal.aborted) return;
+    const info: IceGatheringErrorInfo = {
+      reason,
+      errorText,
+      ...(cause !== undefined ? { cause } : {}),
+      generation,
+    };
+    log("ice gathering error", { reason, errorText });
+    // Each listener's exception is logged (onListenerError): the later
+    // listeners still run and the gathering goes on.
+    this.onGatheringError.execute(info);
   }
 
   /**
@@ -1517,6 +1626,7 @@ export class Connection implements IceConnection {
     this.closed = true;
     this.setState("closed");
     this.onIceCandidateError.complete();
+    this.onGatheringError.complete();
     this.onIceServerReached.complete();
     this.closing.abort();
     this.cancelChecks();

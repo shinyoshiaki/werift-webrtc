@@ -115,6 +115,23 @@ same event object is passed here, to `onicecandidateerror` and to the
 
 ***
 
+### onIceGatheringError
+
+> `readonly` **onIceGatheringError**: [`Event`](Event.md)\<\[[`RTCIceGatheringErrorEvent`](../type-aliases/RTCIceGatheringErrorEvent.md)\]\>
+
+The gathering of one ICE transport reported an error (werift extension,
+not W3C, so there is no `on<event>` property or `addEventListener` type):
+the interfaces could not be enumerated (`interface-enumeration-failed`),
+the gathering ended without any local candidate (`no-candidates`), or it
+failed unexpectedly (`gathering-failed`); new reasons may be added. It
+fires once per transport and reason (without BUNDLE each transport gives
+its own), never after close or for a transport a rollback discards. The
+gathering still completes (`iceGatheringState` reaches "complete" and
+end-of-candidates is signalled), and setLocalDescription is not
+rejected. A STUN / TURN server failure stays an `icecandidateerror`.
+
+***
+
 ### onNegotiationneeded
 
 > `readonly` **onNegotiationneeded**: [`Event`](Event.md)\<\[\]\>

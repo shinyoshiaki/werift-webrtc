@@ -110,6 +110,16 @@ dropped at the commit, so RTP pauses until the new generation nominates.
 
 ***
 
+### onGatheringError
+
+> `readonly` **onGatheringError**: [`Event`](Event.md)\<\[[`IceGatheringErrorDetails`](../type-aliases/IceGatheringErrorDetails.md)\]\>
+
+The current generation's gathering reported an error (werift extension,
+not W3C; see RTCIceGatherer.onGatheringError). Nothing is fired once the
+transport is closed.
+
+***
+
 ### ongatheringstatechange?
 
 > `optional` **ongatheringstatechange?**: () => `void`

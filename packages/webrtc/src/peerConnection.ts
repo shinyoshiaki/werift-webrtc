@@ -10,6 +10,7 @@ import {
 import {
   type PeerConnectionEventHandlers,
   type RTCDataChannelEvent,
+  type RTCIceGatheringErrorEvent,
   RTCPeerConnectionIceErrorEvent,
   type RTCPeerConnectionIceEvent,
   RTCTrackEvent,
@@ -102,6 +103,7 @@ export {
 } from "./api/peerConfig";
 export {
   type RTCDataChannelEvent,
+  type RTCIceGatheringErrorEvent,
   RTCPeerConnectionIceErrorEvent,
   type RTCPeerConnectionIceErrorEventInit,
   type RTCPeerConnectionIceEvent,
@@ -253,6 +255,22 @@ export class RTCPeerConnection extends EventTarget {
   readonly onIceCandidateError = new Event<[RTCPeerConnectionIceErrorEvent]>({
     onListenerError: (error) =>
       log("onIceCandidateError subscriber threw", error),
+  });
+  /**
+   * The gathering of one ICE transport reported an error (werift extension,
+   * not W3C, so there is no `on<event>` property or `addEventListener` type):
+   * the interfaces could not be enumerated (`interface-enumeration-failed`),
+   * the gathering ended without any local candidate (`no-candidates`), or it
+   * failed unexpectedly (`gathering-failed`); new reasons may be added. It
+   * fires once per transport and reason (without BUNDLE each transport gives
+   * its own), never after close or for a transport a rollback discards. The
+   * gathering still completes (`iceGatheringState` reaches "complete" and
+   * end-of-candidates is signalled), and setLocalDescription is not
+   * rejected. A STUN / TURN server failure stays an `icecandidateerror`.
+   */
+  readonly onIceGatheringError = new Event<[RTCIceGatheringErrorEvent]>({
+    onListenerError: (error) =>
+      log("onIceGatheringError subscriber threw", error),
   });
   readonly onNegotiationneeded = new Event<[]>();
   readonly onTrack = new Event<[MediaStreamTrack]>();
@@ -1146,6 +1164,17 @@ export class RTCPeerConnection extends EventTarget {
         });
       }
     });
+    iceTransport.onGatheringError.subscribe((details) => {
+      // Like icecandidateerror: nothing after close or for a transport a
+      // rollback discards. Fired per transport, without deduplication.
+      if (
+        this.isClosed ||
+        this.negotiation.isPendingOnlyTransport(iceTransport.id)
+      ) {
+        return;
+      }
+      this.onIceGatheringError.execute({ ...details, iceTransport });
+    });
     iceTransport.onIceCandidateError.subscribe((details) => {
       // A closed connection fires nothing; a transport a rollback discards
       // (pending only) is not announced, as for its candidates.
@@ -1755,6 +1784,8 @@ export class RTCPeerConnection extends EventTarget {
       // The description is in place: a queued addIceCandidate need not wait
       // for the gathering below.
       this.markDescriptionApplied();
+      // A failed gathering does not reject setLocalDescription: it is
+      // reported through onIceGatheringError (RTCIceGatherer.gather()).
       await this.gatherCandidates().catch((e) => {
         log("gatherCandidates failed", e);
       });
@@ -2444,6 +2475,7 @@ export class RTCPeerConnection extends EventTarget {
       this.onRemoteTransceiverAdded,
       this.onIceCandidate,
       this.onIceCandidateError,
+      this.onIceGatheringError,
       this.onNegotiationneeded,
     ] as const;
     for (const event of events) {

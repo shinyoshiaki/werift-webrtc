@@ -8,6 +8,8 @@
 
 > **getHostAddresses**(`useIpv4`, `useIpv6`, `options?`): `string`[]
 
+[nodeIpAddress](nodeIpAddress.md) of IPv4 then IPv6, as enabled.
+
 ## Parameters
 
 ### useIpv4
@@ -29,3 +31,8 @@ such as google cloud run
 ## Returns
 
 `string`[]
+
+## Throws
+
+the `SystemError` of `os.networkInterfaces()` when the interfaces
+cannot be enumerated, like [nodeIpAddress](nodeIpAddress.md).
