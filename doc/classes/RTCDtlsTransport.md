@@ -20,9 +20,7 @@
 
 ##### config
 
-###### debug?
-
-`Partial`\<\{ `disableRecvRetransmit`: `boolean`; `disableSendNack`: `boolean`; `inboundPacketLoss`: `number`; `outboundPacketLoss`: `number`; `receiverReportDelay`: `number`; \}\>
+[`DtlsTransportConfig`](../interfaces/DtlsTransportConfig.md)
 
 ##### iceTransport
 
@@ -64,11 +62,7 @@
 
 ### config
 
-> `readonly` **config**: `object`
-
-#### debug?
-
-> `optional` **debug?**: `Partial`\<\{ `disableRecvRetransmit`: `boolean`; `disableSendNack`: `boolean`; `inboundPacketLoss`: `number`; `outboundPacketLoss`: `number`; `receiverReportDelay`: `number`; \}\>
+> `readonly` **config**: [`DtlsTransportConfig`](../interfaces/DtlsTransportConfig.md)
 
 ***
 
@@ -119,6 +113,12 @@ tests/issue/815.test.ts "#815 report: reversed ICE / DTLS roles with channels fr
 ### id
 
 > **id**: `string`
+
+***
+
+### lastError?
+
+> `optional` **lastError?**: `Error`
 
 ***
 
@@ -194,7 +194,7 @@ local or remote answer / pranswer, or `start()` resolving `auto`).
 
 ### onStateChange
 
-> `readonly` **onStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"new"` \| `"connected"` \| `"connecting"` \| `"failed"`\]\>
+> `readonly` **onStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"connected"` \| `"new"` \| `"failed"` \| `"connecting"`\]\>
 
 ***
 
@@ -248,7 +248,7 @@ not mean ICE has released its resources.
 
 ### state
 
-> **state**: `"closed"` \| `"new"` \| `"connected"` \| `"connecting"` \| `"failed"` = `"new"`
+> **state**: `"closed"` \| `"connected"` \| `"new"` \| `"failed"` \| `"connecting"` = `"new"`
 
 ***
 

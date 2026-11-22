@@ -74,9 +74,8 @@ describe("server", () => {
       expect(sentHandshakeTypes(transport.sent)).toEqual([
         HandshakeType.hello_verify_request_3,
       ]);
-      expect(server.cipher.remoteRandom.serialize()).toEqual(
-        hello.fragment.subarray(2, 34),
-      );
+      // cookie 検証前は association の暗号状態（remoteRandom）を確定しない
+      expect(server.cipher.remoteRandom).toBeUndefined();
       await server.close();
     },
   );

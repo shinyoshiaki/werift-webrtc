@@ -12,7 +12,7 @@ import {
   type IceState,
   WEAK_OR_STABILIZING_WRITABLE_CONNECTION_PING_INTERVAL,
 } from "./iceBase";
-import { debug } from "./imports/common";
+import { type Address, debug } from "./imports/common";
 import type { MessageIntegrityMode } from "./stun/const";
 import type { Message } from "./stun/message";
 
@@ -48,6 +48,20 @@ export type ConsentHost = {
    * (USE-CANDIDATE, NOMINATION).
    */
   buildRequest: (pair: CandidatePair) => Message;
+  /** The local ICE generation; an answer of an earlier one does not count. */
+  generation?: () => number;
+  /**
+   * Last chance to add what the request carries (SPED L1). Returning false
+   * skips this consent check.
+   */
+  decorateRequest?: (request: Message, pair: CandidatePair) => boolean;
+  /** A valid consent response of the current session, pair and generations. */
+  onResponse?: (
+    response: Message,
+    addr: Address,
+    pair: CandidatePair,
+    generation: number,
+  ) => Promise<void> | void;
   /**
    * Failover of the selected pair (`FailoverMonitor`): when `enabled()`,
    * consent checks follow its pacing and report their outcome to it.
@@ -365,9 +379,13 @@ export class ConsentFreshness {
 
           const pairId = nominated.id;
           const generation = this.host.remoteGeneration();
+          const localGeneration = this.host.generation?.();
           const remotePassword = this.host.remotePassword();
 
           const request = this.host.buildRequest(nominated);
+          if (this.host.decorateRequest?.(request, nominated) === false) {
+            continue;
+          }
 
           // Each request has its own controller: a later request leaves it
           // open (its response may come after the next request), the session
@@ -449,7 +467,7 @@ export class ConsentFreshness {
                 },
               },
             )
-            .then(() => {
+            .then(async ([response, responseAddr]) => {
               settle();
               // Accept only responses for the current pair / generation / session.
               // Address / MESSAGE-INTEGRITY / response class are enforced in Transaction + protocol.
@@ -463,7 +481,10 @@ export class ConsentFreshness {
               if (this.host.selected()?.id !== pairId) {
                 return;
               }
-              if (this.host.remoteGeneration() !== generation) {
+              if (
+                this.host.remoteGeneration() !== generation ||
+                this.host.generation?.() !== localGeneration
+              ) {
                 return;
               }
               if (this.host.remotePassword() !== remotePassword) {
@@ -486,6 +507,14 @@ export class ConsentFreshness {
                 wake();
               } else if (state === "disconnected") {
                 this.host.setState("connected");
+              }
+              if (localGeneration !== undefined) {
+                await this.host.onResponse?.(
+                  response,
+                  responseAddr,
+                  nominated,
+                  localGeneration,
+                );
               }
             })
             .catch((error) => {

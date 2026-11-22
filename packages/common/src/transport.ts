@@ -542,6 +542,12 @@ export interface Transport {
   ) => Promise<void>;
   close: () => Promise<void>;
   /**
+   * When true, the transport path is already peer-authenticated (e.g. ICE).
+   * DTLS 1.2 may treat protected records as association-authenticated even
+   * without a UDP 5-tuple pin (ICE does not expose source address on RX).
+   */
+  peerAuthenticated?: boolean;
+  /**
    * IP family of a datagram socket. A datagram transport can only reach
    * addresses of this family. Built-in UDP transports always set it; a custom
    * transport that leaves it unset gets no family preference.

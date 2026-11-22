@@ -1,4 +1,5 @@
 import { readFileSync } from "fs";
+import { setTimeout as delay } from "timers/promises";
 
 import { type Mock, vi } from "vitest";
 
@@ -18,8 +19,10 @@ import {
 import { DataChunk, parsePacket } from "../../sctp/src/chunk";
 import type { SCTP } from "../../sctp/src/sctp";
 import {
+  type ConnectionState,
   type PeerConfig,
   type RTCDataChannel,
+  type RTCDtlsTransport,
   RTCIceGatherer,
   type RTCIceServer,
   RTCIceTransport,
@@ -28,6 +31,7 @@ import {
   type RTCSdpType,
 } from "../src";
 import { Event } from "../src/imports/common";
+import type { RTCTransportStats } from "../src/media/stats";
 import { TransportActivation } from "../src/negotiation/transportActivation";
 
 /**
@@ -290,7 +294,7 @@ export async function waitUntil(
   const deadline = Date.now() + timeout;
   while (!condition()) {
     if (Date.now() > deadline) throw new Error(message);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await delay(20);
   }
 }
 
@@ -354,7 +358,10 @@ export async function createDataChannelPair(
   }
 }
 
-function exchangeIceCandidates(pc1: RTCPeerConnection, pc2: RTCPeerConnection) {
+export function exchangeIceCandidates(
+  pc1: RTCPeerConnection,
+  pc2: RTCPeerConnection,
+) {
   // private function
   function doExchange(localPc: RTCPeerConnection, remotePc: RTCPeerConnection) {
     localPc.onIceCandidate.subscribe((candidate) => {
@@ -363,9 +370,14 @@ function exchangeIceCandidates(pc1: RTCPeerConnection, pc2: RTCPeerConnection) {
       }
       if (remotePc.signalingState !== "closed") {
         remotePc.addIceCandidate(candidate).catch((error) => {
-          if ((error as Error).message !== "The remote description was null") {
-            throw error;
+          const message = (error as Error).message;
+          if (
+            message === "The remote description was null" ||
+            message.includes("usernameFragment")
+          ) {
+            return;
           }
+          throw error;
         });
       }
     });
@@ -375,7 +387,7 @@ function exchangeIceCandidates(pc1: RTCPeerConnection, pc2: RTCPeerConnection) {
   doExchange(pc2, pc1);
 }
 
-async function exchangeOfferAnswer(
+export async function exchangeOfferAnswer(
   caller: RTCPeerConnection,
   callee: RTCPeerConnection,
 ) {
@@ -452,6 +464,90 @@ export function assert_equals(a, b, msg: string) {
 
 export function assert_true(a, msg: string) {
   expect(a).toBeTruthy();
+}
+
+export async function waitForConnectionState(
+  pc: RTCPeerConnection,
+  state: ConnectionState,
+  timeoutMs = 5_000,
+) {
+  if (pc.connectionState === state) {
+    return;
+  }
+  await Promise.race([
+    pc.connectionStateChange.watch((current) => current === state),
+    delay(timeoutMs).then(() => {
+      throw new Error(
+        `timed out waiting for connectionState ${state}, got ${pc.connectionState}`,
+      );
+    }),
+  ]);
+}
+
+export async function waitForDtlsState(
+  transport: RTCDtlsTransport,
+  state: RTCDtlsTransport["state"],
+  timeoutMs = 5_000,
+) {
+  if (transport.state === state) {
+    return;
+  }
+  await Promise.race([
+    transport.onStateChange.watch((current) => current === state),
+    delay(timeoutMs).then(() => {
+      throw new Error(
+        `timed out waiting for dtls state ${state}, got ${transport.state}`,
+      );
+    }),
+  ]);
+}
+
+export async function waitForIceNominated(
+  pc: RTCPeerConnection,
+  timeoutMs = 10_000,
+) {
+  const started = Date.now();
+  for (;;) {
+    const ice = pc.dtlsTransports[0]?.iceTransport;
+    const iceUp = ice?.state === "connected" || ice?.state === "completed";
+    if (ice?.connection.nominated && iceUp) {
+      return;
+    }
+    if (Date.now() - started > timeoutMs) {
+      throw new Error(
+        `timed out waiting for ICE nominated pair (state=${ice?.state} nominated=${!!ice?.connection.nominated})`,
+      );
+    }
+    await delay(50);
+  }
+}
+
+export async function getTransportStats(pc: RTCPeerConnection) {
+  const stats = await pc.getStats();
+  return [...stats.values()].find(
+    (stat): stat is RTCTransportStats => stat.type === "transport",
+  );
+}
+
+export function mutateSdpFingerprint(sdp: string) {
+  return sdp.replace(
+    /a=fingerprint:(\S+)\s+([0-9A-Fa-f:]+)/g,
+    (_match, algorithm: string, value: string) => {
+      const flipped = `${value[0] === "A" || value[0] === "a" ? "B" : "A"}${value.slice(1)}`;
+      return `a=fingerprint:${algorithm} ${flipped}`;
+    },
+  );
+}
+
+export function isProtocolVersionFailure(error?: Error) {
+  if (!error) {
+    return false;
+  }
+  return (
+    error.name === "ProtocolVersionError" ||
+    (error as { code?: string }).code === "protocol_version" ||
+    /protocol_version/i.test(error.message)
+  );
 }
 
 /**
@@ -901,6 +997,7 @@ export async function startActivationWaiting(
     {} as any,
     {
       signalingState: () => "stable",
+      config: () => ({}) as PeerConfig,
       createTransport: () => {
         throw new Error("not used");
       },
