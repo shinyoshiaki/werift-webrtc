@@ -150,15 +150,15 @@ a path broken in one direction).
   peer may already have taken it), and when it succeeds the selection moves
   and the old socket waits for its 3 responses.
 - Stopped receiving (libwebrtc's `receiving` and `receiving_switching_delay`):
-  the controlling agent does not wait for the unwritable rule when nothing
-  was received on the selected pair for 2.5 s + 1 s and one of its checks
-  went unanswered meanwhile; it fails over to the best backup that receives
-  (its last check answered, something received within 2.5 s), about 4 s
-  after a path broke both ways. An idle pair whose checks are answered, a
+  the controlling agent does not wait for the unwritable rule once the
+  selected pair has not been receiving for 1 s (from the later of 2.5 s of
+  silence and one of its checks going unanswered); it moves to a backup that
+  is receiving, about 4 s after a path broke both ways. The switch, its hold
+  and the backup it picks (receiving state, priority, RTT) are described in
+  "Choosing the selected pair". An idle pair whose checks are answered, a
   slow path whose checks are answered before their deadline, a shorter loss
   burst and a break of one direction only (the peer's data still arrives)
-  keep the unwritable rule. Equal-priority pairs are told apart by RTT (see
-  "Choosing the selected pair").
+  keep the unwritable rule.
 - A path reported gone fails over at once (as libwebrtc drops the
   connections of a port that is gone): the protocol's `onPathBroken` makes
   the monitored pairs on it unwritable until one of their checks is

@@ -3701,10 +3701,12 @@ export class Connection implements IceConnection {
   }
 
   /**
-   * Failover: the selected pair stopped receiving (`isNotReceiving`: nothing
-   * received for `receivingTimeout` + `receivingSwitchingDelay` and a check
-   * unanswered) while its consent is still fresh and it is not unwritable
-   * yet. libwebrtc switches on it (`CompareConnectionStates`: receiving).
+   * Failover: the selected pair stopped receiving (`isNotReceiving`:
+   * `receivingSwitchingDelay` passed since `notReceivingSince`, the later of
+   * `receivingTimeout` of silence and an unanswered check) while its consent
+   * is still fresh and it is not unwritable yet. libwebrtc switches on it
+   * (`CompareConnectionStates`: receiving); `SelectionController` makes that
+   * switch, and this lets its nomination replace the selection.
    */
   private selectionNotReceiving() {
     const selected = this.nominated;
@@ -3776,9 +3778,10 @@ export class Connection implements IceConnection {
    * success moves the selection (`replacesSelectedPair`). A controlled agent
    * only follows the peer's nominations.
    *
-   * Before the selected pair is unwritable, a selected pair that stopped
-   * receiving (`selectionNotReceiving`) moves to a backup that receives (not
-   * weak), as libwebrtc compares the receiving state after the writable one.
+   * A selected pair that stopped receiving but is not unwritable yet
+   * (`selectionNotReceiving`) is not handled here: `SelectionController`
+   * holds that switch for `receivingSwitchingDelay` and picks the backup by
+   * receiving state, priority and RTT.
    */
   private evaluateFailover() {
     if (
@@ -3790,19 +3793,18 @@ export class Connection implements IceConnection {
     ) {
       return;
     }
-    const down = this.selectionDown();
     // Not receiving only: `SelectionController` decides it (hold, then switch).
-    if (!down) return;
-    const target = this.failover.target(undefined, { receiving: false });
+    if (!this.selectionDown()) return;
+    const target = this.failover.target();
     if (!target) {
       // Nothing to fail over to: check the failed pairs that outrank the
       // selection now (a path that came back may be one of them).
-      if (down) this.selection.checkFailedOutranking();
+      this.selection.checkFailedOutranking();
       return;
     }
     log("failover", target.toJSON(), {
       selected: this.nominated?.toJSON(),
-      reason: down ? "unwritable" : "not receiving",
+      reason: "unwritable",
     });
     this.switchNomination = { pair: target, reason: "failover" };
     this.selection.nominate(target);

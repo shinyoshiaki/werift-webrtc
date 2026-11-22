@@ -13,7 +13,6 @@ import {
   isWritable,
   nextPingAt,
   notReceivingSince,
-  type PairLiveness,
   resolveFailoverThresholds,
 } from "../../../src/failover";
 import {
@@ -22,41 +21,7 @@ import {
   isPathBrokenSendError,
   PATH_BROKEN_SEND_ERRORS,
 } from "../../../src/stun/protocol";
-import { drawFailoverThresholds } from "../failoverBurst/generator";
-
-/**
- * A pair's liveness, a time and thresholds. `missedSince` is set exactly when
- * `unanswered` > 0 (as `FailoverMonitor.unanswered` does), at any time from
- * shortly before the last reception to `now`, so the draw covers a pair
- * receiving, one whose silence waits for the unanswered check, one inside
- * the hold and one past it.
- */
-function drawLivenessCase(seed: number) {
-  const random = seededRandom(seed);
-  const since = random.int(0, 10_000);
-  const lastResponse = random.chance(0.8)
-    ? since + random.int(0, 10_000)
-    : undefined;
-  const lastReceived = (lastResponse ?? since) + random.int(0, 5_000);
-  const now = lastReceived + random.int(0, 12_000);
-  const unanswered = random.int(0, 8);
-  const liveness: PairLiveness = {
-    since,
-    lastResponse,
-    lastReceived,
-    unanswered,
-    missedSince:
-      unanswered > 0
-        ? random.int(Math.max(since, lastReceived - 2_000), now + 1)
-        : undefined,
-    responses: random.int(0, 5),
-    consecutive: random.int(0, 3),
-    broken: random.chance(0.1),
-  };
-  const later = now + random.int(0, 5_000);
-  const thresholds = drawFailoverThresholds(random);
-  return { liveness, now, later, thresholds, random };
-}
+import { drawLivenessCase } from "./generator";
 
 /**
  * Failover rules property (ticket 6b2d7627 §15): the pure rules behind the
@@ -66,6 +31,12 @@ function drawLivenessCase(seed: number) {
  * - the liveness rules (`isUnwritable`, `isWeak`, `isNotReceiving`,
  *   `isWritable`, `nextPingAt`) are consistent with each other and monotonic
  *   in time and in the thresholds;
+ * - a pair is not receiving (`notReceivingSince`) exactly from the later of
+ *   `receivingTimeout` of silence and its first unanswered check
+ *   (`missedSince`), and `isNotReceiving` holds exactly once
+ *   `receivingSwitchingDelay` passed since then; a coverage check (skipped
+ *   when a seed is selected) asserts that the default seeds draw pairs
+ *   receiving, in the hold and past it;
  * - a send error is a broken path exactly for the routing codes, and data
  *   sends are confirmed once per 100 ms.
  *

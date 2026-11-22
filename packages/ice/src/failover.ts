@@ -401,16 +401,12 @@ export class FailoverMonitor {
   }
 
   /**
-   * The backup to fail over to: the highest-priority writable one that is
-   * not weak, else the highest-priority writable one. With `receiving`
-   * (the selected pair only stopped receiving, it is not unwritable yet)
-   * only a backup that is not weak: writable, its last check answered and
-   * received within `receivingTimeout`.
+   * The backup to fail over to from an unwritable selection: the
+   * highest-priority writable one that is not weak, else the
+   * highest-priority writable one. (A selection that only stopped receiving
+   * is `SelectionController`'s.)
    */
-  target(
-    now = Date.now(),
-    { receiving = false }: { receiving?: boolean } = {},
-  ): CandidatePair | undefined {
+  target(now = Date.now()): CandidatePair | undefined {
     const writable = this.backupPairs.filter((pair) =>
       this.writable(pair, now),
     );
@@ -425,7 +421,7 @@ export class FailoverMonitor {
           !isWeak(this.liveness.get(pair)!, now, this.host.thresholds()),
       ),
     );
-    return receiving ? strong : (strong ?? best(writable));
+    return strong ?? best(writable);
   }
 
   /**
