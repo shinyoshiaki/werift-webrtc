@@ -10,6 +10,7 @@ import {
   CONSENT_TIMEOUT,
   consentResponseTimeoutMs,
   type IceState,
+  WEAK_OR_STABILIZING_WRITABLE_CONNECTION_PING_INTERVAL,
 } from "./iceBase";
 import { debug } from "./imports/common";
 import type { MessageIntegrityMode } from "./stun/const";
@@ -19,12 +20,16 @@ const log = debug("werift-ice : packages/ice/src/consent.ts : log");
 
 /**
  * Consent requests a session keeps open at once: the requests the shortest
- * interval (4 s) sends in `CONSENT_TIMEOUT`. A request beyond it ends the
- * oldest one (failover's weak interval sends more often).
+ * send interval emits within `CONSENT_TIMEOUT`, so no request that can still
+ * be answered in time is ended by the limit. The shortest interval is
+ * failover's weak interval (900 ms), not the regular `CONSENT_INTERVAL`
+ * (4 s); one extra covers the request being sent now.
  */
-export const CONSENT_MAX_OUTSTANDING_REQUESTS = Math.ceil(
-  CONSENT_TIMEOUT / (CONSENT_INTERVAL * 0.8),
-);
+export const CONSENT_MAX_OUTSTANDING_REQUESTS =
+  Math.ceil(
+    (CONSENT_TIMEOUT * 1000) /
+      WEAK_OR_STABILIZING_WRITABLE_CONNECTION_PING_INTERVAL,
+  ) + 1;
 
 /** What the agent supplies to its `ConsentFreshness`. */
 export type ConsentHost = {

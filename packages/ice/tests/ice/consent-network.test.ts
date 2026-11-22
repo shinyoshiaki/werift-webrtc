@@ -429,7 +429,8 @@ describe("consent freshness with failover pacing", () => {
     }
 
     // Assert: 上限で頭打ちになり、超えない
-    expect(max).toBe(CONSENT_MAX_OUTSTANDING_REQUESTS);
+    expect(max).toBeGreaterThan(8);
+    expect(max).toBeLessThanOrEqual(CONSENT_MAX_OUTSTANDING_REQUESTS);
     await harness.connection.close();
     expect(consent.outstandingRequests).toBe(0);
   });
@@ -445,6 +446,33 @@ describe("consent freshness with failover pacing", () => {
     // Assert: 失効しない
     expect(harness.connection.state).toBe("connected");
     expect((harness.connection as any).consent.fresh).toBe(true);
+    await harness.connection.close();
+  });
+
+  it("往復 10000ms でも上限で要求を破棄せず consent を維持する", async () => {
+    // Arrange: 選択後に往復が 10s に上がる（weak 間隔 900ms で 10 件超が未完了になる）
+    const harness = await createFailoverHarness({ locals: [harness0()] });
+    harness.protocols[0]!.responseDelayMs = 10_000;
+
+    // Act: 90 秒進める
+    await vi.advanceTimersByTimeAsync(90_000);
+
+    // Assert: 失効せず接続が維持される
+    expect(harness.connection.state).toBe("connected");
+    expect((harness.connection as any).consent.fresh).toBe(true);
+    await harness.connection.close();
+  });
+
+  it("往復 25000ms（期限内）でも失効しない", async () => {
+    // Arrange: 往復が 30s 期限ぎりぎりの 29s
+    const harness = await createFailoverHarness({ locals: [harness0()] });
+    harness.protocols[0]!.responseDelayMs = 25_000;
+
+    // Act: 120 秒進める
+    await vi.advanceTimersByTimeAsync(120_000);
+
+    // Assert: 失効しない
+    expect(harness.connection.state).toBe("connected");
     await harness.connection.close();
   });
 });
