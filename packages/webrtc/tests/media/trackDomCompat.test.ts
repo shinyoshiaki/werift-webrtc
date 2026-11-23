@@ -299,4 +299,25 @@ describe("MediaStream DOM-compatible members", () => {
     // Assert: 破棄されず getConstraints で返る。
     expect(track.getConstraints()).toEqual({ width: { ideal: 640 } });
   });
+
+  test("MediaStream.dispatchEvent returns the DOM cancel result", () => {
+    // Arrange
+    const stream = arrangeStream([arrangeOpusTrack()]);
+
+    // Act: リスナーなし / 通常リスナー / preventDefault するリスナー。
+    const noListener = stream.dispatchEvent(new Event("custom"));
+    stream.addEventListener("plain", () => {});
+    const plain = stream.dispatchEvent(new Event("plain"));
+    stream.addEventListener("cancel", (event: Event) => event.preventDefault());
+    const canceled = stream.dispatchEvent(
+      new Event("cancel", { cancelable: true }),
+    );
+    const notCancelable = stream.dispatchEvent(new Event("cancel"));
+
+    // Assert: キャンセルされた cancelable イベントだけ false。
+    expect(noListener).toBe(true);
+    expect(plain).toBe(true);
+    expect(canceled).toBe(false);
+    expect(notCancelable).toBe(true);
+  });
 });

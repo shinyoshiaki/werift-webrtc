@@ -307,6 +307,9 @@ v0.1.26
 
 > **dispatchEvent**(`event`): `boolean`
 
+DOM `dispatchEvent()`: `false` only when a cancelable event was canceled
+with `preventDefault()` (the base class returns whether a listener ran).
+
 #### Parameters
 
 ##### event
@@ -317,7 +320,7 @@ v0.1.26
 
 `boolean`
 
-#### Inherited from
+#### Overrides
 
 `EventTarget.dispatchEvent`
 

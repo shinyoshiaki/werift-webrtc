@@ -465,6 +465,15 @@ export class MediaStream extends EventTarget {
   /** DOM `onremovetrack`. Never called, for the same reason as {@link onaddtrack}. */
   onremovetrack: WeriftEventHandler = null;
 
+  /**
+   * DOM `dispatchEvent()`: `false` only when a cancelable event was canceled
+   * with `preventDefault()` (the base class returns whether a listener ran).
+   */
+  override dispatchEvent = (event: globalThis.Event) => {
+    this.emit(event.type, event);
+    return !event.defaultPrevented;
+  };
+
   constructor(props: Partial<MediaStream> | MediaStreamTrack[] = {}) {
     super();
     if (Array.isArray(props)) {
