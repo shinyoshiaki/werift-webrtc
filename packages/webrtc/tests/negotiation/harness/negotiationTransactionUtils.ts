@@ -431,6 +431,7 @@ function assertDescriptionBindings(pc: RTCPeerConnection) {
         !transceiver.stopping &&
         ["sendonly", "sendrecv"].includes(media.direction ?? "inactive") &&
         ["recvonly", "sendrecv"].includes(transceiver.direction) &&
+        !sendsByRid(media) &&
         media.ssrc[0]
       ) {
         expect(internal.router.ssrcTable[media.ssrc[0].ssrc]).toBe(
@@ -621,6 +622,7 @@ function assertEffectiveValues(pc: RTCPeerConnection, snapshot: Snapshot) {
     }
     // remote pranswer の SSRC は、current と衝突しなければ即座に、衝突すれば
     // staged として、その receiver に届く。
+    // RID で送る m-line の a=ssrc は経路にならない ({@link sendsByRid})。
     const pranswerMedia =
       snapshot.pendingRemote?.type === "pranswer"
         ? snapshot.pendingRemote.media.find(
@@ -629,6 +631,7 @@ function assertEffectiveValues(pc: RTCPeerConnection, snapshot: Snapshot) {
         : undefined;
     if (
       pranswerMedia &&
+      !sendsByRid(pranswerMedia) &&
       ["sendonly", "sendrecv"].includes(pranswerMedia.direction ?? "") &&
       ["recvonly", "sendrecv"].includes(transceiver.direction)
     ) {
@@ -927,6 +930,14 @@ function assertRouteTables(pc: RTCPeerConnection, snapshot: Snapshot) {
       !!m?.rtp.codecs.some((codec) => codec.name.toLowerCase() === "rtx");
     const rtxNegotiated = hasRtx(media) && hasRtx(local.media[index]);
     const unusedRtx = new Set<number>();
+    for (const { rid } of media.simulcastParameters) {
+      // RID は MID と組で current の receiver に届く。
+      expect(router.ridTable[ridRouteKey(media.rtp.muxId ?? "", rid)]).toBe(
+        receiver,
+      );
+      expect(receiver.tracks).toContain(receiver.trackByRID[rid]);
+    }
+    if (sendsByRid(media)) continue;
     for (const group of media.ssrcGroup) {
       if (group.semantic !== "FID") continue;
       const [mediaSsrc, rtxSsrc] = group.items.map(Number);
@@ -948,14 +959,18 @@ function assertRouteTables(pc: RTCPeerConnection, snapshot: Snapshot) {
       expect(track).toBeDefined();
       expect(receiver.tracks).toContain(track);
     }
-    for (const { rid } of media.simulcastParameters) {
-      // RID は MID と組で current の receiver に届く。
-      expect(router.ridTable[ridRouteKey(media.rtp.muxId ?? "", rid)]).toBe(
-        receiver,
-      );
-      expect(receiver.tracks).toContain(receiver.trackByRID[rid]);
-    }
   }
+}
+
+/**
+ * The remote sends this m-line by RID (`a=rid:<id> send`): its `a=ssrc` /
+ * `a=ssrc-group:FID` give no route, track or RTX pairing; the RID packets
+ * teach them (tests/media/firefoxSimulcastSsrc.test.ts).
+ */
+function sendsByRid(media: MediaDescription) {
+  return media.simulcastParameters.some(
+    (param) => `${param.direction}`.split(" ", 1)[0] === "send",
+  );
 }
 
 function assertRouterAndCodecs(pc: RTCPeerConnection, snapshot: Snapshot) {

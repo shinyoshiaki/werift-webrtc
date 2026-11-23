@@ -99,6 +99,13 @@ export class RTCRtpCodingParameters {
 
 export interface RTCRtpReceiveParameters extends RTCRtpParameters {
   encodings: RTCRtpCodingParameters[];
+  /**
+   * `a=ssrc-group:FID` pairs of an m-line the remote sends by RID: they route
+   * the RTX SSRC only, tracks come from the RIDs
+   * (tests/media/firefoxSimulcastSsrc.test.ts "Firefox の offer を受けても、トラックは RID ごとの 1 本だけで、両レイヤーの RTX は RID のトラックへ復元される").
+   * @internal
+   */
+  ridRtxPairs?: { ssrc: number; rtxSsrc: number }[];
 }
 
 export type RTCRtpSendParameters = RTCRtpParameters;
@@ -106,6 +113,11 @@ export type RTCRtpSendParameters = RTCRtpParameters;
 export class RTCRtpSimulcastParameters {
   rid!: string;
   direction!: "send" | "recv";
+  /**
+   * `a=rid` restrictions after the direction, RFC 8851
+   * (tests/sdp.test.ts "a=rid の方向と制約を分けて読み、書き戻すと元の行になる").
+   */
+  restrictions?: string;
   constructor(props: RTCRtpSimulcastParameters) {
     Object.assign(this, props);
   }
