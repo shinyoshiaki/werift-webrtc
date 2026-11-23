@@ -494,6 +494,8 @@ Requires explicit DTLS 1.3 in `dtls.protocolVersions`
 (`dtls.protocolVersions` defaults to empty / DTLS 1.2 only).
 Cannot be combined with `dtls.helloRetryRequest: true`
 (SPED uses ICE-authenticated address validation, not a DTLS cookie).
+Both are validated by the constructor and `setConfiguration()`, which
+throw synchronously and leave the configuration unchanged.
 
 ***
 
@@ -542,3 +544,42 @@ after construction.
 Preferred IP family of the TURN/UDP socket, applied only when the TURN
 server is a hostname. Ignored for an IP literal server, whose own family
 always selects the socket. Defaults to 4 when undefined.
+
+***
+
+### warp?
+
+> `optional` **warp?**: `object`
+
+WARP early outbound and encrypted-media buffering policy.
+- `allowEarlyServerData` (default false): the DTLS server may send
+  application data / media before the SDP fingerprint is verified.
+  Requires [PeerConfig.sped](#sped) `true` and DTLS 1.3; the constructor
+  and `setConfiguration()` throw synchronously otherwise.
+- `earlyMediaPolicy` (default `"drop"`): `"buffer"` retains inbound
+  encrypted media received before authentication (bounded) instead of
+  dropping it. Inbound data is never delivered before authentication.
+- `sendBeforeNomination` (default false): once the DTLS handshake is
+  done on this side (the DTLS client right after its Finished) and the
+  peer is authenticated, send application data and media on a valid
+  candidate pair (its own connectivity check succeeded) instead of
+  waiting for ICE nomination and consent (RFC 8445 §12.1, SPED
+  draft-00 §3.1.2.2). Applies only until a selected pair exists; never
+  during an ICE restart or on relay pairs. A peer that drops data
+  arriving before its own nomination only loses it like any packet loss
+  (SCTP retransmits). Requires [PeerConfig.sped](#sped) `true`; the
+  constructor and `setConfiguration()` throw synchronously otherwise.
+`setConfiguration()` merges these fields and applies them to every open
+DTLS transport, including ones a pending description prepared.
+
+#### allowEarlyServerData?
+
+> `optional` **allowEarlyServerData?**: `boolean`
+
+#### earlyMediaPolicy?
+
+> `optional` **earlyMediaPolicy?**: `"buffer"` \| `"drop"`
+
+#### sendBeforeNomination?
+
+> `optional` **sendBeforeNomination?**: `boolean`

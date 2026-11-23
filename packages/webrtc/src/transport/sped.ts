@@ -1,61 +1,212 @@
-import type { CandidatePair, Connection } from "../../../ice/src";
+import {
+  type CandidatePair,
+  CandidatePairState,
+  type Connection,
+} from "../../../ice/src";
 import {
   allowsAuthenticatedDtlsDelivery,
   connectionDatagramEvent,
   isAuthenticatedHandshakePair,
 } from "../../../ice/src/internal/datagram";
 import type { SpedRuntime } from "../../../ice/src/sped/runtime";
-import type { Address, Transport } from "../imports/common";
+import { SCTPSendPermissionRevokedError } from "../../../sctp/src";
+import {
+  type Address,
+  type DatagramRxMeta,
+  debug,
+  type Transport,
+} from "../imports/common";
 import { isDtls } from "../utils";
+
+const log = debug("werift:packages/webrtc/src/transport/sped.ts");
+
+const EARLY_SEND_MAX_PACKETS = 256;
+const EARLY_SEND_MAX_BYTES = 256 * 1024;
+const EARLY_SEND_RETENTION_MS = 2_000;
+const EARLY_SEND_RETRY_MS = 10;
+
+type PendingEarlySend = {
+  data: Buffer;
+  addr?: Address;
+  generation: number;
+  expiresAt?: number;
+  // `early` means the record was accepted before DTLS peer authentication;
+  // application records queued after authentication still wait for ICE path
+  // readiness but are not subject to the early-server policy revoke.
+  early: boolean;
+  application: boolean;
+  resolve: () => void;
+  reject: (error: Error) => void;
+};
 
 /**
  * ICE Transport for SPED: handshake send is suppressed while embedding,
  * then uses the authenticated CandidatePair (pre-nomination handshake only).
- * After DTLS is up, application records always use Connection.send().
+ * After DTLS is up, application records use Connection.send() on the
+ * selected pair; with WARP `sendBeforeNomination` they use a valid pair
+ * until ICE has selected one.
  */
 export class IceSpedTransport implements Transport {
   closed = false;
   readonly peerAuthenticated = true;
   type = "ice-sped";
   private runtime?: SpedRuntime;
+  private readonly datagramSubscription: { unSubscribe(): void };
+  private readonly stateSubscription?: { unSubscribe(): void };
+  private pendingEarlySends: PendingEarlySend[] = [];
+  private pendingEarlySendBytes = 0;
+  private earlySendExpiryTimer?: ReturnType<typeof setTimeout>;
+  private earlySendRetryTimer?: ReturnType<typeof setTimeout>;
+  private earlySendFlushInProgress = false;
+  /** Policy gate for application records queued before DTLS authentication. */
+  private earlyApplicationSendEnabled = true;
   /**
    * True after the first DTLS handshake completes. ICE restart after
    * DTLS is connected marks SPED complete so application records stay
    * on the nominated path.
    */
   private applicationReady = false;
-
+  /** DTLS 1.3 application write key exists; peer auth may still be pending. */
+  private applicationWriteReady = false;
+  /**
+   * Hybrid SPED: handshake control records may use this pinned pair even
+   * while session.embedding is true. Application/media still use the
+   * fingerprint and consent gates.
+   */
+  private handshakeDirectPair?: CandidatePair;
+  private handshakeDirectGeneration?: number;
+  /**
+   * WARP opt-in (`warp.sendBeforeNomination`): after the handshake, send
+   * application records and media on a valid pair until ICE produces a
+   * selected pair (RFC 8445 §12.1), instead of queuing them for it.
+   */
+  private sendBeforeNomination = false;
+  /** ICE produced a selected pair at least once (nomination / connected). */
+  private selectedPairProduced = false;
+  private sentBeforeNomination = false;
   private readonly ice: Connection;
-  /** Detaches from the connection's datagrams (see {@link close}). */
-  private readonly unsubscribeDatagrams: () => void;
 
   constructor(ice: Connection) {
     this.ice = ice;
-    this.unsubscribeDatagrams = connectionDatagramEvent(ice).subscribe(
+    this.datagramSubscription = connectionDatagramEvent(ice).subscribe(
       (ctx) => {
+        if (
+          ctx.generation === ice.generation &&
+          ctx.pair &&
+          ctx.authenticated &&
+          isAuthenticatedHandshakePair(ctx.pair)
+        ) {
+          // Binding/Data の受信で pair が認証済みになった場合、保留中の
+          // early application record を同じ世代の wire path へ送る。
+          this.flushPendingEarlySends();
+        }
         if (!isDtls(ctx.bytes) || !this.onData) {
           return;
         }
+        // 現世代・認証済み pair・送信元 5-tuple の一致だけで受け付ける。
+        // 送信経路の選択は相手が決めるので、自分の選択 pair とは限らない
+        // (両端が IPv4 / IPv6 など別の pair を選ぶ。RFC 8445 §12.1)。
         if (!allowsAuthenticatedDtlsDelivery(ctx, ice.generation)) {
           return;
         }
-        // Authenticate inbound records against the current ICE generation and
-        // source tuple. As with the regular ICE transport, receive over any
-        // authenticated pair; application sends still use Connection.send().
-        this.onData(ctx.bytes, ctx.source);
+        // 世代トークンを engine RX queue まで運び、restart 後の stale 実行を防ぐ。
+        this.onData(ctx.bytes, ctx.source, { rxGeneration: ctx.generation });
       },
-    ).unSubscribe;
+    );
+    const stateChanged = (
+      ice as unknown as {
+        stateChanged?: {
+          subscribe(execute: (state: string) => void): { unSubscribe(): void };
+        };
+      }
+    ).stateChanged;
+    this.stateSubscription = stateChanged?.subscribe((state) => {
+      if (state === "failed" || state === "closed") {
+        this.rejectPendingEarlySends(
+          new Error(`ICE ${state} before SPED application path was ready`),
+        );
+        return;
+      }
+      this.flushPendingEarlySends();
+    });
   }
 
   setRuntime(runtime: SpedRuntime) {
     this.runtime = runtime;
+    this.flushPendingEarlySends();
+  }
+
+  /** WARP `sendBeforeNomination` (see {@link resolvePreNominationPair}). */
+  setSendBeforeNomination(enabled: boolean): void {
+    this.sendBeforeNomination = enabled;
+    if (enabled) this.flushPendingEarlySends();
+  }
+
+  /** Application data or media left on a valid pair before nomination (stats). */
+  get preNominationSendUsed(): boolean {
+    return this.sentBeforeNomination;
+  }
+
+  /**
+   * Allow handshake control records on this authenticated pair.
+   * Idempotent for the same generation; does not enable early application data.
+   */
+  enableHandshakeDirect(pair: CandidatePair, generation: number): void {
+    if (
+      this.handshakeDirectPair &&
+      this.handshakeDirectGeneration === generation
+    ) {
+      return;
+    }
+    this.handshakeDirectPair = pair;
+    this.handshakeDirectGeneration = generation;
+  }
+
+  disableHandshakeDirect(): void {
+    this.handshakeDirectPair = undefined;
+    this.handshakeDirectGeneration = undefined;
+  }
+
+  private canSendHandshakeDirect(): boolean {
+    const pair = this.handshakeDirectPair;
+    return (
+      pair !== undefined &&
+      this.handshakeDirectGeneration === this.ice.generation &&
+      this.isCurrentAuthenticatedPair(pair)
+    );
   }
 
   markApplicationReady() {
     this.applicationReady = true;
+    this.applicationWriteReady = true;
+    this.flushPendingEarlySends();
   }
 
-  onData: (buf: Buffer, addr?: Address) => void = () => {};
+  markApplicationWriteReady() {
+    this.applicationWriteReady = true;
+    this.flushPendingEarlySends();
+  }
+
+  /**
+   * Revoke only queued early application/media records. DTLS handshake and
+   * alert records remain in the queue because they are control traffic needed
+   * to complete or tear down the association.
+   */
+  setEarlyApplicationSendEnabled(enabled: boolean): void {
+    if (this.earlyApplicationSendEnabled === enabled) return;
+    this.earlyApplicationSendEnabled = enabled;
+    if (!enabled) {
+      this.rejectPendingEarlySends(
+        new Error("SPED early application send permission revoked"),
+        (item) => item.early && item.application,
+      );
+      return;
+    }
+    this.flushPendingEarlySends();
+  }
+
+  onData: (buf: Buffer, addr?: Address, meta?: DatagramRxMeta) => void =
+    () => {};
 
   /**
    * Writable so DtlsClient.associationInject can pin the authenticated STUN
@@ -83,11 +234,108 @@ export class IceSpedTransport implements Transport {
   }
 
   readonly send = async (data: Buffer, addr?: Address) => {
-    if (this.closed) {
+    await this.sendInternal(
+      data,
+      addr,
+      isDtlsApplicationData(data),
+      false,
+      true,
+    );
+  };
+
+  /** Explicit application marker for encrypted DTLS 1.3 records. */
+  readonly sendApplication = async (data: Buffer, addr?: Address) => {
+    await this.sendInternal(data, addr, true, false, false);
+  };
+
+  private async sendInternal(
+    data: Buffer,
+    addr: Address | undefined,
+    application: boolean,
+    waitForWire: boolean,
+    handshakeControl: boolean,
+  ) {
+    this.assertIceSendable();
+    if (this.applicationReady) {
+      if (!this.ice.canSendApplicationData() && !application) {
+        // Handshake control records (the final ACK, alerts) decide when the
+        // DTLS engine considers its last flight delivered: a resolved send
+        // removes the ACKed records and completes the handshake. Never report
+        // a record that only sits in the queue as sent. Use the authenticated
+        // path the peer's records arrived on (as the pre-nomination handshake
+        // does); without one, resolve only once the queue really sends it.
+        const pair = this.resolveAuthenticatedSendPair(addr);
+        if (pair) {
+          this.runtime?.pinHandshakePath(pair);
+          await pair.protocol.sendData(data, pair.remoteAddr);
+          return;
+        }
+        await this.enqueueEarlySend(data, addr, {
+          early: false,
+          application: false,
+        });
+        return;
+      }
+      const preNominationPair =
+        application && !this.ice.canSendApplicationData()
+          ? this.resolvePreNominationPair(addr)
+          : undefined;
+      if (preNominationPair) {
+        await preNominationPair.protocol.sendData(
+          data,
+          preNominationPair.remoteAddr,
+        );
+        this.sentBeforeNomination = true;
+        return;
+      }
+      if (!this.ice.canSendApplicationData()) {
+        // DTLS/SCTP の送信元は ICE nomination と同じ受信処理から再開する
+        // ことがあるため、ここで await すると nomination 自体を止めてしまう。
+        // wire 送信は path が利用可能になった後に flush し、呼び出し元には
+        // 受理済みとして直ちに返す。ただし経路喪失時に無期限保持しない。
+        const pending = this.enqueueEarlySend(data, addr, {
+          early: false,
+          application,
+        });
+        if (waitForWire) {
+          await pending;
+        } else {
+          void pending.catch((error) => {
+            log("failed to queue application data", error);
+          });
+        }
+        return;
+      }
+      await this.ice.send(data);
       return;
     }
-    if (this.applicationReady) {
-      await this.ice.send(data);
+    if (handshakeControl && this.canSendHandshakeDirect()) {
+      const pair = this.handshakeDirectPair!;
+      this.runtime?.pinHandshakePath(pair);
+      await pair.protocol.sendData(data, pair.remoteAddr);
+      return;
+    }
+    if (this.applicationWriteReady) {
+      if (application && !this.earlyApplicationSendEnabled) {
+        throw new SCTPSendPermissionRevokedError(
+          "SPED early application send permission revoked",
+        );
+      }
+      const nominated = this.ice.nominated;
+      const pair =
+        this.resolveAuthenticatedSendPair(addr) ??
+        (nominated && this.isCurrentAuthenticatedPair(nominated)
+          ? nominated
+          : undefined);
+      if (!pair) {
+        await this.enqueueEarlySend(data, addr, {
+          early: true,
+          application,
+        });
+        return;
+      }
+      this.runtime?.pinHandshakePath(pair);
+      await pair.protocol.sendData(data, pair.remoteAddr);
       return;
     }
     if (this.runtime?.session.embedding) {
@@ -103,6 +351,16 @@ export class IceSpedTransport implements Transport {
     }
     this.runtime?.pinHandshakePath(pair);
     await pair.protocol.sendData(data, pair.remoteAddr);
+  }
+
+  /** Flush a DTLS control record, including close_notify. */
+  readonly sendAndWait = async (data: Buffer, addr?: Address) => {
+    await this.sendInternal(data, addr, false, true, true);
+  };
+
+  /** Wait for an SRTP/SRTCP datagram to reach the wire. */
+  readonly sendMediaAndWait = async (data: Buffer, addr?: Address) => {
+    await this.sendInternal(data, addr, true, true, false);
   };
 
   /**
@@ -113,8 +371,294 @@ export class IceSpedTransport implements Transport {
   async close() {
     if (this.closed) return;
     this.closed = true;
-    this.onData = () => {};
-    this.unsubscribeDatagrams();
+    this.disableHandshakeDirect();
+    this.datagramSubscription.unSubscribe();
+    this.stateSubscription?.unSubscribe();
+    this.rejectPendingEarlySends(new Error("SPED transport is closed"));
+  }
+
+  private async enqueueEarlySend(
+    data: Buffer,
+    addr?: Address,
+    options: { early: boolean; application: boolean } = {
+      early: true,
+      application: true,
+    },
+    retentionMs = EARLY_SEND_RETENTION_MS,
+  ) {
+    if (this.closed) {
+      throw new SCTPSendPermissionRevokedError("SPED transport is closed");
+    }
+    if (this.ice.state === "failed" || this.ice.state === "closed") {
+      throw new SCTPSendPermissionRevokedError(
+        `ICE ${this.ice.state} before SPED application path was ready`,
+      );
+    }
+    if (
+      options.early &&
+      options.application &&
+      !this.earlyApplicationSendEnabled
+    ) {
+      throw new SCTPSendPermissionRevokedError(
+        "SPED early application send permission revoked",
+      );
+    }
+    if (
+      this.pendingEarlySends.length >= EARLY_SEND_MAX_PACKETS ||
+      this.pendingEarlySendBytes + data.length > EARLY_SEND_MAX_BYTES
+    ) {
+      throw new SCTPSendPermissionRevokedError(
+        "SPED early application send queue is full",
+      );
+    }
+
+    const pending = new Promise<void>((resolve, reject) => {
+      this.pendingEarlySends.push({
+        data: Buffer.from(data),
+        addr,
+        generation: this.ice.generation,
+        expiresAt: Date.now() + retentionMs,
+        early: options.early,
+        application: options.application,
+        resolve,
+        reject: (error) => reject(error),
+      });
+      this.pendingEarlySendBytes += data.length;
+    });
+    this.scheduleEarlySendExpiry();
+    this.scheduleEarlySendRetry();
+    return pending;
+  }
+
+  private assertIceSendable() {
+    if (this.ice.state === "failed" || this.ice.state === "closed") {
+      throw new Error(`ICE ${this.ice.state} cannot send SPED data`);
+    }
+  }
+
+  private scheduleEarlySendExpiry() {
+    if (this.earlySendExpiryTimer || this.pendingEarlySends.length === 0) {
+      return;
+    }
+    const expiresAt = this.pendingEarlySends.reduce<number | undefined>(
+      (earliest, item) =>
+        item.expiresAt === undefined
+          ? earliest
+          : earliest === undefined
+            ? item.expiresAt
+            : Math.min(earliest, item.expiresAt),
+      undefined,
+    );
+    if (expiresAt === undefined) {
+      return;
+    }
+    this.earlySendExpiryTimer = setTimeout(
+      () => {
+        this.earlySendExpiryTimer = undefined;
+        if (
+          this.pendingEarlySends.some(
+            (item) =>
+              item.expiresAt !== undefined && item.expiresAt <= Date.now(),
+          )
+        ) {
+          this.rejectPendingEarlySends(
+            new Error(
+              "SPED early application send timed out waiting for an authenticated candidate pair",
+            ),
+          );
+        } else {
+          this.scheduleEarlySendExpiry();
+        }
+      },
+      Math.max(0, expiresAt - Date.now()),
+    );
+  }
+
+  private scheduleEarlySendRetry() {
+    if (
+      this.closed ||
+      this.earlySendRetryTimer ||
+      this.pendingEarlySends.length === 0
+    ) {
+      return;
+    }
+    this.earlySendRetryTimer = setTimeout(() => {
+      this.earlySendRetryTimer = undefined;
+      this.flushPendingEarlySends();
+    }, EARLY_SEND_RETRY_MS);
+  }
+
+  private clearEarlySendTimers() {
+    if (this.earlySendExpiryTimer) {
+      clearTimeout(this.earlySendExpiryTimer);
+      this.earlySendExpiryTimer = undefined;
+    }
+    if (this.earlySendRetryTimer) {
+      clearTimeout(this.earlySendRetryTimer);
+      this.earlySendRetryTimer = undefined;
+    }
+  }
+
+  private rejectPendingEarlySends(
+    error: Error,
+    shouldReject: (item: PendingEarlySend) => boolean = () => true,
+  ) {
+    const retained: PendingEarlySend[] = [];
+    // Every early-send rejection means the start-time early permission is
+    // gone (revoked, stale generation, expired, closed); SCTP cancels its
+    // pre-authentication start only for this error type.
+    const revoked =
+      error instanceof SCTPSendPermissionRevokedError
+        ? error
+        : new SCTPSendPermissionRevokedError(error.message);
+    for (const item of this.pendingEarlySends) {
+      if (shouldReject(item)) {
+        item.reject(revoked);
+      } else {
+        retained.push(item);
+      }
+    }
+    this.pendingEarlySends = retained;
+    this.pendingEarlySendBytes = retained.reduce(
+      (bytes, item) => bytes + item.data.length,
+      0,
+    );
+    if (retained.length === 0) {
+      this.clearEarlySendTimers();
+    } else if (!this.earlySendFlushInProgress) {
+      this.scheduleEarlySendExpiry();
+      this.scheduleEarlySendRetry();
+    }
+  }
+
+  private flushPendingEarlySends() {
+    if (
+      this.closed ||
+      this.earlySendFlushInProgress ||
+      this.pendingEarlySends.length === 0
+    ) {
+      return;
+    }
+    this.earlySendFlushInProgress = true;
+    void (async () => {
+      while (!this.closed && this.pendingEarlySends.length > 0) {
+        if (this.ice.state === "failed" || this.ice.state === "closed") {
+          this.rejectPendingEarlySends(
+            new Error(
+              `ICE ${this.ice.state} before SPED application path was ready`,
+            ),
+          );
+          return;
+        }
+        const item = this.pendingEarlySends[0]!;
+        if (item.expiresAt !== undefined && item.expiresAt <= Date.now()) {
+          // Timer execution can be delayed by a busy event loop.  Expiration
+          // is a send-time invariant, not merely a timer-side statistic.
+          this.rejectPendingEarlySends(
+            new Error("SPED early application send timed out"),
+          );
+          return;
+        }
+        if (
+          item.early &&
+          item.application &&
+          !this.earlyApplicationSendEnabled
+        ) {
+          this.rejectPendingEarlySends(
+            new Error("SPED early application send permission revoked"),
+            (candidate) => candidate.early && candidate.application,
+          );
+          continue;
+        }
+        if (item.generation !== this.ice.generation) {
+          this.pendingEarlySends.shift();
+          this.pendingEarlySendBytes -= item.data.length;
+          item.reject(new Error("SPED early application send became stale"));
+          continue;
+        }
+
+        // A handshake control record (final ACK, alert) may leave on the
+        // authenticated path before the application path is ready, as in
+        // sendInternal(); application records wait for that path.
+        const onAuthenticatedPair =
+          !this.applicationReady ||
+          (!item.application && !this.ice.canSendApplicationData());
+        // WARP opt-in: application records may use a valid pair before
+        // nomination instead of waiting for the application path.
+        const preNomination =
+          !onAuthenticatedPair && !this.ice.canSendApplicationData()
+            ? this.resolvePreNominationPair(item.addr)
+            : undefined;
+        const pair = onAuthenticatedPair
+          ? this.resolveAuthenticatedSendPair(item.addr)
+          : preNomination;
+        if (
+          !onAuthenticatedPair &&
+          !preNomination &&
+          !this.ice.canSendApplicationData()
+        ) {
+          this.scheduleEarlySendRetry();
+          return;
+        }
+        if (onAuthenticatedPair && !pair) {
+          this.scheduleEarlySendRetry();
+          return;
+        }
+
+        // Re-check immediately before the wire call after pair resolution;
+        // policy and retention may have changed while resolving the path.
+        if (item.expiresAt !== undefined && item.expiresAt <= Date.now()) {
+          this.rejectPendingEarlySends(
+            new Error("SPED early application send timed out"),
+          );
+          return;
+        }
+        if (
+          item.early &&
+          item.application &&
+          !this.earlyApplicationSendEnabled
+        ) {
+          this.rejectPendingEarlySends(
+            new Error("SPED early application send permission revoked"),
+            (candidate) => candidate.early && candidate.application,
+          );
+          continue;
+        }
+
+        try {
+          if (pair) {
+            if (onAuthenticatedPair) this.runtime?.pinHandshakePath(pair);
+            await pair.protocol.sendData(item.data, pair.remoteAddr);
+            if (preNomination) this.sentBeforeNomination = true;
+          } else {
+            await this.ice.send(item.data);
+          }
+          if (this.pendingEarlySends[0] !== item) {
+            // close() / restart が待機項目を先に破棄した場合は、解決を再発火しない。
+            return;
+          }
+          this.pendingEarlySends.shift();
+          this.pendingEarlySendBytes -= item.data.length;
+          item.resolve();
+        } catch (error) {
+          if (this.pendingEarlySends[0] !== item) {
+            return;
+          }
+          this.pendingEarlySends.shift();
+          this.pendingEarlySendBytes -= item.data.length;
+          item.reject(
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        }
+      }
+    })().finally(() => {
+      this.earlySendFlushInProgress = false;
+      if (this.pendingEarlySends.length === 0) {
+        this.clearEarlySendTimers();
+      } else {
+        this.scheduleEarlySendRetry();
+      }
+    });
   }
 
   /**
@@ -124,6 +668,14 @@ export class IceSpedTransport implements Transport {
   private resolveAuthenticatedSendPair(
     addr?: Address,
   ): CandidatePair | undefined {
+    // The DTLS client fixes its destination at connect(), before any pair
+    // exists, as remotePeer()'s placeholder (port 0 is never a peer port).
+    if (addr && isPlaceholderAddress(addr)) {
+      addr = undefined;
+    }
+    if (this.applicationReady) {
+      return this.resolveEstablishedSendPair(addr);
+    }
     const pinned = this.runtime?.lastPath;
     if (pinned && this.isCurrentAuthenticatedPair(pinned)) {
       if (!addr) {
@@ -137,8 +689,20 @@ export class IceSpedTransport implements Transport {
       }
       return undefined;
     }
-    if (!addr) {
+    // An existing association pin is an ownership boundary.  Wait for that
+    // same pair to become authenticated instead of switching an early record
+    // to an unrelated candidate merely because it became available first.
+    if (pinned && !addr) {
       return undefined;
+    }
+    if (!addr) {
+      const nominated = this.ice.nominated;
+      if (nominated && this.isCurrentAuthenticatedPair(nominated)) {
+        return nominated;
+      }
+      return (this.ice.checkList ?? []).find((pair) =>
+        this.isCurrentAuthenticatedPair(pair),
+      );
     }
     const list = this.ice.checkList ?? [];
     return list.find(
@@ -146,6 +710,67 @@ export class IceSpedTransport implements Transport {
         pair.remoteAddr[0] === addr[0] &&
         pair.remoteAddr[1] === addr[1] &&
         this.isCurrentAuthenticatedPair(pair),
+    );
+  }
+
+  /**
+   * After the handshake the destination DTLS holds names the association's
+   * peer, not a path: an ICE restart or a path failure leaves it on a 5-tuple
+   * that may still be listed but no longer works. It is only a preference;
+   * ICE decides the path. Use the first current-generation authenticated
+   * pair of: the one it names, the nominated one, the pinned SPED path, any.
+   */
+  private resolveEstablishedSendPair(
+    addr?: Address,
+  ): CandidatePair | undefined {
+    const list = this.ice.checkList ?? [];
+    const named = addr
+      ? list.find(
+          (pair) =>
+            pair.remoteAddr[0] === addr[0] && pair.remoteAddr[1] === addr[1],
+        )
+      : undefined;
+    return [named, this.ice.nominated, this.runtime?.lastPath, ...list].find(
+      (pair): pair is CandidatePair =>
+        pair !== undefined && this.isCurrentAuthenticatedPair(pair),
+    );
+  }
+
+  /**
+   * WARP `sendBeforeNomination`: the pair application records / media use
+   * after the handshake while ICE has no selected pair yet. RFC 8445 §12.1:
+   * "An ICE agent MAY send data on any valid pair before selected pairs have
+   * been produced" — a valid pair is one whose own connectivity check
+   * succeeded, which is also its initial consent (RFC 7675). Prefer the pair
+   * the destination names, then the SPED handshake path, then the highest
+   * priority valid pair. Once a selected pair existed (also across an ICE
+   * restart, whose selected pair is the previous one) only it is used, so
+   * this returns undefined. Relay pairs are not used (WARP over TURN is out
+   * of scope).
+   */
+  private resolvePreNominationPair(addr?: Address): CandidatePair | undefined {
+    if (!this.sendBeforeNomination || !this.applicationReady) return undefined;
+    // Connection.state "completed" only means gathering finished; a selected
+    // pair exists once a pair is nominated (state "connected").
+    if (this.ice.nominated || this.ice.state === "connected") {
+      this.selectedPairProduced = true;
+    }
+    if (this.selectedPairProduced) return undefined;
+    const list = this.ice.checkList ?? [];
+    const isValid = (pair: CandidatePair) =>
+      list.includes(pair) &&
+      pair.state === CandidatePairState.SUCCEEDED &&
+      pair.localCandidate.type !== "relay" &&
+      pair.remoteCandidate.type !== "relay";
+    const named =
+      addr && !isPlaceholderAddress(addr)
+        ? list.find(
+            (pair) =>
+              pair.remoteAddr[0] === addr[0] && pair.remoteAddr[1] === addr[1],
+          )
+        : undefined;
+    return [named, this.runtime?.lastPath, ...list].find(
+      (pair): pair is CandidatePair => pair !== undefined && isValid(pair),
     );
   }
 
@@ -168,4 +793,15 @@ export class IceSpedTransport implements Transport {
     }
     return ["0.0.0.0", 0];
   }
+}
+
+/** A destination that names no real peer (port 0 is never a peer port). */
+function isPlaceholderAddress(addr: Address): boolean {
+  return addr[1] === 0;
+}
+
+function isDtlsApplicationData(data: Buffer): boolean {
+  // DTLS record ContentType.application_data.  Raw SRTP/SRTCP is classified
+  // explicitly by sendMediaAndWait(), so handshake/control records are preserved.
+  return data[0] === 23;
 }

@@ -1,4 +1,6 @@
-import { RTCDataChannel, RTCSctpTransport } from "../../src";
+import { vi } from "vitest";
+import { SCTP_STATE, SCTPSendPermissionRevokedError } from "../../../sctp/src";
+import { Event, RTCDataChannel, RTCSctpTransport } from "../../src";
 import { WEBRTC_BINARY } from "../../src/const";
 import { RTCDataChannelParameters } from "../../src/dataChannel";
 import { dtlsTransportPair } from "../fixture";
@@ -166,6 +168,93 @@ describe("RTCSctpTransportTest", () => {
         channel.send(Buffer.from("pong"));
       });
     }));
+
+  test("INIT 送信許可の取消しを reject し、次の start で association を再構築する", async () => {
+    // Arrange: DTLS bridge の最初の送信だけ送信許可の取消しで失敗させる
+    // (単なる送信失敗は損失として T1 が再送する)。
+    const sendData = vi
+      .fn<(...args: [Buffer]) => Promise<void>>()
+      .mockRejectedValueOnce(
+        new SCTPSendPermissionRevokedError("INIT send failed"),
+      )
+      .mockResolvedValue(undefined);
+    const dtls = {
+      id: "fake-dtls",
+      role: "server",
+      onStateChange: new Event<[string]>(),
+      onRoleChange: new Event<[]>(),
+      dataReceiver: () => {},
+      sendData,
+    } as any;
+    const transport = new RTCSctpTransport();
+    transport.setDtlsTransport(dtls);
+
+    // Act: 初回の INIT failure は接続待ちのまま残さず reject する。
+    await expect(transport.start(5001)).rejects.toThrow("INIT send failed");
+    const failedAssociation = transport.sctp;
+
+    // Assert: 失敗 association は CLOSED で、次回 start は新 association を使う。
+    expect(failedAssociation.associationState).toBe(SCTP_STATE.CLOSED);
+    await transport.start(5001);
+    expect(transport.sctp).not.toBe(failedAssociation);
+    expect(transport.sctp.associationState).toBe(SCTP_STATE.COOKIE_WAIT);
+
+    await transport.stop();
+  });
+
+  /** Arrange: DTLS server stand-in exposing the early-attempt lifecycle events. */
+  function createEarlyDtlsStub() {
+    return {
+      id: "fake-dtls-early",
+      role: "server",
+      state: "connecting",
+      onStateChange: new Event<[string]>(),
+      onRoleChange: new Event<[]>(),
+      onEarlyApplicationAttemptCancelled: new Event<[]>(),
+      onEarlyApplicationSendRevoked: new Event<[]>(),
+      dataReceiver: () => {},
+      sendData: vi.fn(async () => {}),
+    };
+  }
+
+  test.each([
+    { authenticatedBeforeCancel: false, cancelled: true },
+    { authenticatedBeforeCancel: true, cancelled: false },
+  ])(
+    "認証前に始めた early start は認証前だけ取り消され、認証後の SPED reset では維持される (authenticated=$authenticatedBeforeCancel)",
+    async ({ authenticatedBeforeCancel, cancelled }) => {
+      // Arrange: DTLS server が認証前 (connecting) に SCTP を開始し COOKIE_WAIT にいる
+      const dtls = createEarlyDtlsStub();
+      const transport = new RTCSctpTransport();
+      transport.setDtlsTransport(dtls as any);
+      await transport.start(5001);
+      const association = transport.sctp;
+      expect(association.associationState).toBe(SCTP_STATE.COOKIE_WAIT);
+
+      try {
+        if (authenticatedBeforeCancel) {
+          // Act: COOKIE_WAIT のまま DTLS が認証済み (connected) になる
+          dtls.state = "connected";
+          dtls.onStateChange.execute("connected");
+        }
+        // Act: SPED reset / ICE restart による early attempt の取消し通知
+        dtls.onEarlyApplicationAttemptCancelled.execute();
+
+        // Assert: 認証前なら early attempt として取り消し、認証後は同じ
+        // association のまま開始を続ける (T1 が INIT を再送する)
+        if (cancelled) {
+          expect(association.associationState).toBe(SCTP_STATE.CLOSED);
+          expect(association.startCancellationError).toBeDefined();
+        } else {
+          expect(transport.sctp).toBe(association);
+          expect(association.associationState).toBe(SCTP_STATE.COOKIE_WAIT);
+          expect(association.startCancellationError).toBeUndefined();
+        }
+      } finally {
+        await transport.stop();
+      }
+    },
+  );
 
   test.each(DCEP_CHANNEL_TYPE_CASES)(
     "DATA_CHANNEL_OPEN encodes $name",
