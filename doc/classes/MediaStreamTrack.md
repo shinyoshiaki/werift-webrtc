@@ -405,9 +405,8 @@ v0.1.26
 DOM `applyConstraints()`. werift cannot reconfigure a source, so the
 current settings are the only possible settings: a required (`exact`)
 constraint they do not satisfy rejects with `OverconstrainedError` and
-keeps the previous constraints; otherwise the constraints are stored
-(see [getConstraints](#getconstraints)) and the settings stay the same. Unknown
-constraint names are ignored.
+keeps the previous constraints (so does a required constraint on a name werift cannot honor, such as `width`); otherwise the constraints, including such ideal ones, are stored
+(see [getConstraints](#getconstraints)) and the settings stay the same.
 
 #### Parameters
 
@@ -568,8 +567,8 @@ capabilities are the `deviceId` / `groupId` it was selected by.
 > **getConstraints**(): [`WeriftMediaTrackConstraints`](../interfaces/WeriftMediaTrackConstraints.md)
 
 DOM `getConstraints()`: the constraints most recently applied by
-`getUserMedia` or [applyConstraints](#applyconstraints), limited to the constraints
-werift understands (`deviceId`, `groupId`, `mimeType`).
+`getUserMedia` (limited to the constraints werift understands: `deviceId`,
+`groupId`, `mimeType`) or [applyConstraints](#applyconstraints) (kept as given).
 
 #### Returns
 

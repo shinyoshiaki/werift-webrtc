@@ -13,6 +13,7 @@ import type { RTCRtpCodecParameters } from "./parameters";
 import {
   constraintFitnessDistance,
   findFailedRequiredConstraint,
+  findUnsupportedRequiredConstraint,
   stripUnsupportedConstraints,
   type WeriftMediaTrackCapabilities,
   type WeriftMediaTrackConstraints,
@@ -316,8 +317,8 @@ export class MediaStreamTrack<K extends Kind = Kind> extends EventTarget {
 
   /**
    * DOM `getConstraints()`: the constraints most recently applied by
-   * `getUserMedia` or {@link applyConstraints}, limited to the constraints
-   * werift understands (`deviceId`, `groupId`, `mimeType`).
+   * `getUserMedia` (limited to the constraints werift understands: `deviceId`,
+   * `groupId`, `mimeType`) or {@link applyConstraints} (kept as given).
    */
   getConstraints(): WeriftMediaTrackConstraints {
     return structuredClone(this.appliedConstraints);
@@ -343,17 +344,24 @@ export class MediaStreamTrack<K extends Kind = Kind> extends EventTarget {
    * DOM `applyConstraints()`. werift cannot reconfigure a source, so the
    * current settings are the only possible settings: a required (`exact`)
    * constraint they do not satisfy rejects with `OverconstrainedError` and
-   * keeps the previous constraints; otherwise the constraints are stored
-   * (see {@link getConstraints}) and the settings stay the same. Unknown
-   * constraint names are ignored.
+   * keeps the previous constraints (so does a required constraint on a name werift cannot honor, such as `width`); otherwise the constraints, including such ideal ones, are stored
+   * (see {@link getConstraints}) and the settings stay the same.
    */
   async applyConstraints(
     constraints: WeriftMediaTrackConstraints = {},
   ): Promise<void> {
-    const next = stripUnsupportedConstraints(
+    const unsupported = findUnsupportedRequiredConstraint(
       constraints as { [key: string]: unknown },
     );
-    const { advanced: _advanced, ...basic } = next;
+    if (unsupported != undefined) {
+      throw new OverconstrainedError(
+        unsupported,
+        "Cannot satisfy required constraints",
+      );
+    }
+    const { advanced: _advanced, ...basic } = stripUnsupportedConstraints(
+      constraints as { [key: string]: unknown },
+    );
     const settings = this.getSettings();
     if (
       constraintFitnessDistance(settings, basic, "ideal") ===
@@ -364,7 +372,8 @@ export class MediaStreamTrack<K extends Kind = Kind> extends EventTarget {
         "Cannot satisfy required constraints",
       );
     }
-    this.appliedConstraints = next;
+    // 未対応名の ideal 制約も捨てず、getConstraints() で返せるよう複製して保持する。
+    this.appliedConstraints = structuredClone(constraints);
   }
 
   writeRtp = (rtp: RtpPacket | Buffer) => {

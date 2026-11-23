@@ -520,8 +520,9 @@ What werift implements of these members:
 - `applyConstraints()` cannot reconfigure a source: it rejects with
   `OverconstrainedError` when a required (`exact`) `deviceId`, `groupId` or
   `mimeType` does not match the current settings, and otherwise stores the
-  constraints that `getConstraints()` returns. Other constraint names are
-  ignored. `clone()` keeps `contentHint`, the settings and the constraints.
+  constraints that `getConstraints()` returns. A required (`exact` / `min` /
+  `max`) constraint on any other name (for example `width`) also rejects with
+  `OverconstrainedError`; an optional one (`ideal`) is kept as given. `clone()` keeps `contentHint`, the settings and the constraints.
 - `onended` is called after the `"ended"` listeners. As before, werift also
   emits `"ended"` when `stop()` is called. `"mute"` / `"unmute"` and
   `"addtrack"` / `"removetrack"` are never emitted, so those handlers are not

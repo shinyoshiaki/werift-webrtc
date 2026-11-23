@@ -123,11 +123,12 @@ describe("MediaStreamTrack DOM-compatible members", () => {
         frameRate: 30,
       } as Parameters<typeof track.applyConstraints>[0]);
 
-      // Assert: resolve し、対応する制約が保持され、settings は変わらない。
+      // Assert: resolve し、未対応の ideal 制約も含めて保持され、settings は変わらない。
       expect(track.getConstraints()).toEqual({
         groupId: { exact: "group-1" },
         deviceId: "other-camera",
         advanced: [{ mimeType: "video/H264" }],
+        frameRate: 30,
       });
       expect(track.getSettings().deviceId).toBe("camera-1");
 
@@ -267,5 +268,35 @@ describe("MediaStream DOM-compatible members", () => {
     expect(track.getConstraints()).toEqual({
       mimeType: { ideal: ["audio/opus"] },
     });
+  });
+
+  test("applyConstraints rejects a required unsupported constraint", async () => {
+    // Arrange: DOM 型の制約として werift が扱えない width を exact で要求する。
+    const track = arrangeOpusTrack();
+    await track.applyConstraints({ mimeType: "audio/opus" });
+
+    // Act
+    const error = await captureRejection(() =>
+      track.applyConstraints({
+        width: { exact: 1920 },
+      } as Parameters<typeof track.applyConstraints>[0]),
+    );
+
+    // Assert: OverconstrainedError で拒否され、以前の制約が残る。
+    expectOverconstrained(error, "width");
+    expect(track.getConstraints()).toEqual({ mimeType: "audio/opus" });
+  });
+
+  test("applyConstraints keeps an optional unsupported constraint", async () => {
+    // Arrange
+    const track = arrangeOpusTrack();
+
+    // Act: ideal の width は受け付けられる。
+    await track.applyConstraints({
+      width: { ideal: 640 },
+    } as Parameters<typeof track.applyConstraints>[0]);
+
+    // Assert: 破棄されず getConstraints で返る。
+    expect(track.getConstraints()).toEqual({ width: { ideal: 640 } });
   });
 });

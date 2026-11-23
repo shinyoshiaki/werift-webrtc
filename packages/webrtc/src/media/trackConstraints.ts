@@ -94,6 +94,32 @@ function pickSupported(
 }
 
 /**
+ * The first constraint werift cannot honor (a name outside
+ * {@link weriftConstraintNames}, such as `width`) that is required
+ * (`exact`, `min` or `max`). `advanced` is not looked at.
+ */
+export function findUnsupportedRequiredConstraint(
+  constraints: { [key: string]: unknown } | undefined,
+): string | undefined {
+  for (const [name, value] of Object.entries(constraints ?? {})) {
+    if (
+      name === "advanced" ||
+      (weriftConstraintNames as readonly string[]).includes(name) ||
+      typeof value !== "object" ||
+      value == null ||
+      Array.isArray(value)
+    ) {
+      continue;
+    }
+    const { exact, min, max } = value as Record<string, unknown>;
+    if (exact != undefined || min != undefined || max != undefined) {
+      return name;
+    }
+  }
+  return undefined;
+}
+
+/**
  * The fitness distance of Media Capture and Streams' SelectSettings: `0` for
  * a perfect match, `Infinity` when a required (`exact`) constraint fails.
  * A bare value is `ideal` in the basic set and `exact` in an advanced set

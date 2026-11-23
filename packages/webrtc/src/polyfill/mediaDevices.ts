@@ -104,12 +104,26 @@ export class MediaDevices extends EventTarget {
   cleanup() {
     this.disposed = true;
     this.disposeAbort.abort();
-    for (const stop of this.activeStops.values()) {
-      stop();
-    }
+    // 一つの停止（onended など）が投げても、残りの track と register の停止は完了させる。
+    const errors: unknown[] = [];
+    const stops = [...this.activeStops.values()];
     this.activeStops.clear();
+    for (const stop of stops) {
+      try {
+        stop();
+      } catch (error) {
+        errors.push(error);
+      }
+    }
     for (const register of this.registers) {
-      register.stop?.();
+      try {
+        register.stop?.();
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+    if (errors.length > 0) {
+      throw errors[0];
     }
   }
 
