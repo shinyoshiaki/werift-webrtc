@@ -15,6 +15,19 @@ go mod tidy
 go build -o pion-ice-agent .
 ```
 
+## Run tests
+
+```sh
+# from packages/ice/tools/pion-ice-agent after the build above
+export WERIFT_PION_ICE_AGENT="$(pwd)/pion-ice-agent"
+cd ../../../webrtc
+npm run test:pion-ice-agent
+```
+
+Or `WERIFT_PION_ICE_AGENT_AUTO_BUILD=1 npm run test:pion-ice-agent` (requires `go`; reuses an existing `./pion-ice-agent`).
+
+Running `npm run test:pion-ice-agent` with neither variable set fails with `Pion ICE agent opt-in requires WERIFT_PION_ICE_AGENT or WERIFT_PION_ICE_AGENT_AUTO_BUILD=1`, even when `./pion-ice-agent` is already built: the opt-in script never picks up the local binary implicitly, so pass its path explicitly (or opt into auto build).
+
 ## Protocol (JSON lines on stdin/stdout)
 
 - stdout `local-auth` `{ufrag,pwd}` then `candidate` then `gathering-complete`

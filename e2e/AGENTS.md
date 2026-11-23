@@ -11,6 +11,7 @@ Instructions for coding agents working in `e2e/`, the browser E2E suite: browser
 * Firefox: `vitest.firefox.config.mts`, local only, not in CI. Its official path is `npm run firefox:record` (`run-firefox.js`), which saves a run record under `firefox-runs/` (see `firefox-runs/README.md`).
 * Settings shared by both configs live in `vitest.shared.mts`; each config adds only its browser provider. `vitest.firefox.record.config.mts` extends the Firefox config with the run-record reporter.
 * `tests/dtls/**` is the DTLS version suite (DTLS 1.2 / 1.3 against Chromium): its own config `vitest.dtls.config.mts`, run by CI after the Chrome suite (`run-dtls-ci.js`), and excluded from the Chrome and Firefox configs (`vitest.shared.mts`). Its shared setup is `tests/dtls/fixture.ts`, which builds on `tests/fixture.ts`; the Chromium launch arguments are in `tests/dtls/chromiumLaunch.ts`.
+* `tests/sped/**` is the opt-in Chromium SPED interop suite (Chromium with `WebRTC-IceHandshakeDtls/Enabled/` against werift `sped: true`): its own config `vitest.sped.config.mts`, run by `npm run sped:ci`, not by CI or `npm run e2e`. Its shared setup is `tests/sped/fixture.ts`, which builds on `tests/dtls/fixture.ts`.
 * `simulations/` is a separate suite (`npm run test:sim`) and stays out of both configs.
 
 ## Do
@@ -36,6 +37,7 @@ Instructions for coding agents working in `e2e/`, the browser E2E suite: browser
 | --- | --- |
 | Chrome suite as CI runs it (build, server, vitest, stop) | `npm run ci` |
 | DTLS version suite against a running server | `npm run dtls` |
+| Chromium SPED interop suite (build, server, vitest, stop; opt-in, not in CI) | `npm run sped:ci` |
 | Firefox suite with a run record | `npm run firefox:record [-- <vitest args>]` |
 | prune / clear Firefox run records | `npm run firefox:record:prune [-- --keep <n> \| --dry-run]` |
 | Firefox suite against a running server | `npm run firefox` |
@@ -48,7 +50,8 @@ Instructions for coding agents working in `e2e/`, the browser E2E suite: browser
 
 * Test or fixture changes: `npm run type`, then the affected file with `npm run firefox:record -- <file>` and the Chrome suite (`npm run e2e` at the root).
 * Config changes (`vitest*.mts`): the whole Chrome suite and a whole `npm run firefox:record`.
-* DTLS suite changes (`tests/dtls/**`, `vitest.dtls.config.mts`, `run-dtls-*.js`): the DTLS suite through `npm run e2e` at the root (it runs after the Chrome suite).
+* DTLS suite changes (`tests/dtls/**`, `vitest.dtls.config.mts`, `run-dtls-*.js`): the DTLS suite through `npm run e2e` at the root (it runs after the Chrome suite), plus `npm run sped:ci` when `tests/dtls/fixture.ts` or the SPED handling changes.
+* SPED suite or werift SPED changes (`tests/sped/**`, `vitest.sped.config.mts`, SPED in `packages/ice` / `packages/webrtc`): `npm run sped:ci`.
 * Harness script changes (`run-firefox.js`, `firefox-run-record.js`, `firefox-run-reporter.mjs`, `firefox-runs-prune.js`): `npm run test:tools`, and update `firefox-runs/README.md`.
 
 ## Maintenance

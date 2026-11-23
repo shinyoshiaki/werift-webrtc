@@ -13,6 +13,7 @@ export {
   dataChunkBookSize,
   maxPayloadSizeForMtu,
   SCTP,
+  SCTPSendPermissionRevokedError,
   validateSctpMtu,
 } from "./sctp";
 export type { Transport } from "./transport";

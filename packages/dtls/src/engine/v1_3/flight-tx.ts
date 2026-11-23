@@ -9,7 +9,7 @@ import {
 } from "../../record/v1_3/record";
 import { computeDtlsRtoMs } from "../../retransmission";
 import { ProtocolVersionError } from "../../version";
-import type { Dtls13Host } from "./host";
+import { type Dtls13Host, isStaleRxGeneration } from "./host";
 import {
   ACK_ENCRYPTED_OVERHEAD,
   ACK_PLAINTEXT_OVERHEAD,
@@ -613,6 +613,7 @@ export async function doRetransmit(this: Dtls13Host): Promise<void> {
     }
   }
   this.retransmitCount++;
+  this.totalRetransmitCount++;
   if (this.retransmitCount > this.maxRetransmit) {
     this.fail(new Error("DTLS 1.3 handshake retransmission exhausted"));
     return;
@@ -765,7 +766,15 @@ export async function sendAck(
       restoreAll();
       return 0;
     }
-    const ok = await this.sendWithBudget(record);
+    let ok: boolean;
+    try {
+      ok = await this.sendWithBudget(record);
+    } catch (error) {
+      // A failed send acknowledged nothing: put every number back so a later
+      // ACK (e.g. for the peer's retransmission) still covers it.
+      restoreAll();
+      throw error;
+    }
     if (!ok) {
       restoreAll();
       return 0;
@@ -775,6 +784,9 @@ export async function sendAck(
       ...sorted.slice(n),
       ...this.receivedRecordNumbers,
     ];
+    for (const r of candidate) {
+      this.unackedHandshakeRecords.delete(`${r.epoch}:${r.sequenceNumber}`);
+    }
     return n;
   }
 
@@ -850,10 +862,13 @@ export function alertDescForHandshakeError(
 export async function failAuthenticatedHandshake(
   this: Dtls13Host,
   err: Error,
+  acceptedGeneration?: number,
 ): Promise<void> {
+  if (isStaleRxGeneration(this, acceptedGeneration)) return;
   (err as Error & { dtlsAuthenticated?: boolean }).dtlsAuthenticated = true;
   const desc = this.alertDescForHandshakeError(err);
   await this.sendFatalAlert(desc);
+  if (isStaleRxGeneration(this, acceptedGeneration)) return;
   this.fail(err);
 }
 
@@ -908,9 +923,11 @@ export function noteHandshakeRecordForAck(
 ): boolean {
   if (this.clearRemoteAckOnNextInbound) {
     this.receivedRecordNumbers = [];
+    this.unackedHandshakeRecords.clear();
     this.clearRemoteAckOnNextInbound = false;
   }
   this.markHandshakeRecordAccepted(epoch, sequenceNumber);
+  this.unackedHandshakeRecords.add(`${epoch}:${sequenceNumber}`);
   const exists = this.receivedRecordNumbers.some(
     (r) => r.epoch === epoch && r.sequenceNumber === sequenceNumber,
   );

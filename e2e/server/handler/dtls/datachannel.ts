@@ -4,6 +4,7 @@ import { peerConfigWithDtls } from "../../fixture";
 import {
   attachMediaCounters,
   collectWeriftDtlsDiagnostics,
+  holdIceNomination,
 } from "./diagnostics";
 
 export class dtls_datachannel_answer {
@@ -29,7 +30,10 @@ export class dtls_datachannel_answer {
           this.counters.attachTransport();
           accept({
             description: this.pc.localDescription,
-            sped: this.pc.localDescription?.sdp.includes("goog-sped-v1"),
+            // werift advertises SPED (`a=ice-options:sped`) in its description.
+            sped: /^a=ice-options:(.* )?sped( |$)/m.test(
+              this.pc.localDescription?.sdp ?? "",
+            ),
           });
         }
         break;
@@ -59,6 +63,7 @@ export class dtls_datachannel_answer {
 export class dtls_datachannel_offer {
   pc!: RTCPeerConnection;
   private counters = attachMediaCountersPlaceholder();
+  private nominationHold?: { release(): void };
 
   async exec(type: string, payload: any, accept: AcceptFn) {
     switch (type) {
@@ -67,6 +72,7 @@ export class dtls_datachannel_offer {
           this.pc = new RTCPeerConnection(
             await peerConfigWithDtls({
               protocolVersions: payload?.protocolVersions,
+              sendBeforeNomination: payload?.sendBeforeNomination,
               sped: payload?.sped,
             }),
           );
@@ -77,11 +83,20 @@ export class dtls_datachannel_offer {
             });
           });
           await this.pc.setRemoteDescription(payload.description);
+          // sendBeforeNomination: hold werift's nomination so its data can
+          // only reach Chromium through the opt-in (valid pair, no selection).
+          this.nominationHold?.release();
+          this.nominationHold = payload?.holdNomination
+            ? holdIceNomination(this.pc)
+            : undefined;
           await this.pc.setLocalDescription(await this.pc.createAnswer());
           this.counters.attachTransport();
           accept({
             description: this.pc.localDescription,
-            sped: this.pc.localDescription?.sdp.includes("goog-sped-v1"),
+            // werift advertises SPED (`a=ice-options:sped`) in its description.
+            sped: /^a=ice-options:(.* )?sped( |$)/m.test(
+              this.pc.localDescription?.sdp ?? "",
+            ),
           });
         }
         break;

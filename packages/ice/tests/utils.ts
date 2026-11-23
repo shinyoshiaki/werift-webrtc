@@ -26,6 +26,10 @@ import {
   type IceOptions,
   normalizeIceServerOptions,
 } from "../src/iceBase";
+import {
+  connectionDatagramEvent,
+  type IceDatagramContext,
+} from "../src/internal/datagram";
 import type { ProvisionalChecklist } from "../src/provisional";
 import type { AttributeKey } from "../src/stun/attributes";
 import {
@@ -268,6 +272,7 @@ export function createConsentHarness(
     iceControlling,
   );
   nominated.nominated = true;
+  nominated.updateState(CandidatePairState.SUCCEEDED);
 
   const connection = new Connection(iceControlling, options.iceOptions);
   connection.remoteUsername = "remote";
@@ -389,6 +394,8 @@ export function createConsentNetworkHarness(
     createConsentCandidate(remoteAddr[0], remoteAddr[1], "remote"),
     options.iceControlling ?? true,
   );
+  // A nominated pair is a valid pair (RFC 8445 §8.1.1): its check succeeded.
+  nominated.updateState(CandidatePairState.SUCCEEDED);
   nominated.nominated = true;
   nominated.rtt = options.initialRtt;
 
@@ -677,19 +684,35 @@ export async function createLocalTurnServer(
 }
 
 /**
- * Shared Arrange helper: two host-only connections with a nominated pair.
- * `options` / `optionsB` apply to `a` and `b` (`optionsB` defaults to
- * `options`).
+ * Shared Arrange helper: two loopback Connections with a nominated pair.
+ * Sockets are bound to 127.0.0.1 so the datagram source always matches the
+ * candidate address (wildcard sockets on multi-homed hosts may not).
+ * `options` / `optionsB` apply to `a` and `b`; `optionsB` defaults to `options`.
  */
 export async function createConnectedPair(
   options: Partial<IceOptions> = {},
   optionsB: Partial<IceOptions> = options,
 ) {
-  const a = createTestConnection(true, options);
-  const b = createTestConnection(false, optionsB);
+  const loopbackOptions: Partial<IceOptions> = {
+    useIpv6: false,
+    interfaceAddresses: { udp4: "127.0.0.1" },
+    additionalHostAddresses: ["127.0.0.1"],
+    filterCandidatePair: (pair) => pair.remoteCandidate.host === "127.0.0.1",
+  };
+  const a = createTestConnection(true, { ...loopbackOptions, ...options });
+  const b = createTestConnection(false, { ...loopbackOptions, ...optionsB });
   await inviteAccept(a, b);
   await Promise.all([a.connect(), b.connect()]);
   return { a, b };
+}
+
+/** Arrange: collect internal datagram contexts delivered by a Connection. */
+export function collectDatagrams(connection: Connection) {
+  const received: IceDatagramContext[] = [];
+  connectionDatagramEvent(connection).subscribe((ctx) => {
+    received.push(ctx);
+  });
+  return received;
 }
 
 /**
@@ -1970,6 +1993,22 @@ export function createScriptedCheckHarness({
     nominating,
     setRemoteCredentials,
   };
+}
+
+/** Arrange/Assert helper: force full GCs, letting settled promises be freed between them. */
+export async function collectGarbage(rounds = 3) {
+  const exposed = (globalThis as { gc?: () => void }).gc;
+  let gc: () => void;
+  if (typeof exposed === "function") {
+    gc = exposed;
+  } else {
+    setFlagsFromString("--expose-gc");
+    gc = runInNewContext("gc") as () => void;
+  }
+  for (let i = 0; i < rounds; i++) {
+    gc();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
 }
 
 // --- regular nomination ---
@@ -4491,17 +4530,4 @@ export async function createRttSwitchRealPair({
       await server.close();
     },
   };
-}
-
-/**
- * Shared Arrange: run a full garbage collection. Exposes `gc` at runtime
- * (`--expose-gc` through `v8`), so the vitest command needs no extra flag.
- */
-export async function collectGarbage() {
-  setFlagsFromString("--expose-gc");
-  const gc = runInNewContext("gc") as () => void;
-  // Promise の反応と FinalizationRegistry の後片付けを挟んで 2 回回す。
-  gc();
-  await new Promise((resolve) => setImmediate(resolve));
-  gc();
 }
