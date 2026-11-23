@@ -44,7 +44,7 @@
     "THIRD_PARTY_LICENSES_LIBWEBRTC.txt"
   ],
   "scripts": {
-    "build": "npm i && rm -rf lib && run-s compile:*",
+    "build": "npm install --prefer-offline --no-audit --no-fund --no-update-notifier && rm -rf lib && run-s compile:*",
     "compile:cjs": "tsc -p ./tsconfig.production.json",
     "compile:esm": "esbuild src/index.ts src/nonstandard/index.ts src/polyfill/index.ts src/polyfill/dom.ts --bundle --packages=external --platform=node --format=esm --target=es2022 --outdir=lib --out-extension:.js=.mjs && node lib/index.mjs",
     "depcheck": "npx depcheck --ignores='@typescript-eslint/*,eslint-*'",
@@ -55,6 +55,8 @@
     "knip": "knip",
     "test": "vitest run ./tests",
     "test:pion-ice-agent": "WERIFT_PION_ICE_AGENT_REQUIRED=1 vitest run ./tests/integrate/sped-pion-ice.test.ts",
+    "test:pion-webrtc-sped": "WERIFT_PION_WEBRTC_SPED_REQUIRED=1 vitest run ./tests/integrate/sped-pion-webrtc.test.ts",
+    "test:legacy-werift": "WERIFT_LEGACY_RELEASE_REQUIRED=1 vitest run ./tests/integrate/legacyWeriftRelease.test.ts",
     "test:interop-develop": "node tools/interop-develop/run.mjs",
     "memleak": "vitest run --config ./tests/memleak/memleak.vitest.config.mts",
     "leak:verify": "bash tools/leak-verify/run.sh",
