@@ -835,6 +835,30 @@ until the transaction commits, and rollback drops the staged value.
 
 ***
 
+### readsRepairedRid()
+
+> **readsRepairedRid**(`ssrc`, `repairedRid`): `boolean`
+
+Internal (router): a packet of `ssrc` routed here is handled by its
+repaired RID `repairedRid`
+(tests/media/firefoxSimulcastRepairedRidRoute.test.ts "simulcast (RID) RTX routed by SSRC with a repaired RID (readsRepairedRid)").
+
+#### Parameters
+
+##### ssrc
+
+`number`
+
+##### repairedRid
+
+`string`
+
+#### Returns
+
+`boolean`
+
+***
+
 ### receivesMediaPayloadType()
 
 > **receivesMediaPayloadType**(`payloadType`): `boolean`
@@ -973,11 +997,15 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 
 ###### receiveTables
 
-\{ `codecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `ssrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; `stagedCodecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `stagedSsrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; \} = `...`
+\{ `codecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `ridFidMediaByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; `ssrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; `stagedCodecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `stagedRidFidTable`: \{\[`rtxSsrc`: `number`\]: `number`; \} \| `undefined`; `stagedSsrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; \} = `...`
 
 ###### receiveTables.codecs
 
 \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \} = `...`
+
+###### receiveTables.ridFidMediaByRtx
+
+\{\[`rtxSsrc`: `number`\]: `number`; \} = `...`
 
 ###### receiveTables.ssrcByRtx
 
@@ -986,6 +1014,10 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 ###### receiveTables.stagedCodecs
 
 \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \} = `...`
+
+###### receiveTables.stagedRidFidTable
+
+\{\[`rtxSsrc`: `number`\]: `number`; \} \| `undefined` = `...`
 
 ###### receiveTables.stagedSsrcByRtx
 
@@ -1039,6 +1071,10 @@ Internal: replace the decode tables with a rollback baseline.
 
 \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \} = `...`
 
+###### ridFidMediaByRtx
+
+\{\[`rtxSsrc`: `number`\]: `number`; \} = `...`
+
 ###### ssrcByRtx
 
 \{\[`rtxSsrc`: `number`\]: `number`; \} = `...`
@@ -1046,6 +1082,10 @@ Internal: replace the decode tables with a rollback baseline.
 ###### stagedCodecs
 
 \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \} = `...`
+
+###### stagedRidFidTable
+
+\{\[`rtxSsrc`: `number`\]: `number`; \} \| `undefined` = `...`
 
 ###### stagedSsrcByRtx
 
@@ -1183,6 +1223,14 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 
 \[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
 
+###### receiveTables.ridFidMediaByRtx
+
+> **ridFidMediaByRtx**: `object`
+
+###### Index Signature
+
+\[`rtxSsrc`: `number`\]: `number`
+
 ###### receiveTables.ssrcByRtx
 
 > **ssrcByRtx**: `object`
@@ -1198,6 +1246,10 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 ###### Index Signature
 
 \[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+
+###### receiveTables.stagedRidFidTable
+
+> **stagedRidFidTable**: \{\[`rtxSsrc`: `number`\]: `number`; \} \| `undefined`
 
 ###### receiveTables.stagedSsrcByRtx
 
@@ -1263,6 +1315,14 @@ Internal: capture the decode tables for a negotiation rollback baseline.
 
 \[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
 
+##### ridFidMediaByRtx
+
+> **ridFidMediaByRtx**: `object`
+
+###### Index Signature
+
+\[`rtxSsrc`: `number`\]: `number`
+
 ##### ssrcByRtx
 
 > **ssrcByRtx**: `object`
@@ -1278,6 +1338,10 @@ Internal: capture the decode tables for a negotiation rollback baseline.
 ###### Index Signature
 
 \[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+
+##### stagedRidFidTable
+
+> **stagedRidFidTable**: \{\[`rtxSsrc`: `number`\]: `number`; \} \| `undefined`
 
 ##### stagedSsrcByRtx
 
@@ -1296,6 +1360,21 @@ Internal: capture the decode tables for a negotiation rollback baseline.
 #### Returns
 
 `void`
+
+***
+
+### takeDroppedFidRtxSsrcs()
+
+> **takeDroppedFidRtxSsrcs**(): `number`[]
+
+Internal (router): FID RTX SSRCs a commit removed that the description
+no longer describes otherwise; their description routes go
+(tests/media/firefoxSimulcastRepairedRidRoute.test.ts "確定で FID の組が外れた RTX SSRC を BUNDLE の別 m-line が MID と repaired RID 付きで使うと、その m-line の RID のトラックへ復元される";
+tests/media/firefoxSimulcastRepairedRidRoute.test.ts "RID の m-line が FID の組を外して SSRC で送る記述に変わっても、a=ssrc の RTX として記述された RTX SSRC は経路を失わず復元される").
+
+#### Returns
+
+`number`[]
 
 ***
 

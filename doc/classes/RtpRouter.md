@@ -346,6 +346,26 @@ of other transports are other streams and stay.
 
 ***
 
+### releaseDroppedFidRtx()
+
+> **releaseDroppedFidRtx**(`receiver?`): `void`
+
+Internal: after a commit, drop the description routes of FID RTX SSRCs it
+removed (`takeDroppedFidRtxSsrcs`)
+(tests/media/firefoxSimulcastRepairedRidRoute.test.ts "確定で FID の組が外れた RTX SSRC を BUNDLE の別 m-line が MID と repaired RID 付きで使うと、その m-line の RID のトラックへ復元される").
+
+#### Parameters
+
+##### receiver?
+
+[`RTCRtpReceiver`](RTCRtpReceiver.md)
+
+#### Returns
+
+`void`
+
+***
+
 ### restoreRoutes()
 
 > **restoreRoutes**(`snapshot`, `__namedParameters`): `void`
