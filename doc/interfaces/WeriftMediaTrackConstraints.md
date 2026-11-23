@@ -13,6 +13,14 @@ selects a polyfill media register by the media it produces.
 
 - [`WeriftMediaTrackConstraintSet`](WeriftMediaTrackConstraintSet.md)
 
+## Indexable
+
+> \[`name`: `string`\]: `unknown`
+
+Constraints werift cannot honor (`width`, `frameRate`, ...), as in the DOM
+`MediaTrackConstraints`. A required one rejects `applyConstraints()`
+with `OverconstrainedError`; an optional one is kept.
+
 ## Properties
 
 ### advanced?

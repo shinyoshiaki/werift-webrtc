@@ -101,3 +101,8 @@ const domOnReceiveRtp: MediaStreamTrack["onReceiveRtp"] =
   weriftTrack.onReceiveRtp;
 void onReceiveRtp;
 void domOnReceiveRtp;
+
+// 未対応の DOM 制約名も、キャストなしで werift / DOM どちらの track にも渡せる。
+void weriftTrack.applyConstraints({ width: { exact: 1920 } });
+void weriftTrack.applyConstraints({ width: { ideal: 640 } });
+void track.applyConstraints({ width: { exact: 1920 } });

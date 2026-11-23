@@ -121,7 +121,7 @@ describe("MediaStreamTrack DOM-compatible members", () => {
         deviceId: "other-camera",
         advanced: [{ mimeType: "video/H264" }],
         frameRate: 30,
-      } as Parameters<typeof track.applyConstraints>[0]);
+      });
 
       // Assert: resolve し、未対応の ideal 制約も含めて保持され、settings は変わらない。
       expect(track.getConstraints()).toEqual({
@@ -279,7 +279,7 @@ describe("MediaStream DOM-compatible members", () => {
     const error = await captureRejection(() =>
       track.applyConstraints({
         width: { exact: 1920 },
-      } as Parameters<typeof track.applyConstraints>[0]),
+      }),
     );
 
     // Assert: OverconstrainedError で拒否され、以前の制約が残る。
@@ -294,7 +294,7 @@ describe("MediaStream DOM-compatible members", () => {
     // Act: ideal の width は受け付けられる。
     await track.applyConstraints({
       width: { ideal: 640 },
-    } as Parameters<typeof track.applyConstraints>[0]);
+    });
 
     // Assert: 破棄されず getConstraints で返る。
     expect(track.getConstraints()).toEqual({ width: { ideal: 640 } });

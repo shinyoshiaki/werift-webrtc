@@ -32,6 +32,12 @@ export interface WeriftMediaTrackConstraintSet {
 export interface WeriftMediaTrackConstraints
   extends WeriftMediaTrackConstraintSet {
   advanced?: WeriftMediaTrackConstraintSet[];
+  /**
+   * Constraints werift cannot honor (`width`, `frameRate`, ...), as in the DOM
+   * `MediaTrackConstraints`. A required one rejects `applyConstraints()`
+   * with `OverconstrainedError`; an optional one is kept.
+   */
+  [name: string]: unknown;
 }
 
 /** Assignable to the DOM `MediaTrackSettings`. */
@@ -71,7 +77,7 @@ export type WeriftConstrainableSettings = Partial<
 export function stripUnsupportedConstraints(
   constraints: { [key: string]: unknown } | undefined,
 ): WeriftMediaTrackConstraints {
-  const next: WeriftMediaTrackConstraints = pickSupported(constraints);
+  const next: WeriftMediaTrackConstraints = { ...pickSupported(constraints) };
   const advanced = constraints?.advanced;
   if (Array.isArray(advanced)) {
     next.advanced = advanced.map((entry) => pickSupported(entry));
