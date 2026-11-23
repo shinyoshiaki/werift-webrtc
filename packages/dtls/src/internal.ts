@@ -4,8 +4,14 @@
  * Not re-exported from package root (`src/index.ts`).
  */
 import { DtlsClient, type DualAssociationPhase } from "./client";
+import { EarlyDataBuffer } from "./engine/v1_3/early-data-buffer";
+import { EARLY_DATA_LIMITS } from "./engine/v1_3/types";
 import { DtlsServer } from "./server";
 import type { DtlsInternalOptions, DtlsSocket, Options } from "./socket";
+
+export type { EarlyDataBufferStats } from "./engine/v1_3/early-data-buffer";
+export type { DtlsReadiness } from "./engine/v1_3/types";
+export { EARLY_DATA_LIMITS, EarlyDataBuffer };
 
 /**
  * @internal Create a DtlsClient with internal-only options (e.g. handshakeCarrier).
@@ -51,4 +57,21 @@ export function refragmentPendingFlightIfNeeded(socket: DtlsSocket): boolean {
     }
   ).engine13;
   return engine?.refragmentPendingFlightIfNeeded() ?? false;
+}
+
+/**
+ * @internal Pre-authentication buffer using {@link EARLY_DATA_LIMITS}.
+ * `enabled: false` creates a zero-capacity buffer that drops every push
+ * (used when early media buffering is not opted in).
+ */
+export function createPreAuthEarlyDataBuffer({
+  enabled = true,
+}: {
+  enabled?: boolean;
+} = {}): EarlyDataBuffer {
+  return new EarlyDataBuffer(
+    enabled ? EARLY_DATA_LIMITS.maxRecords : 0,
+    enabled ? EARLY_DATA_LIMITS.maxBytes : 0,
+    EARLY_DATA_LIMITS.retentionMs,
+  );
 }

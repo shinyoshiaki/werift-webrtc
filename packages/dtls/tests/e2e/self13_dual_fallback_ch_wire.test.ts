@@ -260,3 +260,42 @@ test("e2e/dual: cookie-less 1.2 ServerHello park retransmits CH-A unchanged", as
   await clientTransport.close();
   await serverTransport.close();
 }, 10_000);
+
+test("e2e/1.3-only: ClientHello does not offer EMS (only a ClientHello that also offers DTLS 1.2 does)", async () => {
+  // Arrange: 1.3 だけを提示する client。送出される ClientHello を tap する
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+  const client = new DtlsClient({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    signatureHash: {
+      hash: HashAlgorithm.sha256_4,
+      signature: SignatureAlgorithm.rsa_1,
+    },
+    protocolVersions: [DtlsVersion.V1_3],
+    extendedMasterSecret: true,
+    srtpProfiles: [ProtectionProfileAeadAes128Gcm],
+  });
+  const hellos: ClientHello[] = [];
+  serverTransport.onData = (buf) => {
+    hellos.push(...collectClientHellos(Buffer.from(buf)));
+  };
+
+  // Act: 接続を開始し、最初の ClientHello を待つ
+  void client.connect().catch(() => {});
+  const deadline = Date.now() + 5_000;
+  while (hellos.length === 0 && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 20));
+  }
+
+  // Assert: 1.3 の拡張だけで、EMS は載らない
+  expect(hellos.length).toBeGreaterThan(0);
+  expect(extTypes(hellos[0]!).has(SupportedVersions.type)).toBe(true);
+  expect(extTypes(hellos[0]!).has(ExtendedMasterSecret.type)).toBe(false);
+
+  client.close();
+  await clientTransport.close();
+  await serverTransport.close();
+}, 10_000);

@@ -73,9 +73,9 @@ import {
 import { resolveHostAddresses } from "./internal/resolveHostAddresses";
 import {
   type ConnectionSpedState,
+  decoratePendingSped,
   getConnectionSpedRuntime,
   isConnectionSpedEnabled,
-  registerSpedCarryMaybeFlush,
   setConnectionSpedRuntime,
 } from "./internal/sped-bind";
 import { SpedBindingResponseCache } from "./internal/sped-binding-cache";
@@ -153,6 +153,12 @@ export class Connection implements IceConnection {
   remoteIceOptions: string[] = [];
   remotePassword: string = "";
   remoteUsername: string = "";
+  /**
+   * Remote ufrags of replaced generations (bounded). A late check one of them
+   * sends is still answered but never adds a candidate or pair to the new
+   * generation's checklist.
+   */
+  private retiredRemoteUsernames: string[] = [];
   checkList: CandidatePair[] = [];
   localCandidates: Candidate[] = [];
   /**
@@ -216,6 +222,16 @@ export class Connection implements IceConnection {
   private _remoteCandidates: Candidate[] = [];
   // P2P接続完了したソケット
   nominated?: CandidatePair;
+  /** Authenticated pair the remote peer last sent application data on. */
+  private lastDataPair?: CandidatePair;
+  /**
+   * Selected pairs of the previous generation (ours and the one the peer was
+   * sending on; nomination can be asymmetric). RFC 8445 §9: media continues
+   * over the previously selected pair until the restart selects a new one.
+   * The peer may keep using it after we nominate, so these are released once
+   * the peer sends on an authenticated current-generation pair.
+   */
+  private previousSelectedPairs: CandidatePair[] = [];
   /** The ICE-lite nomination (first valid pair, in `checkStart`) is in flight. */
   private liteNominating = false;
   /** Regular nomination (RFC 8445 §8.1.1) of the live checklist. */
@@ -496,15 +512,6 @@ export class Connection implements IceConnection {
   private set spedRuntime(runtime: SpedRuntime | undefined) {
     setConnectionSpedRuntime(this, runtime);
   }
-  private spedCarryInFlight = false;
-  private spedCarryQueued = false;
-  /**
-   * After receiving SPED DATA, send one more Binding even without local L1
-   * so ICE-Lite (Responses only) can put the next L1 datagram on the reply.
-   */
-  private spedSolicitPeerCarry = false;
-  private spedCarryEpoch = 0;
-  private spedIncomingStunDepth = 0;
   /**
    * Exact SPED Binding Response bytes keyed by STUN transaction id.
    * Handshake only: TTL = STUN transaction lifetime, LRU-capped.
@@ -521,7 +528,6 @@ export class Connection implements IceConnection {
       this._iceControlling = false;
     }
     this.applyStunTurnServersFromOptions();
-    registerSpedCarryMaybeFlush(this, () => this.maybeFlushSpedCarry());
     this.restart();
     log("new Connection", this.options);
   }
@@ -613,9 +619,25 @@ export class Connection implements IceConnection {
     return this.options.iceLite;
   }
 
+  /**
+   * Keep the selected path of the generation a restart replaces: the peer
+   * keeps sending media on it until it moves to the new selected pair
+   * (RFC 8445 §9). Its datagrams stay deliverable as media only.
+   */
+  private retainSelectedPairs() {
+    const selected = [this.nominated, this.lastDataPair].filter(
+      (pair): pair is CandidatePair =>
+        pair !== undefined && isAuthenticatedHandshakePair(pair),
+    );
+    if (selected.length > 0) {
+      this.previousSelectedPairs = [...new Set(selected)];
+    }
+    this.lastDataPair = undefined;
+  }
+
   async restart() {
+    this.retainSelectedPairs();
     this.generation++;
-    this.spedCarryEpoch++;
     this.abandonInFlightStunTransactions();
     this.remoteGeneration++;
 
@@ -639,6 +661,7 @@ export class Connection implements IceConnection {
     };
     this.restarted = true;
 
+    this.retireRemoteUsername();
     this.remoteUsername = "";
     this.remotePassword = "";
     this.localCandidates = [];
@@ -679,9 +702,6 @@ export class Connection implements IceConnection {
 
     // Tear down consent timers/transactions; new credentials require a new session.
     this.consent.stop();
-    this.spedCarryInFlight = false;
-    this.spedCarryQueued = false;
-    this.spedSolicitPeerCarry = false;
     this.spedBindingCache.clear();
     this.spedRuntime?.reset(this.generation);
     this.provisionalChecklist.end();
@@ -800,7 +820,9 @@ export class Connection implements IceConnection {
    * the selected pair start over; local credentials and candidates stay.
    */
   restartRemote() {
+    this.retainSelectedPairs();
     this.remoteGeneration++;
+    this.retireRemoteUsername();
     this.remoteUsername = "";
     this.remotePassword = "";
     this._remoteCandidates = [];
@@ -950,9 +972,32 @@ export class Connection implements IceConnection {
   }) {
     log("setRemoteParams", { iceLite, usernameFragment, password });
     this.remoteIsLite = iceLite;
+    if (usernameFragment !== this.remoteUsername) this.retireRemoteUsername();
+    this.retiredRemoteUsernames = this.retiredRemoteUsernames.filter(
+      (retired) => retired !== usernameFragment,
+    );
     this.remoteUsername = usernameFragment;
     this.remotePassword = password;
     this.spedRuntime?.syncPathMtuFromConnection(this);
+  }
+
+  private retireRemoteUsername() {
+    if (!this.remoteUsername) return;
+    this.retiredRemoteUsernames = [
+      ...this.retiredRemoteUsernames.filter((u) => u !== this.remoteUsername),
+      this.remoteUsername,
+    ].slice(-RETIRED_REMOTE_USERNAMES_MAX);
+  }
+
+  /** A check sent by a remote generation that was replaced. */
+  private isRetiredRemoteCheck(message: Message) {
+    const txUsername = message.getAttributeValue("USERNAME");
+    if (typeof txUsername !== "string") return false;
+    const sender = decodeTxUsername(txUsername).localUsername;
+    return (
+      sender !== this.remoteUsername &&
+      this.retiredRemoteUsernames.includes(sender)
+    );
   }
 
   // 4.1.1 Gathering Candidates
@@ -1087,12 +1132,13 @@ export class Connection implements IceConnection {
     // other address is probed). Its host candidate gets the highest local preference, and its
     // socket is a representative of the family's server-reflexive queries.
     // Probed while the sockets bind: no server work waits for it.
-    const defaultRoutes = this.untilClosed(
+    const defaultRoutes = this.untilSettledOrClosed(
       getDefaultRouteAddresses(this.options.useIpv4, this.options.useIpv6, [
         ...this.stunServers.map(([host]) => host),
         ...this.turnServers.map(({ address: [host] }) => host),
       ]),
-    ).then((routes) => routes ?? []);
+      [] as string[],
+    );
 
     const { primary, background } = this.gatherer.candidatePromises(
       address,
@@ -1102,7 +1148,7 @@ export class Connection implements IceConnection {
     );
     // close() ends the gathering at once: the continuations above close
     // whatever a server query still opens for a closed agent.
-    await this.untilClosed(Promise.allSettled(primary));
+    await this.untilSettledOrClosed(Promise.allSettled(primary), undefined);
 
     // A later ICE restart (or close) owns the agent now: this gathering
     // neither completes that generation nor touches its state.
@@ -1113,8 +1159,9 @@ export class Connection implements IceConnection {
     } else {
       // The other host sockets' server-reflexive candidates trickle in;
       // end-of-candidates follows the last of them.
-      this.localCandidatesEndPromise = this.untilClosed(
+      this.localCandidatesEndPromise = this.untilSettledOrClosed(
         Promise.allSettled(pending.map(({ query }) => query)),
+        undefined,
       ).then(() => {
         if (!this.isGathering(generation)) return;
         this.endLocalCandidates(generation);
@@ -1158,6 +1205,35 @@ export class Connection implements IceConnection {
   }
 
   /**
+   * Wait for `work` or close(), whichever comes first. Unlike racing a
+   * promise that stays pending for the agent's lifetime, the close listener
+   * goes away with this wait, so a settled gathering (and the candidates its
+   * result holds) is not kept alive by every later restart.
+   */
+  private untilSettledOrClosed<T>(
+    work: Promise<T>,
+    closedValue: T,
+  ): Promise<T> {
+    const signal = this.closing.signal;
+    if (signal.aborted) return Promise.resolve(closedValue);
+    return new Promise<T>((resolve) => {
+      let settled = false;
+      const done = (value: T) => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", onClose);
+        resolve(value);
+      };
+      const onClose = () => done(closedValue);
+      signal.addEventListener("abort", onClose, { once: true });
+      work.then(
+        (value) => done(value),
+        () => done(closedValue),
+      );
+    });
+  }
+
+  /**
    * Resolves when the current generation's gathering has ended
    * (`localCandidatesEnd`): {@link Connection.gatherCandidates} returns once
    * the host sockets, the TURN allocations and the representative socket's
@@ -1167,33 +1243,6 @@ export class Connection implements IceConnection {
    */
   async waitForLocalCandidatesEnd() {
     await this.localCandidatesEndPromise;
-  }
-
-  /**
-   * Resolves with `work`'s value, or with `undefined` once the agent closes,
-   * whichever comes first: work that awaits the network stops waiting at
-   * close(). The close listener is removed when `work` settles, so repeated
-   * gatherings (ICE restarts) leave nothing attached to the agent: racing a
-   * promise that resolves only at close keeps a reaction, and with it each
-   * gathering's candidates, until the agent closes.
-   */
-  private untilClosed<T>(work: Promise<T>): Promise<T | undefined> {
-    const signal = this.closing.signal;
-    if (signal.aborted) return Promise.resolve(undefined);
-    return new Promise((resolve, reject) => {
-      const onClose = () => resolve(undefined);
-      signal.addEventListener("abort", onClose, { once: true });
-      work.then(
-        (value) => {
-          signal.removeEventListener("abort", onClose);
-          resolve(value);
-        },
-        (error: unknown) => {
-          signal.removeEventListener("abort", onClose);
-          reject(error);
-        },
-      );
-    });
   }
 
   /**
@@ -1291,14 +1340,20 @@ export class Connection implements IceConnection {
     });
     protocol.onDataReceived.subscribe((data, addr) => {
       try {
-        // The source-aware datagram event has SPED subscribers only: without
-        // one, a datagram (RTP / SRTP included) skips the pair lookup.
+        // The source-aware datagram event has internal subscribers only
+        // (SPED, the WebRTC DTLS transport): without one, a datagram (RTP /
+        // SRTP included) skips the pair lookup. The authenticated path it
+        // tracks (restart retention) is read only through this event.
         if (this.internalDatagramEvent) {
           const pair = this.resolveDatagramPair(protocol, addr);
           const authenticated =
             addr !== undefined &&
             pair !== undefined &&
             isAuthenticatedHandshakePair(pair);
+          if (authenticated) {
+            this.lastDataPair = pair;
+            this.previousSelectedPairs = [];
+          }
           connectionDatagramEvent(this).execute({
             bytes: data,
             // Never copy pair.remoteAddr into source: a missing addr must not
@@ -1308,6 +1363,11 @@ export class Connection implements IceConnection {
             pair,
             generation: this.generation,
             authenticated,
+            // A new-generation pair for the same 5-tuple may already exist
+            // (WAITING/IN_PROGRESS) before it is authenticated; that must not
+            // hide the retained previous selected path.
+            fromPreviousSelectedPair:
+              !authenticated && this.isPreviousSelectedPair(protocol, addr),
           });
         }
 
@@ -1440,23 +1500,14 @@ export class Connection implements IceConnection {
     }
 
     const { iceControlling } = this;
-    this.spedIncomingStunDepth++;
-    try {
-      await this.handleCurrentGenerationBinding(
-        protocol,
-        verified,
-        addr,
-        localPassword,
-        iceControlling,
-        spedBoundary,
-      );
-    } finally {
-      this.spedIncomingStunDepth--;
-      if (this.spedIncomingStunDepth === 0 && this.spedCarryQueued) {
-        this.spedCarryQueued = false;
-        void this.flushSpedCarry();
-      }
-    }
+    await this.handleCurrentGenerationBinding(
+      protocol,
+      verified,
+      addr,
+      localPassword,
+      iceControlling,
+      spedBoundary,
+    );
   }
 
   /** Queue a check until connect() while the checklist is empty, else handle it. */
@@ -1546,6 +1597,25 @@ export class Connection implements IceConnection {
       this.options.filterStunResponse &&
       !this.options.filterStunResponse(verified, addr, protocol)
     ) {
+      return;
+    }
+
+    // A late check of the peer's replaced generation keeps its old path's
+    // consent (RFC 8445 §9) but must not add a peer-reflexive candidate or a
+    // pair to the new generation.
+    if (this.isRetiredRemoteCheck(verified)) {
+      const response = new Message(
+        methods.BINDING,
+        classes.RESPONSE,
+        verified.transactionId,
+      );
+      response
+        .setAttribute("XOR-MAPPED-ADDRESS", addr)
+        .addMessageIntegrity(Buffer.from(localPassword, "utf8"))
+        .addFingerprint();
+      protocol.sendStun(response, addr).catch((e) => {
+        log("sendStun error", e);
+      });
       return;
     }
 
@@ -1652,8 +1722,11 @@ export class Connection implements IceConnection {
         verified.transactionId,
       );
       response.setAttribute("XOR-MAPPED-ADDRESS", addr);
-      if (this.spedRuntime && pair) {
-        if (!this.spedRuntime.decorateOutgoing(response, pair)) {
+      if (pair) {
+        const decorated = this.spedRuntime
+          ? this.spedRuntime.decorateOutgoing(response, pair)
+          : decoratePendingSped(this, response, pair);
+        if (!decorated) {
           return;
         }
       }
@@ -2064,8 +2137,15 @@ export class Connection implements IceConnection {
     return pair.nomination;
   }
 
-  private canSendApplicationData(): boolean {
-    if (!this.nominated) {
+  /**
+   * @internal
+   * Return whether application data can be delivered on the selected pair.
+   * This is kept separate from {@link send} so transports that buffer data
+   * can distinguish an unavailable path from a successful no-op.
+   */
+  canSendApplicationData(): boolean {
+    const activePair = this.applicationDataPair();
+    if (!activePair) {
       return false;
     }
     if (this.state === "closed" || this.state === "failed") {
@@ -2075,7 +2155,25 @@ export class Connection implements IceConnection {
     if (this.iceLite) {
       return true;
     }
+    // Full ICE requires consent from a successful Binding response. A remote
+    // USE-CANDIDATE only records nomination; it does not prove that this peer
+    // can receive application data on the pair.
     return this.consent.fresh;
+  }
+
+  private applicationDataPair(): CandidatePair | undefined {
+    if (
+      this.nominated &&
+      this.nominated.state === CandidatePairState.SUCCEEDED
+    ) {
+      return this.nominated;
+    }
+    return this.checkList.find(
+      (pair) =>
+        pair.state === CandidatePairState.SUCCEEDED &&
+        isAuthenticatedHandshakePair(pair) &&
+        (pair.nominated || (this.iceLite && pair.remoteNominated)),
+    );
   }
 
   /** Start RFC 7675 consent freshness for the selected pair. */
@@ -2115,6 +2213,8 @@ export class Connection implements IceConnection {
     }
 
     this.nominated = undefined;
+    this.lastDataPair = undefined;
+    this.previousSelectedPairs = [];
     this.liteNominating = false;
     this.nomination.reset();
     this.selection.abort();
@@ -2132,10 +2232,6 @@ export class Connection implements IceConnection {
     this.protocols = [];
     this.localCandidates = [];
 
-    this.spedCarryEpoch++;
-    this.spedCarryInFlight = false;
-    this.spedCarryQueued = false;
-    this.spedSolicitPeerCarry = false;
     this.spedBindingCache.clear();
     this.spedRuntime?.abort();
     this.spedRuntime = undefined;
@@ -2267,7 +2363,10 @@ export class Connection implements IceConnection {
     if (!this.canSendApplicationData()) {
       return;
     }
-    const activePair = this.nominated!;
+    const activePair = this.applicationDataPair();
+    if (!activePair) {
+      return;
+    }
     await activePair.protocol.sendData(data, activePair.remoteAddr);
 
     // Update statistics
@@ -2319,13 +2418,26 @@ export class Connection implements IceConnection {
     return pair;
   }
 
+  /**
+   * Several remote candidates can share one transport address (a srflx equal
+   * to its host base), so one 5-tuple may have several pairs. Checks are
+   * accounted on one of them only; prefer the authenticated pair so the
+   * 5-tuple is not judged by a FROZEN/FAILED duplicate.
+   */
   private findPairByAddr(protocol: Protocol, addr: Address) {
-    return this.checkList.find(
-      (pair) =>
-        pair.protocol === protocol &&
-        pair.remoteAddr[0] === addr[0] &&
-        pair.remoteAddr[1] === addr[1],
-    );
+    let first: CandidatePair | undefined;
+    for (const pair of this.checkList) {
+      if (
+        pair.protocol !== protocol ||
+        pair.remoteAddr[0] !== addr[0] ||
+        pair.remoteAddr[1] !== addr[1]
+      ) {
+        continue;
+      }
+      if (isAuthenticatedHandshakePair(pair)) return pair;
+      first ??= pair;
+    }
+    return first;
   }
 
   /**
@@ -2352,8 +2464,34 @@ export class Connection implements IceConnection {
     return this.checkList.find((candidate) => candidate.protocol === protocol);
   }
 
+  private isPreviousSelectedPair(protocol: Protocol, addr?: Address) {
+    if (addr === undefined) {
+      return false;
+    }
+    return this.previousSelectedPairs.some(
+      (previous) =>
+        previous.protocol === protocol &&
+        previous.remoteAddr[0] === addr[0] &&
+        previous.remoteAddr[1] === addr[1],
+    );
+  }
+
   private decorateSpedRequest(request: Message, pair: CandidatePair): boolean {
-    return this.spedRuntime?.decorateOutgoing(request, pair) ?? true;
+    const runtime = this.spedRuntime;
+    return runtime
+      ? runtime.decorateOutgoing(request, pair)
+      : decoratePendingSped(this, request, pair);
+  }
+
+  private bindingResponseSourceMatches(
+    addr: Address | undefined,
+    pair: CandidatePair,
+  ): boolean {
+    return (
+      addr != null &&
+      addr[0] === pair.remoteAddr[0] &&
+      addr[1] === pair.remoteAddr[1]
+    );
   }
 
   private isStaleConnectivityCheck(
@@ -2387,142 +2525,6 @@ export class Connection implements IceConnection {
     }
   }
 
-  private maybeFlushSpedCarry() {
-    if (this.iceLite) {
-      return;
-    }
-    if (this.spedIncomingStunDepth > 0) {
-      this.spedCarryQueued = true;
-      return;
-    }
-    if (this.isTerminalIceState()) {
-      return;
-    }
-    void this.flushSpedCarry();
-  }
-
-  private isTerminalIceState() {
-    const state = this.state as IceState;
-    return state === "failed" || state === "closed";
-  }
-
-  /**
-   * Send a Binding carrying current L1 when ICE checks will not
-   * do so soon enough (e.g. Finished after aggressive nomination).
-   * ICE-Lite never originates connectivity Binding Requests.
-   */
-  private async flushSpedCarry() {
-    if (this.iceLite) {
-      return;
-    }
-    if (this.isTerminalIceState()) {
-      return;
-    }
-    const runtime = this.spedRuntime;
-    if (!runtime?.session.embedding) {
-      return;
-    }
-    if (this.spedCarryInFlight) {
-      this.spedCarryQueued = true;
-      return;
-    }
-    if (!runtime.session.hasL1 && !this.spedSolicitPeerCarry) {
-      return;
-    }
-    if (!this.remoteUsername || !this.remotePassword) {
-      return;
-    }
-    this.spedSolicitPeerCarry = false;
-
-    const pair = this.selectSpedCarryPair(runtime);
-    const protocol = pair?.protocol;
-    const addr = pair?.remoteAddr;
-    if (!pair || !protocol || !addr || !runtime.shouldDecorate(pair)) {
-      return;
-    }
-
-    this.spedCarryInFlight = true;
-    const generation = this.generation;
-    const carryEpoch = this.spedCarryEpoch;
-    let requestSucceeded = false;
-    try {
-      const request = this.buildRequest({
-        nominate: false,
-        localUsername: this.localUsername,
-        remoteUsername: this.remoteUsername,
-        iceControlling: this.iceControlling,
-        localCandidate: pair.localCandidate,
-      });
-      if (!runtime.decorateOutgoing(request, pair)) {
-        return;
-      }
-      const [response, responseAddr] = await protocol.request(
-        request,
-        addr,
-        Buffer.from(this.remotePassword, "utf8"),
-        this.isTcpPair(pair)
-          ? {
-              retransmissions: 0,
-              responseTimeout: TCP_CHECK_RESPONSE_TIMEOUT_MS,
-            }
-          : { retransmissions: 2 },
-      );
-      if (
-        generation !== this.generation ||
-        carryEpoch !== this.spedCarryEpoch
-      ) {
-        return;
-      }
-      requestSucceeded = true;
-      await this.consumeSpedStun(
-        response,
-        responseAddr,
-        protocol,
-        pair,
-        generation,
-      );
-    } catch {
-      // Loss is acceptable; connectivity checks / consent retry L1.
-    } finally {
-      this.spedCarryInFlight = false;
-      const stale =
-        carryEpoch !== this.spedCarryEpoch ||
-        generation !== this.generation ||
-        this.isTerminalIceState();
-      if (!stale) {
-        if (this.spedCarryQueued) {
-          this.spedCarryQueued = false;
-          void this.flushSpedCarry();
-        } else if (
-          requestSucceeded &&
-          runtime.session.embedding &&
-          runtime.session.hasL1
-        ) {
-          void this.flushSpedCarry();
-        }
-      }
-    }
-  }
-
-  private selectSpedCarryPair(runtime: SpedRuntime): CandidatePair | undefined {
-    if (runtime.lastPath && runtime.shouldDecorate(runtime.lastPath)) {
-      return runtime.lastPath;
-    }
-    const ordered: CandidatePair[] = [];
-    if (this.nominated) {
-      ordered.push(this.nominated);
-    }
-    for (const candidate of this.checkList) {
-      if (
-        candidate.state === CandidatePairState.SUCCEEDED ||
-        candidate.state === CandidatePairState.IN_PROGRESS
-      ) {
-        ordered.push(candidate);
-      }
-    }
-    return ordered.find((candidate) => runtime.shouldDecorate(candidate));
-  }
-
   private async consumeSpedStun(
     message: Message,
     addr: Address,
@@ -2537,12 +2539,7 @@ export class Connection implements IceConnection {
     if (!pair || !runtime || !runtime.isLiveGeneration(generation)) {
       return;
     }
-    const result = await runtime.handleAuthenticatedStun(
-      message,
-      addr,
-      generation,
-      pair,
-    );
+    await runtime.handleAuthenticatedStun(message, addr, generation, pair);
     if (
       generation !== this.generation ||
       !runtime.isLiveGeneration(generation)
@@ -2551,10 +2548,6 @@ export class Connection implements IceConnection {
     }
     if (pair) {
       runtime.syncRtt(pair);
-    }
-    if (result.inject) {
-      this.spedSolicitPeerCarry = true;
-      this.maybeFlushSpedCarry();
     }
     this.settleSpedUnconfirmed(pair);
     await this.maybeSendSpedFallback(protocol, addr, generation);
@@ -2904,7 +2897,6 @@ export class Connection implements IceConnection {
       const remoteGeneration = this.remoteGeneration;
 
       pair.updateState(CandidatePairState.IN_PROGRESS);
-      const result: { response?: Message; addr?: Address } = {};
       const { remotePassword, remoteUsername, generation } = this;
       const localUsername = pair.localCandidate.ufrag ?? this.localUsername;
       const stopIfStale = () => {
@@ -2955,14 +2947,19 @@ export class Connection implements IceConnection {
         if (stopIfStale()) {
           return;
         }
+        if (!this.bindingResponseSourceMatches(addr, pair)) {
+          pair.updateState(CandidatePairState.FAILED);
+          this.checkComplete(pair);
+          r();
+          return;
+        }
+
         pair.responsesReceived++;
         this.failover.responded(pair);
 
         // Calculate RTT
         const endTime = performance.now();
-        const rtt = (endTime - startTime) / 1000; // Convert to seconds
-
-        // Update RTT statistics
+        const rtt = (endTime - startTime) / 1000;
         pair.rtt = rtt;
         pair.totalRoundTripTime += rtt;
         pair.roundTripTimeMeasurements++;
@@ -2974,8 +2971,7 @@ export class Connection implements IceConnection {
           generation,
           rtt,
         });
-        result.response = response;
-        result.addr = addr;
+        this.spedRuntime?.tryMarkDirectHandshakeReady(pair, generation);
         await this.consumeSpedStun(
           response,
           addr,
@@ -3040,17 +3036,6 @@ export class Connection implements IceConnection {
         return;
       }
 
-      // # check remote address matches
-      if (
-        result.addr[0] !== pair.remoteAddr[0] ||
-        result.addr[1] !== pair.remoteAddr[1]
-      ) {
-        pair.updateState(CandidatePairState.FAILED);
-        this.checkComplete(pair);
-        r();
-        return;
-      }
-
       // # success
       // The peer's USE-CANDIDATE selects the pair only while this agent is
       // controlled: one received before a role switch made it controlling is
@@ -3093,7 +3078,14 @@ export class Connection implements IceConnection {
           if (stopIfStale()) {
             return;
           }
+          if (!this.bindingResponseSourceMatches(nomAddr, pair)) {
+            pair.updateState(CandidatePairState.FAILED);
+            this.checkComplete(pair);
+            r();
+            return;
+          }
           pair.responsesReceived++;
+          this.spedRuntime?.tryMarkDirectHandshakeReady(pair, generation);
           await this.consumeSpedStun(
             nomResponse,
             nomAddr,
@@ -3414,6 +3406,7 @@ export class Connection implements IceConnection {
         },
       );
       pair.responsesReceived++;
+      this.spedRuntime?.tryMarkDirectHandshakeReady(pair, generation);
       await this.consumeSpedStun(
         response,
         addr,
@@ -3591,6 +3584,7 @@ export class Connection implements IceConnection {
         pair.nominated = true;
         pair.updateState(CandidatePairState.SUCCEEDED);
         this.checkComplete(pair);
+        this.spedRuntime?.tryMarkDirectHandshakeReady(pair, this.generation);
       }
       return;
     }
@@ -4115,3 +4109,6 @@ export class Connection implements IceConnection {
     });
   }
 }
+
+/** Replaced remote ufrags remembered to recognise their late checks. */
+const RETIRED_REMOTE_USERNAMES_MAX = 4;

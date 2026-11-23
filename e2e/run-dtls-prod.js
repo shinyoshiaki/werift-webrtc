@@ -38,7 +38,8 @@ function runDtls() {
       "vitest",
       "run",
       "--config",
-      "vitest.dtls.config.mts",
+      // The opt-in SPED interop run selects its own config (npm run sped:ci).
+      process.env.DTLS_VITEST_CONFIG ?? "vitest.dtls.config.mts",
       "--browser.headless",
       "--reporter=dot",
     ],

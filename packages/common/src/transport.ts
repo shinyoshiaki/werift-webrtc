@@ -500,6 +500,16 @@ class StreamTransport implements Transport {
   };
 }
 
+/**
+ * Optional per-datagram RX metadata threaded through {@link Transport.onData}.
+ * `rxGeneration` is an opaque carrier generation token (e.g. ICE generation):
+ * the DTLS engine drops queued datagrams whose accept-time generation no
+ * longer matches at queue-execution time (ICE restart race).
+ */
+export interface DatagramRxMeta {
+  rxGeneration?: number;
+}
+
 /** Strip an IPv6 zone identifier, e.g. fe80::1%eth0 -> fe80::1. */
 function stripZoneId(address: string) {
   return address.split("%")[0];
@@ -523,7 +533,7 @@ export interface Transport {
   type: string;
   address: AddressInfo;
   closed: boolean;
-  onData: (data: Buffer, addr: Address) => void;
+  onData: (data: Buffer, addr: Address, meta?: DatagramRxMeta) => void;
   /**
    * Runtime transport errors that do not close the transport. Optional so
    * custom transports need not implement it; the built-in UDP transport does.

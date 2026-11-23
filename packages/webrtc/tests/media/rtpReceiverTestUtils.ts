@@ -227,7 +227,7 @@ export function createSimulcastRtxReceiver(
   const sentRtcp: unknown[] = [];
   dtls.sendRtcp = async (packets) => {
     sentRtcp.push(...packets);
-    return undefined;
+    return 0;
   };
   const transceiver = new RTCRtpTransceiver(
     "video",

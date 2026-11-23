@@ -1,5 +1,8 @@
 import type { Connection } from "../../ice/src";
-import { markConnectionSpedEnabled } from "../../ice/src/internal/sped-bind";
+import {
+  markConnectionSpedEnabled,
+  prepareConnectionSped,
+} from "../../ice/src/internal/sped-bind";
 import type { PeerConfig } from "./api/peerConfig";
 import { SRTP_PROFILE } from "./const";
 import { createWebRtcDomException, createWebRtcTypeError } from "./errors";
@@ -46,6 +49,7 @@ export class SecureTransportManager {
   private lastLocalCredentials?: { usernameFragment: string; password: string };
   private transceiverManager: TransceiverManager;
   private sctpManager: SctpTransportManager;
+  private dtlsStateDisposers = new Map<RTCDtlsTransport, () => void>();
   /**
    * Every transport `createTransport` made that has not finished stopping
    * (`onStopped`). `close` stops all of them, so a transport no m-line
@@ -89,6 +93,16 @@ export class SecureTransportManager {
         .map((transceiver) => transceiver.dtlsTransport),
       this.sctpManager.sctpTransport?.dtlsTransport,
     ]);
+  }
+
+  /**
+   * Every DTLS transport created and not yet closed: the live ones, those a
+   * pending description prepared (BUNDLE split, a new m-line) and those a
+   * rollback baseline still holds. Transport-level settings that may change
+   * after creation must reach all of them, not only `dtlsTransports`.
+   */
+  get openDtlsTransports() {
+    return [...this.dtlsStateDisposers.keys()];
   }
 
   /**停止済み transceiver の transport も含めた全 transport */
@@ -280,6 +294,7 @@ export class SecureTransportManager {
         debug: this.config.debug,
         protocolVersions: this.config.dtls.protocolVersions,
         helloRetryRequest: this.config.dtls.helloRetryRequest,
+        warp: this.config.warp,
         handshakeValidation: this.config.dtlsHandshakeValidation,
       },
       iceTransport,
@@ -288,6 +303,10 @@ export class SecureTransportManager {
     );
     if (this.config.sped === true) {
       dtlsTransport.sped = true;
+      // Candidates can receive authenticated checks before setLocalDescription
+      // finishes gathering and starts DTLS. Do not advertise a non-SPED peer
+      // during that interval; leave DTLS DATA unacknowledged until start().
+      prepareConnectionSped(iceTransport.connection as Connection);
       // Before any check arrives: SPED's authenticated request boundary.
       markConnectionSpedEnabled(iceGatherer.connection as Connection);
     }
@@ -302,6 +321,23 @@ export class SecureTransportManager {
     dtlsTransport.onStopped.once(() => {
       this.ownedTransports.delete(dtlsTransport);
     });
+
+    // A fingerprint re-validation failure happens after the initial
+    // connection has already been reported.  Bridge that terminal DTLS state
+    // to PeerConnection.connectionState instead of leaving it "connected".
+    // A closed transport (stopped by rollback, BUNDLE replacement or close())
+    // releases its entry so a long-lived PeerConnection does not retain it.
+    const release = () => {
+      stateSubscription.unSubscribe();
+      this.dtlsStateDisposers.delete(dtlsTransport);
+    };
+    const stateSubscription = dtlsTransport.onStateChange.subscribe((state) => {
+      if (state === "failed" && this.connectionState !== "closed") {
+        this.setConnectionState("failed");
+      }
+      if (state === "closed") release();
+    });
+    this.dtlsStateDisposers.set(dtlsTransport, release);
 
     return dtlsTransport;
   }
@@ -558,6 +594,9 @@ export class SecureTransportManager {
   restartIce() {
     for (const transport of this.iceTransports) {
       transport.restart();
+    }
+    for (const transport of this.dtlsTransports) {
+      transport.handleIceRestart();
     }
     const [first] = this.iceTransports;
     if (first) this.lastLocalCredentials = first.localParameters;
@@ -830,6 +869,8 @@ export class SecureTransportManager {
    * (an ICE restart, the failed transport retired).
    */
   setConnectionState(state: ConnectionState) {
+    // "closed" is terminal: asynchronous ICE/DTLS/SCTP completions that
+    // settle after close() must not reopen or fail the connection.
     if (state !== "closed" && this.hasFailedTransport) {
       state = "failed";
     }
@@ -904,13 +945,15 @@ export class SecureTransportManager {
   async close() {
     this.markClosed();
 
-    // Owned transports cover the ones no binding references any more.
-    await Promise.allSettled(
-      uniqueTransports([
-        ...this.allDtlsTransports,
-        ...this.ownedTransports,
-      ]).map((t) => t.stop()),
-    );
+    const createdTransports = uniqueTransports([
+      ...this.dtlsStateDisposers.keys(),
+      ...this.allDtlsTransports,
+      ...this.ownedTransports,
+    ]);
+    for (const release of [...this.dtlsStateDisposers.values()]) {
+      release();
+    }
+    await Promise.allSettled(createdTransports.map((t) => t.stop()));
     this.ownedTransports.clear();
 
     this.iceGatheringStateChange.allUnsubscribe();

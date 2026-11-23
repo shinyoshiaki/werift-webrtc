@@ -361,6 +361,7 @@ export class RTCPeerConnection extends EventTarget {
       bundleCandidates: this.config.bundleCandidates,
       iceRenomination: this.config.iceRenomination,
       iceOptionIce2: this.config.iceOptionIce2,
+      iceOptionSped: () => this.config.sped === true,
     });
     this.transceiverManager = new TransceiverManager(
       this.cname,
@@ -787,7 +788,7 @@ export class RTCPeerConnection extends EventTarget {
     // Transports only use the first STUN/TURN, but any change in the
     // normalized list (e.g. a second TURN) counts as a configuration change.
     const previousIceServers = structuredClone(this.config.iceServers);
-    mergePeerConfiguration(this.config, config, {
+    const normalizedConfig = mergePeerConfiguration(this.config, config, {
       isReconfiguration,
       hasLocalDescription: isReconfiguration && !!this.localDescription,
       hasSctpTransport: !!this.sctpManager?.sctpTransport,
@@ -799,6 +800,13 @@ export class RTCPeerConnection extends EventTarget {
     if (this.sctpManager?.sctpTransport) {
       this.sctpManager.sctpTransport.maxMessageSize =
         this.config.maxMessageSize;
+    }
+    // Transports a pending description prepared take the new WARP policy too:
+    // they become live when that description is applied.
+    if (isReconfiguration && normalizedConfig.warp !== undefined) {
+      for (const transport of this.secureManager.openDtlsTransports) {
+        transport.updateWarpConfig(this.config.warp);
+      }
     }
 
     // JSEP (RFC 9429 §4.1.18): STUN/TURN changes affect the next gathering

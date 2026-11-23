@@ -9,6 +9,8 @@
     "chrome:prod": "node run-chrome-prod.js",
     "dtls": "vitest run --config vitest.dtls.config.mts --browser.headless",
     "dtls:prod": "node run-dtls-prod.js",
+    "sped": "vitest run --config vitest.sped.config.mts --browser.headless",
+    "sped:ci": "npm run install:browsers && npm run build && DTLS_VITEST_CONFIG=vitest.sped.config.mts node run-dtls-ci.js prod",
     "ci": "npm run install:browsers && npm run build && node run-ci.js prod && node run-dtls-ci.js prod",
     "ci:silent": "npm run install:browsers && npm run build && node run-ci.js silent && node run-dtls-ci.js silent",
     "clean": "pkill -9 gst-launch",

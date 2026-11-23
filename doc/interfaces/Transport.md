@@ -52,7 +52,7 @@ peer closed the connection, or that an error destroyed); not emitted by
 
 ### onData
 
-> **onData**: (`data`, `addr`) => `void`
+> **onData**: (`data`, `addr`, `meta?`) => `void`
 
 #### Parameters
 
@@ -63,6 +63,10 @@ peer closed the connection, or that an error destroyed); not emitted by
 ##### addr
 
 readonly \[`string`, `number`\]
+
+##### meta?
+
+[`DatagramRxMeta`](DatagramRxMeta.md)
 
 #### Returns
 

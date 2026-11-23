@@ -8,7 +8,6 @@ import { SpedSession } from "../sped/draft00/session";
 import { type SpedHooks, SpedRuntime } from "../sped/runtime";
 import {
   markConnectionSpedEnabled,
-  requestSpedCarryMaybeFlush,
   setConnectionSpedRuntime,
 } from "./sped-bind";
 
@@ -22,7 +21,7 @@ export {
   spedDataCrc32,
 } from "../sped/draft00";
 export { SpedSession } from "../sped/draft00/session";
-export type { SpedHooks } from "../sped/runtime";
+export type { SpedDirectHandshakeReadiness, SpedHooks } from "../sped/runtime";
 export {
   isSpedEligiblePair,
   isSpedEligibleProtocol,
@@ -77,7 +76,6 @@ export function attachSpedToConnection(
         return;
       }
       session.replaceL1(packets);
-      requestSpedCarryMaybeFlush(connection);
     },
     onHandshakeComplete: () => runtime.completeHandshake(),
   };
