@@ -129,7 +129,7 @@ same event object is passed here, to `onicecandidateerror` and to the
 
 ### onTrack
 
-> `readonly` **onTrack**: [`Event`](Event.md)\<\[[`MediaStreamTrack`](MediaStreamTrack.md)\]\>
+> `readonly` **onTrack**: [`Event`](Event.md)\<\[[`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>\]\>
 
 ***
 
@@ -932,7 +932,7 @@ v0.1.26
 
 ##### trackOrKind
 
-[`Kind`](../type-aliases/Kind.md) \| [`MediaStreamTrack`](MediaStreamTrack.md)
+[`Kind`](../type-aliases/Kind.md) \| [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>
 
 ##### options?
 
@@ -1691,7 +1691,7 @@ v1.0.0
 
 ##### selector?
 
-[`MediaStreamTrack`](MediaStreamTrack.md) \| `null`
+[`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\> \| `null`
 
 #### Returns
 

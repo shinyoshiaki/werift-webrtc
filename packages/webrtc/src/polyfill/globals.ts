@@ -36,6 +36,13 @@ declare global {
   var RTCPeerConnectionIceErrorEvent: typeof WeriftRTCPeerConnectionIceErrorEvent;
   var OverconstrainedError: typeof WeriftOverconstrainedError;
 
+  // Without lib.dom there is no global `MediaStreamTrack` / `MediaStream`
+  // type; merging werift's classes keeps the type of a library's `.d.ts`
+  // (for example `mediasoup-client`'s `track?: MediaStreamTrack`) and of the
+  // application's own annotations.
+  interface MediaStreamTrack extends WeriftMediaStreamTrack {}
+  interface MediaStream extends WeriftMediaStream {}
+
   interface Navigator {
     mediaDevices: MediaDevices;
     userAgent: string;

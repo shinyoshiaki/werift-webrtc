@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { OverconstrainedError } from "../errors";
 import { EventTarget } from "../helper";
 import { Event } from "../imports/common";
 import {
@@ -9,6 +10,44 @@ import {
 } from "../imports/rtp";
 import type { Kind } from "../types/domain";
 import type { RTCRtpCodecParameters } from "./parameters";
+import {
+  constraintFitnessDistance,
+  findFailedRequiredConstraint,
+  stripUnsupportedConstraints,
+  type WeriftMediaTrackCapabilities,
+  type WeriftMediaTrackConstraints,
+  type WeriftMediaTrackSettings,
+} from "./trackConstraints";
+
+/**
+ * The event object passed to the `on*` handlers of {@link MediaStreamTrack}
+ * and {@link MediaStream}. It is structural so that a DOM `Event` (and a DOM
+ * `MediaStreamTrackEvent`) is assignable to it and a werift handler can be
+ * typed by the DOM `onended` / `onaddtrack` types.
+ */
+export interface WeriftEventLike {
+  readonly type: string;
+}
+
+/** An `on*` event handler attribute of {@link MediaStreamTrack} / {@link MediaStream}. */
+export type WeriftEventHandler<E = WeriftEventLike> = ((ev: E) => any) | null;
+
+/**
+ * Set the settings and the applied constraints of a track created by a media
+ * source (the polyfill's `getUserMedia`).
+ * @internal
+ */
+export function setTrackMediaSettings(
+  track: MediaStreamTrack,
+  settings: WeriftMediaTrackSettings,
+  /** Unknown constraint names are dropped. */
+  constraints: object,
+) {
+  track.sourceSettings = { ...settings };
+  track.appliedConstraints = stripUnsupportedConstraints(
+    constraints as { [key: string]: unknown },
+  );
+}
 
 /**
  * How an RTP packet is classified at the moment it is delivered on
@@ -112,14 +151,21 @@ class TrackBroadcastSource {
   }
 }
 
-export class MediaStreamTrack extends EventTarget {
+/**
+ * `K` narrows {@link kind} (`new MediaStreamTrack({ kind: "audio" })` is a
+ * `MediaStreamTrack<"audio">`), so that an audio track is assignable to typings
+ * that specialize the DOM track by kind (such as `MediaStreamAudioTrack` of
+ * `@types/dom-mediacapture-transform`).
+ */
+export class MediaStreamTrack<K extends Kind = Kind> extends EventTarget {
   readonly uuid = randomUUID().toString();
   /**MediaStream ID*/
   streamId?: string;
   remote = false;
   label: string;
-  kind!: Kind;
-  id?: string;
+  kind!: K;
+  /** Track ID. Defaults to {@link uuid} when not given to the constructor. */
+  id!: string;
   /**mediaSsrc */
   ssrc?: number;
   rid?: string;
@@ -127,6 +173,24 @@ export class MediaStreamTrack extends EventTarget {
   codec?: RTCRtpCodecParameters;
   /**todo impl */
   enabled = true;
+  /** DOM `contentHint`. Stored only; werift does not change encoding by it. */
+  contentHint = "";
+  /**
+   * DOM `onended`. Called right after the `"ended"` listeners of
+   * `addEventListener`, every time `"ended"` is emitted. Unlike the DOM,
+   * werift also emits `"ended"` when {@link stop} is called.
+   */
+  onended: WeriftEventHandler = null;
+  /**
+   * DOM `onmute`. werift does not detect a muted source, so `"mute"` is never
+   * emitted and this handler is never called.
+   */
+  onmute: WeriftEventHandler = null;
+  /**
+   * DOM `onunmute`. werift changes {@link muted} on the first received media
+   * packet without emitting `"unmute"`, so this handler is never called.
+   */
+  onunmute: WeriftEventHandler = null;
 
   readonly onReceiveRtp = new Event<
     [RtpPacket, Extensions?, RtpReceiveInfo?]
@@ -146,11 +210,19 @@ export class MediaStreamTrack extends EventTarget {
   sourceCodecs?: readonly RTCRtpCodecParameters[];
   /** @internal Whether {@link sourceCodecs} is already decided. */
   sourceCodecsCaptured = false;
+  /**
+   * @internal The settings the media source reported
+   * ({@link setTrackMediaSettings}); `undefined` for a track werift created
+   * without a media source.
+   */
+  sourceSettings?: WeriftMediaTrackSettings;
+  /** @internal The constraints most recently applied to this track. */
+  appliedConstraints: WeriftMediaTrackConstraints = {};
   private broadcastSource: TrackBroadcastSource;
 
   constructor(
-    props: Partial<MediaStreamTrack> &
-      Pick<MediaStreamTrack, "kind"> & {
+    props: Partial<MediaStreamTrack<K>> &
+      Pick<MediaStreamTrack<K>, "kind"> & {
         broadcastSource?: TrackBroadcastSource;
       },
   ) {
@@ -191,6 +263,96 @@ export class MediaStreamTrack extends EventTarget {
     this.emit("ended");
     this.broadcastSource.detach(this);
   };
+
+  override emit(type: string | symbol, ...args: any[]): boolean {
+    if (type !== "ended") {
+      return super.emit(type, ...args);
+    }
+    // onended も addEventListener("ended") と同じ Event を受け取る。
+    const [event = new globalThis.Event("ended"), ...rest] = args;
+    const listened = super.emit(type, event, ...rest);
+    if (this.onended) {
+      this.onended.call(this, event);
+      return true;
+    }
+    return listened;
+  }
+
+  /**
+   * DOM `getSettings()`. A track from the polyfill's `getUserMedia` reports
+   * the `deviceId` / `groupId` / `mimeType` its media register was selected
+   * by; another track reports what its {@link codec} tells (`mimeType`, and
+   * `sampleRate` / `channelCount` for audio).
+   */
+  getSettings(): WeriftMediaTrackSettings {
+    if (this.sourceSettings) {
+      return { ...this.sourceSettings };
+    }
+    const settings: WeriftMediaTrackSettings = {};
+    if (this.codec) {
+      settings.mimeType = this.codec.mimeType;
+      if (this.kind === "audio") {
+        settings.sampleRate = this.codec.clockRate;
+        if (this.codec.channels != undefined) {
+          settings.channelCount = this.codec.channels;
+        }
+      }
+    }
+    return settings;
+  }
+
+  /**
+   * DOM `getConstraints()`: the constraints most recently applied by
+   * `getUserMedia` or {@link applyConstraints}, limited to the constraints
+   * werift understands (`deviceId`, `groupId`, `mimeType`).
+   */
+  getConstraints(): WeriftMediaTrackConstraints {
+    return structuredClone(this.appliedConstraints);
+  }
+
+  /**
+   * DOM `getCapabilities()`. werift cannot reconfigure a source, so the only
+   * capabilities are the `deviceId` / `groupId` it was selected by.
+   */
+  getCapabilities(): WeriftMediaTrackCapabilities {
+    const capabilities: WeriftMediaTrackCapabilities = {};
+    const { deviceId, groupId } = this.getSettings();
+    if (deviceId != undefined) {
+      capabilities.deviceId = deviceId;
+    }
+    if (groupId != undefined) {
+      capabilities.groupId = groupId;
+    }
+    return capabilities;
+  }
+
+  /**
+   * DOM `applyConstraints()`. werift cannot reconfigure a source, so the
+   * current settings are the only possible settings: a required (`exact`)
+   * constraint they do not satisfy rejects with `OverconstrainedError` and
+   * keeps the previous constraints; otherwise the constraints are stored
+   * (see {@link getConstraints}) and the settings stay the same. Unknown
+   * constraint names are ignored.
+   */
+  async applyConstraints(
+    constraints: WeriftMediaTrackConstraints = {},
+  ): Promise<void> {
+    const next = stripUnsupportedConstraints(
+      constraints as { [key: string]: unknown },
+    );
+    const { advanced: _advanced, ...basic } = next;
+    const settings = this.getSettings();
+    if (
+      constraintFitnessDistance(settings, basic, "ideal") ===
+      Number.POSITIVE_INFINITY
+    ) {
+      throw new OverconstrainedError(
+        findFailedRequiredConstraint([settings], basic) ?? "",
+        "Cannot satisfy required constraints",
+      );
+    }
+    this.appliedConstraints = next;
+  }
 
   writeRtp = (rtp: RtpPacket | Buffer) => {
     if (this.remote) {
@@ -241,8 +403,8 @@ export class MediaStreamTrack extends EventTarget {
     this.broadcastSource.stopAllTracks();
   }
 
-  clone(): MediaStreamTrack {
-    const cloned = new MediaStreamTrack({
+  clone(): MediaStreamTrack<K> {
+    const cloned = new MediaStreamTrack<K>({
       kind: this.kind,
       remote: this.remote,
       enabled: this.enabled,
@@ -252,8 +414,14 @@ export class MediaStreamTrack extends EventTarget {
       ssrc: this.ssrc,
       rid: this.rid,
       header: this.header,
+      contentHint: this.contentHint,
       broadcastSource: this.broadcastSource,
     });
+    // DOM の clone と同じく settings と constraints を引き継ぐ。
+    if (this.sourceSettings) {
+      cloned.sourceSettings = { ...this.sourceSettings };
+    }
+    cloned.appliedConstraints = structuredClone(this.appliedConstraints);
     if (this.sourceCodecsCaptured) {
       setTrackSourceCodecs(cloned, this.sourceCodecs);
     } else {
@@ -263,11 +431,20 @@ export class MediaStreamTrack extends EventTarget {
   }
 }
 
-export class MediaStream {
+export class MediaStream extends EventTarget {
   id!: string;
   tracks: MediaStreamTrack[] = [];
+  /**
+   * DOM `onaddtrack`. The DOM fires `"addtrack"` only when the user agent adds
+   * a track; werift never does, and {@link addTrack} does not fire it either,
+   * so this handler is never called.
+   */
+  onaddtrack: WeriftEventHandler = null;
+  /** DOM `onremovetrack`. Never called, for the same reason as {@link onaddtrack}. */
+  onremovetrack: WeriftEventHandler = null;
 
   constructor(props: Partial<MediaStream> | MediaStreamTrack[] = {}) {
+    super();
     if (Array.isArray(props)) {
       this.tracks = props;
     } else {
@@ -292,16 +469,20 @@ export class MediaStream {
     return this.tracks;
   }
 
-  getAudioTracks() {
-    return this.tracks.filter((track) => track.kind === "audio");
+  getAudioTracks(): MediaStreamTrack<"audio">[] {
+    return this.tracks.filter(
+      (track): track is MediaStreamTrack<"audio"> => track.kind === "audio",
+    );
   }
 
-  getVideoTracks() {
-    return this.tracks.filter((track) => track.kind === "video");
+  getVideoTracks(): MediaStreamTrack<"video">[] {
+    return this.tracks.filter(
+      (track): track is MediaStreamTrack<"video"> => track.kind === "video",
+    );
   }
 
-  getTrackById(id: string) {
-    return this.tracks.find((track) => track.id === id);
+  getTrackById(id: string): MediaStreamTrack | null {
+    return this.tracks.find((track) => track.id === id) ?? null;
   }
 
   get active() {

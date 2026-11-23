@@ -258,6 +258,11 @@
 - [TwccPacketFeedback](interfaces/TwccPacketFeedback.md)
 - [UdpTransportOptions](interfaces/UdpTransportOptions.md)
 - [videoOrientationPayload](interfaces/videoOrientationPayload.md)
+- [WeriftEventLike](interfaces/WeriftEventLike.md)
+- [WeriftMediaTrackCapabilities](interfaces/WeriftMediaTrackCapabilities.md)
+- [WeriftMediaTrackConstraints](interfaces/WeriftMediaTrackConstraints.md)
+- [WeriftMediaTrackConstraintSet](interfaces/WeriftMediaTrackConstraintSet.md)
+- [WeriftMediaTrackSettings](interfaces/WeriftMediaTrackSettings.md)
 
 ## Type Aliases
 
@@ -389,6 +394,8 @@
 - [Vp8PacketizerOptions](type-aliases/Vp8PacketizerOptions.md)
 - [Vp9PacketizeOptions](type-aliases/Vp9PacketizeOptions.md)
 - [Vp9PacketizerOptions](type-aliases/Vp9PacketizerOptions.md)
+- [WeriftConstrainDOMString](type-aliases/WeriftConstrainDOMString.md)
+- [WeriftEventHandler](type-aliases/WeriftEventHandler.md)
 
 ## Variables
 

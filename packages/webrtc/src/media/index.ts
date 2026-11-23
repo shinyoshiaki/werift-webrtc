@@ -106,3 +106,10 @@ export {
 } from "./sender/estimators/twccFeedbackAdapter";
 export * from "./stats";
 export * from "./track";
+export type {
+  WeriftConstrainDOMString,
+  WeriftMediaTrackCapabilities,
+  WeriftMediaTrackConstraintSet,
+  WeriftMediaTrackConstraints,
+  WeriftMediaTrackSettings,
+} from "./trackConstraints";

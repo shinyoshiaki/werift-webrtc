@@ -4,27 +4,38 @@
 
 [werift](../globals.md) / MediaStreamTrack
 
-# Class: MediaStreamTrack
+# Class: MediaStreamTrack\<K\>
+
+`K` narrows [kind](#kind) (`new MediaStreamTrack({ kind: "audio" })` is a
+`MediaStreamTrack<"audio">`), so that an audio track is assignable to typings
+that specialize the DOM track by kind (such as `MediaStreamAudioTrack` of
+`@types/dom-mediacapture-transform`).
 
 ## Extends
 
 - `EventTarget`
 
+## Type Parameters
+
+### K
+
+`K` *extends* [`Kind`](../type-aliases/Kind.md) = [`Kind`](../type-aliases/Kind.md)
+
 ## Constructors
 
 ### Constructor
 
-> **new MediaStreamTrack**(`props`): `MediaStreamTrack`
+> **new MediaStreamTrack**\<`K`\>(`props`): `MediaStreamTrack`\<`K`\>
 
 #### Parameters
 
 ##### props
 
-`Partial`\<`MediaStreamTrack`\> & `Pick`\<`MediaStreamTrack`, `"kind"`\> & `object`
+`Partial`\<`MediaStreamTrack`\<`K`\>\> & `Pick`\<`MediaStreamTrack`\<`K`\>, `"kind"`\> & `object`
 
 #### Returns
 
-`MediaStreamTrack`
+`MediaStreamTrack`\<`K`\>
 
 #### Overrides
 
@@ -35,6 +46,14 @@
 ### codec?
 
 > `optional` **codec?**: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+
+***
+
+### contentHint
+
+> **contentHint**: `string` = `""`
+
+DOM `contentHint`. Stored only; werift does not change encoding by it.
 
 ***
 
@@ -52,15 +71,17 @@ todo impl
 
 ***
 
-### id?
+### id
 
-> `optional` **id?**: `string`
+> **id**: `string`
+
+Track ID. Defaults to [uuid](#uuid) when not given to the constructor.
 
 ***
 
 ### kind
 
-> **kind**: [`Kind`](../type-aliases/Kind.md)
+> **kind**: `K`
 
 ***
 
@@ -73,6 +94,25 @@ todo impl
 ### muted
 
 > **muted**: `boolean` = `true`
+
+***
+
+### onended
+
+> **onended**: [`WeriftEventHandler`](../type-aliases/WeriftEventHandler.md) = `null`
+
+DOM `onended`. Called right after the `"ended"` listeners of
+`addEventListener`, every time `"ended"` is emitted. Unlike the DOM,
+werift also emits `"ended"` when [stop](#stop) is called.
+
+***
+
+### onmute
+
+> **onmute**: [`WeriftEventHandler`](../type-aliases/WeriftEventHandler.md) = `null`
+
+DOM `onmute`. werift does not detect a muted source, so `"mute"` is never
+emitted and this handler is never called.
 
 ***
 
@@ -91,6 +131,15 @@ todo impl
 ### onSourceChanged
 
 > `readonly` **onSourceChanged**: [`Event`](Event.md)\<\[`Pick`\<[`RtpHeader`](RtpHeader.md), `"sequenceNumber"` \| `"timestamp"`\>\]\>
+
+***
+
+### onunmute
+
+> **onunmute**: [`WeriftEventHandler`](../type-aliases/WeriftEventHandler.md) = `null`
+
+DOM `onunmute`. werift changes [muted](#muted) on the first received media
+packet without emitting `"unmute"`, so this handler is never called.
 
 ***
 
@@ -349,6 +398,29 @@ v0.1.26
 
 ***
 
+### applyConstraints()
+
+> **applyConstraints**(`constraints?`): `Promise`\<`void`\>
+
+DOM `applyConstraints()`. werift cannot reconfigure a source, so the
+current settings are the only possible settings: a required (`exact`)
+constraint they do not satisfy rejects with `OverconstrainedError` and
+keeps the previous constraints; otherwise the constraints are stored
+(see [getConstraints](#getconstraints)) and the settings stay the same. Unknown
+constraint names are ignored.
+
+#### Parameters
+
+##### constraints?
+
+[`WeriftMediaTrackConstraints`](../interfaces/WeriftMediaTrackConstraints.md) = `{}`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
 ### applyIncomingRtp()
 
 > **applyIncomingRtp**(`packet`, `extensions?`, `info?`): `void`
@@ -391,11 +463,11 @@ v0.1.26
 
 ### clone()
 
-> **clone**(): `MediaStreamTrack`
+> **clone**(): `MediaStreamTrack`\<`K`\>
 
 #### Returns
 
-`MediaStreamTrack`
+`MediaStreamTrack`\<`K`\>
 
 ***
 
@@ -423,44 +495,6 @@ v0.1.26
 
 > **emit**(`type`, ...`args`): `boolean`
 
-Synchronously calls each of the listeners registered for the event named `eventName`, in the order they were registered, passing the supplied arguments
-to each.
-
-Returns `true` if the event had listeners, `false` otherwise.
-
-```js
-import { EventEmitter } from 'node:events';
-const myEmitter = new EventEmitter();
-
-// First listener
-myEmitter.on('event', function firstListener() {
-  console.log('Helloooo! first listener');
-});
-// Second listener
-myEmitter.on('event', function secondListener(arg1, arg2) {
-  console.log(`event with parameters ${arg1}, ${arg2} in second listener`);
-});
-// Third listener
-myEmitter.on('event', function thirdListener(...args) {
-  const parameters = args.join(', ');
-  console.log(`event with parameters ${parameters} in third listener`);
-});
-
-console.log(myEmitter.listeners('event'));
-
-myEmitter.emit('event', 1, 2, 3, 4, 5);
-
-// Prints:
-// [
-//   [Function: firstListener],
-//   [Function: secondListener],
-//   [Function: thirdListener]
-// ]
-// Helloooo! first listener
-// event with parameters 1, 2 in second listener
-// event with parameters 1, 2, 3, 4, 5 in third listener
-```
-
 #### Parameters
 
 ##### type
@@ -475,11 +509,7 @@ myEmitter.emit('event', 1, 2, 3, 4, 5);
 
 `boolean`
 
-#### Since
-
-v0.1.26
-
-#### Inherited from
+#### Overrides
 
 `EventTarget.emit`
 
@@ -520,6 +550,33 @@ v6.0.0
 
 ***
 
+### getCapabilities()
+
+> **getCapabilities**(): [`WeriftMediaTrackCapabilities`](../interfaces/WeriftMediaTrackCapabilities.md)
+
+DOM `getCapabilities()`. werift cannot reconfigure a source, so the only
+capabilities are the `deviceId` / `groupId` it was selected by.
+
+#### Returns
+
+[`WeriftMediaTrackCapabilities`](../interfaces/WeriftMediaTrackCapabilities.md)
+
+***
+
+### getConstraints()
+
+> **getConstraints**(): [`WeriftMediaTrackConstraints`](../interfaces/WeriftMediaTrackConstraints.md)
+
+DOM `getConstraints()`: the constraints most recently applied by
+`getUserMedia` or [applyConstraints](#applyconstraints), limited to the constraints
+werift understands (`deviceId`, `groupId`, `mimeType`).
+
+#### Returns
+
+[`WeriftMediaTrackConstraints`](../interfaces/WeriftMediaTrackConstraints.md)
+
+***
+
 ### getMaxListeners()
 
 > **getMaxListeners**(): `number`
@@ -538,6 +595,21 @@ v1.0.0
 #### Inherited from
 
 `EventTarget.getMaxListeners`
+
+***
+
+### getSettings()
+
+> **getSettings**(): [`WeriftMediaTrackSettings`](../interfaces/WeriftMediaTrackSettings.md)
+
+DOM `getSettings()`. A track from the polyfill's `getUserMedia` reports
+the `deviceId` / `groupId` / `mimeType` its media register was selected
+by; another track reports what its [codec](#codec) tells (`mimeType`, and
+`sampleRate` / `channelCount` for audio).
+
+#### Returns
+
+[`WeriftMediaTrackSettings`](../interfaces/WeriftMediaTrackSettings.md)
 
 ***
 
