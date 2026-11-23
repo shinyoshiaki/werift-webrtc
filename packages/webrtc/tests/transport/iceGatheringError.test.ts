@@ -11,6 +11,7 @@ import {
   recordTransportGatheringErrors,
   stubNetworkInterfaces,
   trackUncaught,
+  withRemoteMdnsCandidate,
 } from "./iceGatheringErrorUtils";
 
 const { interfaceEnumerationFailed, noCandidates, gatheringFailed } =
@@ -348,16 +349,13 @@ describe("remote mDNS candidates when os.networkInterfaces() throws", () => {
     const answerer = createPeer().pc;
     offerer.addTransceiver("audio");
     await offerer.setLocalDescription(await offerer.createOffer());
-    await answerer.setRemoteDescription(offerer.localDescription!);
-    await answerer.setLocalDescription(await answerer.createAnswer());
     os.fail();
 
-    // Act: 列挙が失敗する状態で .local の候補を受け取る。
-    await answerer.addIceCandidate({
-      candidate:
-        "candidate:1 1 udp 2130706431 0c3f1d2e-7f1a-4bd1-9f3e-4d8b2a1c9e7f.local 50000 typ host",
-      sdpMid: offerer.localDescription!.sdp.match(/a=mid:(\S+)/)![1],
-    });
+    // Act: 列挙が失敗する状態で、.local の候補を含む offer を受け取る（mDNS の解決が始まる）。
+    await answerer.setRemoteDescription(
+      withRemoteMdnsCandidate(offerer.localDescription!),
+    );
+    await answerer.setLocalDescription(await answerer.createAnswer());
     await new Promise((resolve) => setTimeout(resolve, 100));
 
     // Assert: .local の候補は破棄され（SDP の候補だけが残る）、uncaught は起きない。

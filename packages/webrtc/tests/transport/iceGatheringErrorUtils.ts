@@ -74,3 +74,27 @@ export async function offerAndGather(pc: RTCPeerConnection) {
   await pc.setLocalDescription(await pc.createOffer());
   await gatheringComplete(pc);
 }
+
+/** A remote `.local` host candidate, as browsers send them by default. */
+export const remoteMdnsCandidate =
+  "candidate:1 1 udp 2130706431 0c3f1d2e-7f1a-4bd1-9f3e-4d8b2a1c9e7f.local 50000 typ host";
+
+/**
+ * `description` with {@link remoteMdnsCandidate} before its first
+ * `a=end-of-candidates`, so the remote side resolves it over mDNS (a candidate
+ * added after end-of-candidates is ignored without a lookup).
+ */
+export function withRemoteMdnsCandidate<
+  T extends { type: string; sdp: string },
+>(description: T): { type: T["type"]; sdp: string } {
+  if (!description.sdp.includes("a=end-of-candidates")) {
+    throw new Error("the description has no a=end-of-candidates");
+  }
+  return {
+    type: description.type,
+    sdp: description.sdp.replace(
+      "a=end-of-candidates",
+      `a=${remoteMdnsCandidate}\r\na=end-of-candidates`,
+    ),
+  };
+}

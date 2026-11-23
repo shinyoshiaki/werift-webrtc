@@ -16,6 +16,19 @@ ide:
 
 比較の起点はチケット worktree の `45d545c73`（develop マージ）で、対象は 3 つのコミットです。変更は 39 ファイル、うち約半分は `npm run doc` の生成物です。
 
+### 受け入れテスト（ここだけ見れば目的の達成を確認できます）
+
+[packages/webrtc/tests/transport/acceptance.test.ts:43](review-file:packages/webrtc/tests/transport/acceptance.test.ts:43) は、`os.networkInterfaces()` だけを throw させ、実ソケットの `RTCPeerConnection` 2 つで利用者から見える結果を確かめます。共通の準備処理は [packages/webrtc/tests/transport/iceGatheringErrorUtils.ts](review-file:packages/webrtc/tests/transport/iceGatheringErrorUtils.ts) です。
+
+| テスト | 確認すること |
+| --- | --- |
+| (候補の取得元なし) 2.1・2.3・6章 | `iceGatheringState` が `complete` になり、end-of-candidates が届く。`interface-enumeration-failed` → `no-candidates` が `iceTransport` 付きで届き、`icecandidateerror` は出ない |
+| (iceInterfaceAddresses 指定) 2.1・2.3・6章 | 明示アドレスの host 候補で完了し、`interface-enumeration-failed` だけが届く |
+| 2.1・2.2・6章 | 明示アドレスで接続し、データチャネルでメッセージが届く。offer 内の `.local` 候補の mDNS 解決でも uncaughtException が起きない |
+
+- 実行: `cd packages/webrtc && npx vitest run tests/transport/acceptance.test.ts`（1 秒未満。10 回連続で成功）
+- 壊して確かめた箇所: 列挙の try/catch、mDNS ソケットの列挙、`interface-enumeration-failed` / `no-candidates` の通知、`RTCIceTransport` / `RTCPeerConnection` の転送。6 か所すべてで少なくとも 1 件が落ちます（表はチケットの「受け入れテスト」章）。修正前の `e348f3b34` では 3 件とも落ちます。
+
 ## 2. 修正前の問題と修正後の仕組み
 
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-family:sans-serif;font-size:13px">
