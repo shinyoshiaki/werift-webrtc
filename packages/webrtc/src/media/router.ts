@@ -516,7 +516,9 @@ export class RtpRouter {
   ) {
     log("registerRtpReceiverBySsrc", params);
 
-    const hasSsrcs = params.encodings.some((e) => e.ssrc != undefined);
+    const hasSsrcs =
+      params.encodings.some((e) => e.ssrc != undefined) ||
+      (params.ridRtxPairs?.length ?? 0) > 0;
     if (
       this.defersRemote(transceiver, deferConflicts) &&
       (hasSsrcs || transceiver.receiver.deferredRemote)
@@ -574,7 +576,44 @@ export class RtpRouter {
         }
       });
 
+    // The FID RTX SSRCs of a RID m-line route here
+    // (tests/media/firefoxSimulcastSsrc.test.ts "repaired RID がなく、切り替え前に RTX を受信していなくても、切り替え後に初めて届いた FID の RTX SSRC は新しい媒体の欠落を復元する").
+    for (const { rtxSsrc } of params.ridRtxPairs ?? []) {
+      // A pending description keeps a route the receiver learned
+      // (tests/media/firefoxSimulcastSsrc.test.ts "現行通信が repaired RID で RID high に学習した RTX SSRC を、保留中の offer が RID low の FID に記載しても、確定まで high の RTX は復元され、rollback 後も復元される").
+      if (
+        deferConflicts &&
+        this.routes.of(rtxSsrc).some((r) => r.endpoint === transceiver.receiver)
+      ) {
+        continue;
+      }
+      this.registerRtpReceiver(transceiver.receiver, rtxSsrc, deferConflicts);
+    }
+
     this.registerHeaderExtensions(params);
+    if (!deferConflicts) this.releaseDroppedFidRtx(transceiver.receiver);
+  }
+
+  /**
+   * Internal: after a commit, drop the description routes of FID RTX SSRCs it
+   * removed (`takeDroppedFidRtxSsrcs`)
+   * (tests/media/firefoxSimulcastRepairedRidRoute.test.ts "確定で FID の組が外れた RTX SSRC を BUNDLE の別 m-line が MID と repaired RID 付きで使うと、その m-line の RID のトラックへ復元される").
+   */
+  releaseDroppedFidRtx(receiver?: RTCRtpReceiver) {
+    const receivers = receiver
+      ? [receiver]
+      : this.transceivers().map((t) => t.receiver);
+    for (const r of receivers) {
+      for (const ssrc of r.takeDroppedFidRtxSsrcs()) {
+        log("fid rtx ssrc no longer described", ssrc);
+        this.routes.remove(
+          ssrc,
+          (route) => route.endpoint === r && route.origin === RouteOrigin.sdp,
+        );
+        this.stagedSsrc.delete(ssrc, r);
+        this.provisionalSsrc.delete(ssrc, r);
+      }
+    }
   }
 
   private registerHeaderExtensions(params: RTCRtpReceiveParameters) {
@@ -713,6 +752,13 @@ export class RtpRouter {
       rtpReceiver = repairedReceiver;
       learnedNow = this.learnSsrc(ssrc, rtpReceiver);
       rtpReceiver.handleRtxByRid(packet, repairedRid as string, extensions);
+    } else if (
+      rtpReceiver &&
+      typeof repairedRid === "string" &&
+      rtpReceiver.readsRepairedRid(ssrc, repairedRid)
+    ) {
+      // (tests/media/firefoxSimulcastRepairedRidRoute.test.ts "simulcast (RID) RTX routed by SSRC with a repaired RID (readsRepairedRid)")
+      rtpReceiver.handleRtxByRid(packet, repairedRid, extensions);
     } else if (
       rtpReceiver &&
       dtlsTransport &&

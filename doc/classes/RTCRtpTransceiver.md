@@ -145,6 +145,14 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 
 \[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
 
+##### receiver.receiveTables.ridFidMediaByRtx
+
+> **ridFidMediaByRtx**: `object`
+
+###### Index Signature
+
+\[`rtxSsrc`: `number`\]: `number`
+
 ##### receiver.receiveTables.ssrcByRtx
 
 > **ssrcByRtx**: `object`
@@ -160,6 +168,10 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 ###### Index Signature
 
 \[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+
+##### receiver.receiveTables.stagedRidFidTable
+
+> **stagedRidFidTable**: \{\[`rtxSsrc`: `number`\]: `number`; \} \| `undefined`
 
 ##### receiver.receiveTables.stagedSsrcByRtx
 
@@ -721,7 +733,7 @@ Internal: return to a negotiation baseline taken by `snapshotNegotiationState`.
 
 ###### receiver
 
-\{ `deferredRemote`: `DeferredRemoteRtp` \| `undefined`; `learnedTrackSsrcs`: `number`[]; `receiverTWCC`: `ReceiverTWCC` \| `undefined`; `receiveTables`: \{ `codecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `ssrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; `stagedCodecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `stagedSsrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; \}; `remoteStreamId`: `string` \| `undefined`; `remoteStreamIds`: `string`[]; `remoteTrackId`: `string` \| `undefined`; `trackByRID`: \{\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \}; `trackBySSRC`: \{\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \}; `tracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; `unboundTracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; \} = `...`
+\{ `deferredRemote`: `DeferredRemoteRtp` \| `undefined`; `learnedTrackSsrcs`: `number`[]; `receiverTWCC`: `ReceiverTWCC` \| `undefined`; `receiveTables`: \{ `codecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `ridFidMediaByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; `ssrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; `stagedCodecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `stagedRidFidTable`: \{\[`rtxSsrc`: `number`\]: `number`; \} \| `undefined`; `stagedSsrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; \}; `remoteStreamId`: `string` \| `undefined`; `remoteStreamIds`: `string`[]; `remoteTrackId`: `string` \| `undefined`; `trackByRID`: \{\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \}; `trackBySSRC`: \{\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \}; `tracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; `unboundTracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; \} = `...`
 
 ###### receiver.deferredRemote
 
@@ -739,11 +751,15 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 
 ###### receiver.receiveTables
 
-\{ `codecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `ssrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; `stagedCodecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `stagedSsrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; \} = `...`
+\{ `codecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `ridFidMediaByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; `ssrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; `stagedCodecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `stagedRidFidTable`: \{\[`rtxSsrc`: `number`\]: `number`; \} \| `undefined`; `stagedSsrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; \} = `...`
 
 ###### receiver.receiveTables.codecs
 
 \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \} = `...`
+
+###### receiver.receiveTables.ridFidMediaByRtx
+
+\{\[`rtxSsrc`: `number`\]: `number`; \} = `...`
 
 ###### receiver.receiveTables.ssrcByRtx
 
@@ -752,6 +768,10 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 ###### receiver.receiveTables.stagedCodecs
 
 \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \} = `...`
+
+###### receiver.receiveTables.stagedRidFidTable
+
+\{\[`rtxSsrc`: `number`\]: `number`; \} \| `undefined` = `...`
 
 ###### receiver.receiveTables.stagedSsrcByRtx
 
@@ -1021,6 +1041,14 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 
 \[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
 
+###### receiver.receiveTables.ridFidMediaByRtx
+
+> **ridFidMediaByRtx**: `object`
+
+###### Index Signature
+
+\[`rtxSsrc`: `number`\]: `number`
+
 ###### receiver.receiveTables.ssrcByRtx
 
 > **ssrcByRtx**: `object`
@@ -1036,6 +1064,10 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 ###### Index Signature
 
 \[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+
+###### receiver.receiveTables.stagedRidFidTable
+
+> **stagedRidFidTable**: \{\[`rtxSsrc`: `number`\]: `number`; \} \| `undefined`
 
 ###### receiver.receiveTables.stagedSsrcByRtx
 
