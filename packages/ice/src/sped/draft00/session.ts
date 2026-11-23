@@ -298,15 +298,14 @@ export class SpedSession {
   }
 
   /**
-   * DATA present → supported. Missing DATA does not lock unsupported
-   * (unconfirmed prflx / non-association pair).
+   * DATA (or ACK, see {@link carriesSped}) present → supported. Missing it
+   * does not lock unsupported (unconfirmed prflx / non-association pair).
    */
   receiveCapabilityAdvertisement(message: Message): void {
     if (this.state === "disabled") {
       return;
     }
-    const dataValue = getRawAttributeValue(message, DTLS_IN_STUN_DATA);
-    if (dataValue !== undefined) {
+    if (carriesSped(message)) {
       this.noteAuthenticatedBindingHasData(true);
     }
   }
@@ -320,7 +319,7 @@ export class SpedSession {
     }
     const dataValue = getRawAttributeValue(message, DTLS_IN_STUN_DATA);
     const ackValue = getRawAttributeValue(message, DTLS_IN_STUN_ACK);
-    const state = this.noteAuthenticatedBindingHasData(dataValue !== undefined);
+    const state = this.noteAuthenticatedBindingHasData(carriesSped(message));
     if (ackValue) {
       const decoded = decodeSpedAck(ackValue);
       if (decoded.kind === "crcs") {
@@ -340,4 +339,20 @@ export class SpedSession {
     this.queueAck(spedDataCrc32(decoded.bytes));
     return { inject: decoded.bytes, fallback: false };
   }
+}
+
+/**
+ * The Binding shows the peer runs SPED: it carries DTLS-IN-STUN-DATA, or
+ * DTLS-IN-STUN-ACK without it. draft-00 §4.3 decides support on DATA alone,
+ * and §3.3.2.1 requires DATA (possibly empty) on every Binding while SPED is
+ * active, but pion/webrtc#3362 sends ACK-only Bindings once it acknowledged
+ * our flight before its own flight exists. Only a SPED agent sends ACK, so
+ * treating it as support does not mistake a non-SPED peer for one.
+ * @see tests/sped/session.test.ts "ACK だけの最初の Binding でも相手を SPED 対応と判定する"
+ */
+function carriesSped(message: Message): boolean {
+  return (
+    getRawAttributeValue(message, DTLS_IN_STUN_DATA) !== undefined ||
+    getRawAttributeValue(message, DTLS_IN_STUN_ACK) !== undefined
+  );
 }

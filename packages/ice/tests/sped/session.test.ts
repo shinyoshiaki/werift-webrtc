@@ -139,6 +139,28 @@ describe("SPED draft00 session", () => {
     expect(session.fallbackFlightBytes()[0]!.equals(hello)).toBe(true);
   });
 
+  it("ACK だけの最初の Binding でも相手を SPED 対応と判定する", () => {
+    // Arrange: 自分の flight を L1 に持ち、相手 (pion/webrtc#3362) は
+    // それを ACK するが自分の flight がまだ無く DATA を付けない
+    const session = new SpedSession(0);
+    const hello = Buffer.from([22, 9, 8, 7]);
+    session.replaceL1([hello]);
+    const request = new Message(methods.BINDING, classes.REQUEST);
+    request.setAttribute("USERNAME", "a:b");
+    const ack = Buffer.alloc(4);
+    ack.writeUInt32BE(spedDataCrc32(hello), 0);
+    request.appendRawAttribute(DTLS_IN_STUN_ACK, ack);
+
+    // Act
+    const result = session.receiveAuthenticated(request);
+
+    // Assert: fallback せず SPED を続け、ACK された datagram は L1 から外れる
+    expect(result.fallback).toBe(false);
+    expect(session.peerSupport).toBe("supported");
+    expect(session.state).toBe("active");
+    expect(session.l1Datagrams).toHaveLength(0);
+  });
+
   it("re-fragment で L1 を差し替えても fallback は最初の L1 bytes", () => {
     // Arrange
     const session = new SpedSession(0);

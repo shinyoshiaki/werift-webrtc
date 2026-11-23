@@ -13,6 +13,9 @@ export type WeriftDtlsDiagnostics = {
   iceRestarts?: number;
   /** WARP sendBeforeNomination: werift sent on a valid pair before nomination. */
   warpPreNominationSendUsed?: boolean;
+  /** SPED runtime state and DTLS carrier (RTCTransportStats warpSpedState / warpCarrier). */
+  warpSpedState?: string;
+  warpCarrier?: string;
   /** werift's ICE agent has a nominated (selected) pair. */
   iceNominated?: boolean;
 };
@@ -100,6 +103,8 @@ export async function collectWeriftDtlsDiagnostics(
         dtlsRole?: string;
         iceRestarts?: number;
         warpPreNominationSendUsed?: boolean;
+        warpSpedState?: string;
+        warpCarrier?: string;
       }
     | undefined;
   const dtls = pc.dtlsTransports[0];
@@ -124,6 +129,8 @@ export async function collectWeriftDtlsDiagnostics(
     rtcpPacketsReceived: counters?.rtcpPacketsReceived ?? 0,
     iceRestarts: transport?.iceRestarts,
     warpPreNominationSendUsed: transport?.warpPreNominationSendUsed,
+    warpSpedState: transport?.warpSpedState,
+    warpCarrier: transport?.warpCarrier,
     iceNominated: !!(
       pc.iceTransports[0]?.connection as unknown as { nominated?: unknown }
     )?.nominated,

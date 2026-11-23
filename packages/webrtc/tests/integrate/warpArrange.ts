@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join as joinPath, resolve as resolvePath } from "node:path";
@@ -1961,4 +1961,110 @@ export async function connectWithHeldClientNomination(
     clientUnselected: () =>
       clientIce.nominated === undefined && clientIce.state !== "connected",
   };
+}
+
+// --- Pion PeerConnection with SPED (pion/webrtc#3362) ---
+
+type PionSpedEvent = {
+  event: string;
+  type?: string;
+  sdp?: string;
+  label?: string;
+  data?: string;
+  state?: string;
+  message?: string;
+};
+
+/**
+ * Arrange: start the Pion SPED harness (`tools/pion-webrtc-sped`, built
+ * against pion/webrtc#3362) as a child process speaking JSON lines. `next`
+ * resolves the first event (from now on, or already received) matching
+ * `predicate`; `events` keeps every event for the assertions.
+ */
+export function spawnPionWebrtcSped(bin: string) {
+  const child: ChildProcess = spawn(bin, [], {
+    stdio: ["pipe", "pipe", "inherit"],
+  });
+  const events: PionSpedEvent[] = [];
+  const waiters: {
+    predicate: (event: PionSpedEvent) => boolean;
+    resolve: (event: PionSpedEvent) => void;
+  }[] = [];
+  let buffered = "";
+  child.stdout!.setEncoding("utf8");
+  child.stdout!.on("data", (chunk: string) => {
+    buffered += chunk;
+    let newline = buffered.indexOf("\n");
+    while (newline >= 0) {
+      const line = buffered.slice(0, newline).trim();
+      buffered = buffered.slice(newline + 1);
+      newline = buffered.indexOf("\n");
+      if (!line) continue;
+      const event = JSON.parse(line) as PionSpedEvent;
+      events.push(event);
+      for (const waiter of [...waiters]) {
+        if (!waiter.predicate(event)) continue;
+        waiters.splice(waiters.indexOf(waiter), 1);
+        waiter.resolve(event);
+      }
+    }
+  });
+  const send = (command: Record<string, string>) => {
+    child.stdin!.write(`${JSON.stringify(command)}\n`);
+  };
+  const next = (
+    predicate: (event: PionSpedEvent) => boolean,
+    what: string,
+    timeoutMs = 15_000,
+  ) => {
+    const seen = events.find(predicate);
+    if (seen) return Promise.resolve(seen);
+    return new Promise<PionSpedEvent>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(
+          new Error(
+            `pion: no ${what} within ${timeoutMs} ms: ${JSON.stringify(events)}`,
+          ),
+        );
+      }, timeoutMs);
+      waiters.push({
+        predicate,
+        resolve: (event) => {
+          clearTimeout(timer);
+          resolve(event);
+        },
+      });
+    });
+  };
+  return {
+    events,
+    send,
+    next,
+    close: async () => {
+      if (child.exitCode !== null) return;
+      const exited = new Promise((resolve) => child.once("exit", resolve));
+      send({ cmd: "close" });
+      child.stdin!.end();
+      await Promise.race([
+        exited,
+        new Promise((resolve) => setTimeout(resolve, 3_000)),
+      ]);
+      if (child.exitCode === null) child.kill();
+    },
+  };
+}
+
+/** Arrange helper: the local description once ICE gathering is complete. */
+export async function gatheredLocalDescription(pc: RTCPeerConnection) {
+  if (pc.iceGatheringState !== "complete") {
+    await new Promise<void>((resolve) => {
+      const { unSubscribe } = pc.iceGatheringStateChange.subscribe((state) => {
+        if (state === "complete") {
+          unSubscribe();
+          resolve();
+        }
+      });
+    });
+  }
+  return pc.localDescription!;
 }

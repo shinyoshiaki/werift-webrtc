@@ -451,6 +451,62 @@ handshake 後の分岐は [packages/webrtc/src/transport/sped.ts:677](review-fil
 - **STUN の認証**（RFC 8445 §7.3、RFC 8489）: 受信した Request は世代ごとのパスワードで検証し、SPED の処理は検証の後でだけ行います。同じ transaction の Request の再送には、最初に返した Response と同じ bytes を返します。SPED の PeerConnection の ICE agent だけが、MESSAGE-INTEGRITY の無い Request を破棄します。**逸脱**: 認証失敗の Request に 400 / 401 を返さず黙って捨てます（RFC 8489 §9.1.3、既存の挙動）。
 - **consent freshness**（RFC 7675）: 送信の可否は `canSendApplicationData()`（[packages/ice/src/ice.ts:2053](review-file:packages/ice/src/ice.ts:2053)）です。相手から nominate されただけでは consent とみなしません。consent の確認は [packages/ice/src/consent.ts](review-file:packages/ice/src/consent.ts) にあり、develop の #880（高 RTT・損失下で遅れて届いた有効な応答を受け付ける）を取り込んでいます。consent の Binding にも SPED の属性を付けます。
 
+#### 4.3.6 SPED を有効にした相手との相互接続（Chromium 156 / pion/webrtc#3362）
+
+draft-00 は SPED を in-band で判定し、ICE option を定めていません（§3.3.1）。一方で、Chromium（field trial `WebRTC-IceHandshakeDtls`）と Pion（pion/webrtc#3362）は offer に `a=ice-options:sped` を出し、answer に出すのは offer にあるときだけで、option が無ければ SPED を使いません。
+
+<div class="w4-opt">
+<style>
+.w4-opt { font-family: var(--review-font); color: var(--review-fg); display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 12px; }
+.w4-opt .card { border: 1px solid var(--review-border); border-radius: 6px; padding: 6px 10px; }
+.w4-opt .card.before { border-left: 4px solid var(--review-danger); }
+.w4-opt .card.after { border-left: 4px solid var(--review-success); }
+.w4-opt svg text { fill: var(--review-fg); font-family: var(--review-font); }
+.w4-opt .life { stroke: var(--review-border); stroke-dasharray: 4 3; }
+.w4-opt .m { stroke: var(--review-muted); stroke-width: 1.5; }
+.w4-opt .bad { stroke: var(--review-danger); stroke-width: 2; }
+.w4-opt .good { stroke: var(--review-success); stroke-width: 2; }
+.w4-opt .hd { fill: var(--review-surface); stroke: var(--review-border); }
+.w4-opt .lbl { font-size: 11px; }
+.w4-opt .legend { grid-column: 1 / -1; font-size: 12px; color: var(--review-muted); }
+</style>
+<div class="card before"><strong>Before</strong>
+<svg viewBox="0 0 360 290" width="100%" role="img" aria-label="Before: werift の offer に sped が無いので Chromium は answer で SPED を無効にし、Pion の ACK だけの Binding を werift は非対応と判定して fallback する">
+  <defs><marker id="w4o-m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--review-muted)"/></marker><marker id="w4o-r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--review-danger)"/></marker></defs>
+  <rect class="hd" x="10" y="8" width="150" height="30" rx="6"/><text x="22" y="28" font-size="12">werift（sped: true）</text>
+  <rect class="hd" x="200" y="8" width="150" height="30" rx="6"/><text x="212" y="28" font-size="12">Chromium / Pion</text>
+  <line class="life" x1="85" y1="38" x2="85" y2="280"/><line class="life" x1="275" y1="38" x2="275" y2="280"/>
+  <line class="bad" x1="85" y1="64" x2="273" y2="72" marker-end="url(#w4o-r)"/><text x="92" y="60" class="lbl">offer: a=ice-options:trickle（sped 無し）</text>
+  <line class="bad" x1="275" y1="96" x2="87" y2="104" marker-end="url(#w4o-r)"/><text x="120" y="92" class="lbl">answer: sped 無し → SPED 無効</text>
+  <text x="20" y="132" class="lbl">→ Chromium は通常の DTLS、werift は fallback</text>
+  <line class="m" x1="275" y1="166" x2="87" y2="174" marker-end="url(#w4o-m)"/><text x="100" y="162" class="lbl">Pion offer に werift が answer した場合</text>
+  <line class="bad" x1="275" y1="204" x2="87" y2="212" marker-end="url(#w4o-r)"/><text x="104" y="200" class="lbl">最初の Binding: ACK だけ（DATA 無し）</text>
+  <text x="20" y="240" class="lbl">→ werift は「非対応」と判定して fallback</text>
+  <text x="20" y="256" class="lbl">（8 回中 4 回）</text>
+</svg></div>
+<div class="card after"><strong>After</strong>
+<svg viewBox="0 0 360 290" width="100%" role="img" aria-label="After: werift は sped を広告し、ACK だけの Binding も SPED 対応と判定するので、両方向で SPED の DTLS 1.3 handshake が成立する">
+  <defs><marker id="w4o-m2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--review-muted)"/></marker><marker id="w4o-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--review-success)"/></marker></defs>
+  <rect class="hd" x="10" y="8" width="150" height="30" rx="6"/><text x="22" y="28" font-size="12">werift（sped: true）</text>
+  <rect class="hd" x="200" y="8" width="150" height="30" rx="6"/><text x="212" y="28" font-size="12">Chromium / Pion</text>
+  <line class="life" x1="85" y1="38" x2="85" y2="280"/><line class="life" x1="275" y1="38" x2="275" y2="280"/>
+  <line class="good" x1="85" y1="64" x2="273" y2="72" marker-end="url(#w4o-g)"/><text x="92" y="60" class="lbl">offer: a=ice-options:trickle sped</text>
+  <line class="good" x1="275" y1="96" x2="87" y2="104" marker-end="url(#w4o-g)"/><text x="120" y="92" class="lbl">answer: sped → SPED 有効</text>
+  <text x="20" y="132" class="lbl">→ 両端が Binding で DTLS 1.3 を運ぶ</text>
+  <line class="m" x1="275" y1="166" x2="87" y2="174" marker-end="url(#w4o-m2)"/><text x="100" y="162" class="lbl">Pion offer に werift が answer した場合</text>
+  <line class="good" x1="275" y1="204" x2="87" y2="212" marker-end="url(#w4o-g)"/><text x="104" y="200" class="lbl">最初の Binding: ACK だけ（DATA 無し）</text>
+  <text x="20" y="240" class="lbl">→ ACK は SPED 実装だけが送るので「対応」</text>
+  <text x="20" y="256" class="lbl">（10 回中 10 回 active）</text>
+</svg></div>
+<div class="legend">同じ構成（werift <code>sped: true</code> と、SPED を有効にした Chromium 156 / pion/webrtc#3362）から描いています。赤: SPED が成立しなかった経路、緑: 修正後の経路。</div>
+</div>
+
+- **ICE option**: `sped: true` の PeerConnection は offer / answer に `a=ice-options:sped` を出します（[packages/webrtc/src/sdpManager.ts](review-file:packages/webrtc/src/sdpManager.ts)）。DTLS transport を作る前に `setConfiguration({ sped })` で変えた場合も、次の description に反映されます。テストは [packages/webrtc/tests/integrate/iceOptions.test.ts](review-file:packages/webrtc/tests/integrate/iceOptions.test.ts) です。
+- **ACK による判定**: 最初の認証済み Binding に DATA か ACK のどちらかがあれば、SPED 対応と判定します（[packages/ice/src/sped/draft00/session.ts](review-file:packages/ice/src/sped/draft00/session.ts) の `carriesSped()`）。draft §3.3.2.1 は、active の間はすべての Binding に DATA（空でもよい）を付けることを求めます。そのため ACK だけの Binding は Pion 側の逸脱ですが、ACK を送るのは SPED 実装だけなので、非 SPED の相手を誤って対応と見なすことはありません。テストは [packages/ice/tests/sped/session.test.ts](review-file:packages/ice/tests/sped/session.test.ts) です。
+- **Chromium**: [e2e/tests/sped/datachannel.test.ts](review-file:e2e/tests/sped/datachannel.test.ts) と [e2e/tests/sped/media.test.ts](review-file:e2e/tests/sped/media.test.ts) で、Chromium を `WebRTC-IceHandshakeDtls/Enabled/` で起動します（`cd e2e && npm run sped:ci`、opt-in）。両方向 × DTLS 1.3 / `[1.3, 1.2]` で、DataChannel と media が通り、werift の `warpSpedState` が `active` です。
+- **Pion**: [packages/webrtc/tools/pion-webrtc-sped/main.go](review-file:packages/webrtc/tools/pion-webrtc-sped/main.go) を `build.sh` で pion/webrtc#3362 の固定 commit からビルドし、[packages/webrtc/tests/integrate/sped-pion-webrtc.test.ts](review-file:packages/webrtc/tests/integrate/sped-pion-webrtc.test.ts) で接続します（`npm run test:pion-webrtc-sped`、opt-in）。両方向 × DTLS 1.3 / `[1.3, 1.2]` で DataChannel が双方向に通り、werift の `warpSpedState` が `active` です。
+- **既存の E2E の確認の修正**: 「Chromium は SPED を広告しない」の確認は `goog-sped-v1` という文字列を探していましたが、Chromium 156 の option 名は `sped` / `googspedv1` なので、常に通っていました。判定を [e2e/tests/dtls/fixture.ts](review-file:e2e/tests/dtls/fixture.ts) の `hasSpedOption()` にまとめています。
+
 ### 4.4 SCTP / DataChannel
 
 #### 4.4.1 SCTP の役割と stream id の偶奇
@@ -648,7 +704,7 @@ guard は [packages/webrtc/src/transport/sctp.ts:334](review-diff:packages/webrt
 
 ### 7.4 未確認・既知の不安定さ
 
-- Pion 同士の full SPED（controlling / controlled、Full / Lite、SPED 上の restart）と、相手も SPED を有効にした組み合わせ（Chromium の `goog-sped-v1`、Pion SPED）は、upstream の対応が前提のため未確認です。
+- SPED を有効にした Chromium 156 と pion/webrtc#3362 とは接続を確認しました（§4.3.6）。どちらも upstream では実験段階（field trial / draft PR）なので、今後の変更で結果が変わる可能性があります。Pion とのテストは、ACK の修正後に 41 回実行して 1 回だけ失敗し、その原因は特定できていません。SPED 上の ICE restart や ICE-lite との組み合わせは確認していません。
 - BoringSSL の harness が確認するのは handshake と双方向データだけで、exporter・KeyUpdate・negative cases の外部実装との組み合わせは未確認です。
 - 並列探索中に 1 件失敗した scenario seed 123（`negotiationScenarioProperty.test.ts`）は、原因を特定していません（単独 5 回と seed 100〜149 では再現せず）。
 - memleak の 2 シナリオ（DataChannel / メディア）は、処理数 0 のまま時間切れになります（ローカルのみの `npm run memleak`）。
@@ -671,6 +727,7 @@ guard は [packages/webrtc/src/transport/sctp.ts:334](review-diff:packages/webrt
 | 過去のマージの見直し（2026-11-22） | develop / warp の変更の取りこぼし、方針からの逸脱 | 下の表（A.26） |
 | develop #880 のマージ（2026-11-22） | #880 の consent のテストの harness が、nominated pair を `SUCCEEDED` にしていなかった | §9.1 |
 | 負荷で失敗する WARP のテスト（2026-11-22） | 相手の認証を止めるフックをポーリングで入れていた | §9.1 |
+| SPED を有効にした相手（2026-11-23、追加要件 §11） | werift の offer に ICE option `sped` が無く、Chromium / Pion が SPED を使わない。Pion の ACK だけの Binding で werift が fallback する | §4.3.6 |
 
 **2026-11-22 のマージ見直し**: `git diff <develop> HEAD` で develop 側から消えた行を `git blame` で元の commit ごとに分け、コンフリクト解決のたびに `git show --remerge-diff` で確かめ、develop / warp から来たテストを HEAD で実行しました。見つかった主なものです。
 
@@ -688,19 +745,18 @@ guard は [packages/webrtc/src/transport/sctp.ts:334](review-diff:packages/webrt
 
 ## 9. 検証結果
 
-### 9.1 最新の確認（HEAD `a444bc2ff` とテストの競合の修正、2026-11-22）
+### 9.1 最新の確認（HEAD `9f66f2e1c` と SPED 相互接続の変更、2026-11-23）
 
 | 対象 | 検証 | 結果 |
 | --- | --- | --- |
-| ワークスペース全体 | `npm run ci`（lint:imports、型、`doc:check`、build、全パッケージのテスト、Chromium E2E） | 終了コード 0 |
-| パッケージのテスト | 上の `npm run ci` の内訳 | common 80、dtls 571（1 skipped）、ice 2150（10 skipped）、ice-server 69 + Chrome 4、pbt 18、rtp 768、sctp 651、webrtc 2599（190 skipped）。すべて成功 |
+| ワークスペース全体 | `npm run lint:imports`・`type:all`・`build`・`test`（全パッケージと Chromium E2E） | 成功。`doc:check` は生成 docs が未コミットのため差分ありで止まるので、`npm run doc` を再実行しても差分が変わらないことで代えた |
+| パッケージのテスト | 上の `npm run test` の内訳 | common 80、dtls 571（1 skipped）、ice 2151（10 skipped）、ice-server 69 + Chrome 4、pbt 18、rtp 768、sctp 651、webrtc 2601（194 skipped）。すべて成功 |
 | Chromium E2E | `npm run e2e`（一般と DTLS 1.2 / 1.3 モード） | 77 + 31 passed |
-| 通常 TURN の非回帰 | `test:pion-turn`（Docker の Pion TURN）、`examples/turn-loopback` の `chrome-e2e` | 成功、3 passed |
+| SPED を有効にした Chromium 156 | `cd e2e && npm run sped:ci` | 8/8（DataChannel 4、media 4） |
+| pion/webrtc#3362（SPED） | `npm run test:pion-webrtc-sped` | 4/4 |
 | 旧 werift 実リリース | `WERIFT_LEGACY_RELEASE_AUTO_INSTALL=1 npm run test:legacy-werift` | 22/22 |
-| Pion | `test:pion-sped`（`golang:1.24` コンテナでビルド）、`test:pion-ice-agent` | 5/5、2/2 |
-| BoringSSL（DTLS 1.3） | `cd packages/dtls && npm run test:boringssl:docker` | 5/5 |
-| WPT | `npm run wpt` | REGRESSION 0（1239 件） |
-| mediasoup（参考） | `integration/werift-mediasoup-interop` の `npm test` / `test:browser` | 現行 mediasoup とは small 7/7、interop 20/20、browser 9/9。旧 mediasoup 3.19.2 の 8 件は、コンテナに pip が無く worker をビルドできないため起動できず未確認 |
+| Pion | `test:pion-sped`、`test:pion-ice-agent` | 5/5、2/2 |
+| 通常 TURN、BoringSSL、WPT、mediasoup | 2026-11-22 の結果（`test:pion-turn`・`turn-loopback` 成功、BoringSSL 5/5、WPT REGRESSION 0、現行 mediasoup 成功） | その後の変更は SDP の ICE option と SPED の判定だけで、再実行していない |
 
 **develop #880 のマージ後に見つけた問題**: #880 が追加した [packages/ice/tests/ice/consent-network.test.ts](review-file:packages/ice/tests/ice/consent-network.test.ts) が HEAD で 10 件失敗していました（develop では 26/26）。harness が nominated pair の状態を設定していなかったためです。このブランチの ICE は、nominated pair が `SUCCEEDED` のときだけ application data を送ります。RFC 8445 §8.1.1 では、nominate されるのは valid pair（check に成功した pair）だけです。そこで harness の Arrange で状態を `SUCCEEDED` にしました（[packages/ice/tests/utils.ts](review-file:packages/ice/tests/utils.ts)）。修正後は 26/26 です。
 

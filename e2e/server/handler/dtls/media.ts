@@ -32,7 +32,10 @@ export class dtls_media_answer {
           this.counters.attachTransport();
           accept({
             description: this.pc.localDescription,
-            sped: this.pc.localDescription?.sdp.includes("goog-sped-v1"),
+            // werift advertises SPED (`a=ice-options:sped`) in its description.
+            sped: /^a=ice-options:(.* )?sped( |$)/m.test(
+              this.pc.localDescription?.sdp ?? "",
+            ),
           });
         }
         break;
@@ -86,7 +89,10 @@ export class dtls_media_offer {
           this.counters.attachTransport();
           accept({
             description: this.pc.localDescription,
-            sped: this.pc.localDescription?.sdp.includes("goog-sped-v1"),
+            // werift advertises SPED (`a=ice-options:sped`) in its description.
+            sped: /^a=ice-options:(.* )?sped( |$)/m.test(
+              this.pc.localDescription?.sdp ?? "",
+            ),
           });
         }
         break;

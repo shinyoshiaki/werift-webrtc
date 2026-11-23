@@ -90,9 +90,23 @@ export type WeriftDtlsDiagnostics = {
   rtcpPacketsReceived: number;
   /** WARP sendBeforeNomination: werift sent on a valid pair before nomination. */
   warpPreNominationSendUsed?: boolean;
+  /** werift SPED runtime state / DTLS carrier (RTCTransportStats). */
+  warpSpedState?: string;
+  warpCarrier?: string;
   /** werift's ICE agent has a nominated (selected) pair. */
   iceNominated?: boolean;
 };
+
+/**
+ * The description advertises SPED in `a=ice-options`: `sped` (werift, Pion,
+ * Chromium 156) or Chromium's `googspedv1` / older `goog-sped-v1`. Chromium
+ * keeps its SPED only when the offer has it.
+ */
+export function hasSpedOption(sdp: string | undefined) {
+  return /^a=ice-options:(.* )?(sped|googspedv1|goog-sped-v1)( |$)/m.test(
+    sdp ?? "",
+  );
+}
 
 export type ChromiumDtlsStats = {
   tlsVersion?: string;

@@ -33,8 +33,8 @@ export class SDPManager {
   readonly bundleCandidates: BundleCandidates;
   /** `PeerConfig.iceRenomination`: descriptions advertise `a=ice-options:renomination`. */
   readonly iceRenomination: boolean;
-  /** Local `a=ice-options` tokens written on every m-line. */
-  readonly iceOptions: string;
+  private readonly baseIceOptions: string[];
+  private readonly iceOptionSped: () => boolean;
 
   private seenMid = new Set<string>();
   /**
@@ -55,6 +55,7 @@ export class SDPManager {
     bundleCandidates,
     iceRenomination,
     iceOptionIce2,
+    iceOptionSped,
   }: {
     cname: string;
     midSuffix?: boolean;
@@ -64,6 +65,11 @@ export class SDPManager {
     iceRenomination?: boolean;
     /** Add `ice2` (RFC 8445 §10) to the local ice-options. */
     iceOptionIce2?: boolean;
+    /**
+     * Add `sped` while it returns true (`PeerConfig.sped`, which may change
+     * until a DTLS transport exists).
+     */
+    iceOptionSped?: () => boolean;
   }) {
     this.cname = cname;
     this.midSuffix = midSuffix ?? false;
@@ -71,10 +77,26 @@ export class SDPManager {
     this.mLineReuse = mLineReuse ?? "standard";
     this.bundleCandidates = bundleCandidates ?? "legacy";
     this.iceRenomination = iceRenomination ?? false;
-    this.iceOptions = [
+    this.baseIceOptions = [
       "trickle",
       ...(iceOptionIce2 ? ["ice2"] : []),
       ...(this.iceRenomination ? ["renomination"] : []),
+    ];
+    this.iceOptionSped = iceOptionSped ?? (() => false);
+  }
+
+  /**
+   * Local `a=ice-options` tokens written on every m-line. With SPED this
+   * includes `sped`: draft-hancke-webrtc-sped-00 negotiates SPED in band, but
+   * Chromium (`WebRTC-IceHandshakeDtls`) and Pion only keep it when the offer
+   * advertises `sped`, so a werift offer without it turns SPED off on them
+   * (`e2e/tests/sped`, `npm run sped:ci` in `e2e/`).
+   * @see tests/integrate/iceOptions.test.ts "sped: true の offer / answer は全 m-line に a=ice-options:trickle sped を出力し、sped なしでは出さない"
+   */
+  get iceOptions(): string {
+    return [
+      ...this.baseIceOptions,
+      ...(this.iceOptionSped() ? ["sped"] : []),
     ].join(" ");
   }
 

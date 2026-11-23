@@ -540,4 +540,39 @@ DTLS client は自分の Finished を送った直後から DTLS 上は送信で�
 - [x] released `pion/ice` v4.4.1 agent（controlling）: werift（controlled）の nomination を保留したまま、DTLS 完了後の application data が Pion ICE 経由で届く（`sped-pion-ice.test.ts`、`npm run test:pion-ice-agent`）。
 - [x] `packages/webrtc/README.md`、`changelog.md`、`PeerConfig` の JSDoc、`reviews/71cc0e0d-warp-webrtc-integration.md` 付録 A.25 に記載した。
 - [x] 生成 docs（`npm run doc` / `doc:check`）の更新。`erasableSyntaxOnly` の型エラーを解消した後に再生成し、2026-11-22 に `npm run doc:check` が成功（`reviews/71cc0e0d-warp-webrtc-integration.md` 付録 A.26、§9.1）。
-- [ ] 相手側の SPED を有効にした組み合わせ（Chromium の `goog-sped-v1`、pion/webrtc の SPED 実装）での確認。いずれも相手側の実装が実験段階のため未実施。
+- [x] 相手側の SPED を有効にした組み合わせ（Chromium、pion/webrtc の SPED 実装）での確認。§11 で実施した。
+
+## 11. 追加要件: SPED を有効にした相手との相互接続（Chromium / Pion の最新版）
+
+### 背景
+
+§10 までは、相手側も SPED を有効にした組み合わせを「相手側の実装が実験段階」として未確認にしていた。2026-11-23 に調べたところ、どちらも検証できる状態だった。
+
+- Chromium: E2E が使う Chromium 156（Chrome for Testing 156.0.8078.4）は field trial `WebRTC-IceHandshakeDtls` で SPED を有効にでき、offer に `a=ice-options:trickle sped googspedv1` を出す。answer に SPED の option を出すのは、offer に option があるときだけ（libwebrtc の `TransportDescriptionFactory`）。
+- Pion: pion/ice#876 はマージ済み。WebRTC 層の pion/webrtc#3362（draft、fippo/pion-webrtc の `sped`）は、リリース候補の pion/ice v5・pion/dtls v4 の上でビルドできる。`SettingEngine.EnableSped(true)` で有効になり、ICE option `sped` を出す。
+
+### 要件
+
+1. Chromium（SPED 有効）と werift（`sped: true`）を、両方向の offer / answer で、DTLS 1.3 と `[1.3, 1.2]` について接続し、DataChannel と media（SRTP の video と RTCP）を双方向に流す。werift の `warpSpedState` が `active` であること（`fallback` ではないこと）で、SPED で handshake したことを確かめる。
+2. pion/webrtc#3362 のブランチをビルドし、werift（`sped: true`）と両方向・両 DTLS 設定で DataChannel を双方向に流す opt-in の相互接続テストを追加する。SPED で handshake したことは 1 と同じ方法で確かめる。
+3. 接続できない、または SPED が成立しない場合は、原因が werift 側か相手側かを切り分ける。werift 側で直すべきものはこのチケットで直す。
+4. 既定の E2E と既存の相互接続（`sped: false`、Chromium の SPED 無効、旧 werift、Pion ICE agent）を回帰させない。
+
+### 見つかった問題と対応
+
+- **werift が ICE option を出していなかった（werift 側で修正）:** draft-00 は ICE option を定めていないため、werift は SPED を in-band だけで判定し、SDP に何も出していなかった。Chromium と Pion は offer に `sped` が無いと SPED を使わないので、werift が offerer のときは SPED が成立しなかった（Chromium は answer で SPED を無効にし、werift は fallback した）。`sped: true` の PeerConnection は offer / answer に `a=ice-options:sped` を出すようにした（`packages/webrtc/src/sdpManager.ts`。DTLS transport の作成前の `setConfiguration({ sped })` の変更にも追従する）。
+- **ACK だけの Binding を SPED 非対応と判定していた（werift 側で寛容に）:** pion/webrtc#3362 は、こちらの flight を ACK したのに自分の flight がまだ無いとき、DTLS-IN-STUN-ACK だけを付けて DATA を付けない Binding を送る。draft §3.3.2.1 は、SPED が active の間はすべての Binding に DATA（空でもよい）を付けることを求めるので、これは Pion 側の逸脱である。werift は §4.3 step 1 どおり「最初の認証済み Binding に DATA が無い」ことを非対応と判定して fallback していた（Pion が offerer、werift が answerer のとき、8 回中 4 回）。ACK を送るのは SPED に対応した実装だけなので、DATA か ACK のどちらかがあれば SPED 対応と判定するようにした（`packages/ice/src/sped/draft00/session.ts` の `carriesSped()`）。修正後は同じ構成で 10 回中 10 回とも SPED が成立した。
+- **既存の E2E の確認が空振りしていた（テストを修正）:** DTLS E2E は「Chromium は SPED を広告しない」ことを `goog-sped-v1` という文字列で確かめていたが、Chromium 156 の option 名は `sped` / `googspedv1` なので、常に通っていた。option の判定を共通化し（`e2e/tests/dtls/fixture.ts` の `hasSpedOption()`）、werift が `sped: true` のときだけ広告することも確かめるようにした。
+
+### 追加したテストとコマンド
+
+- `e2e/tests/sped/`（`vitest.sped.config.mts`、`cd e2e && npm run sped:ci`）: Chromium を `WebRTC-IceHandshakeDtls/Enabled/` で起動する opt-in の suite。CI と `npm run e2e` には含めない。
+- `packages/webrtc/tools/pion-webrtc-sped/`（`build.sh` で pion/webrtc#3362 の固定 commit を Docker の `golang:1.24` でビルド）と `packages/webrtc/tests/integrate/sped-pion-webrtc.test.ts`（`npm run test:pion-webrtc-sped`、`WERIFT_PION_WEBRTC_SPED`）。
+- `packages/webrtc/tests/integrate/iceOptions.test.ts`（`sped` の ICE option）と `packages/ice/tests/sped/session.test.ts`（ACK だけの Binding）。
+
+### 完了条件
+
+- [x] Chromium（SPED 有効）↔ werift `sped: true` の DataChannel と media が、両方向・DTLS 1.3 / `[1.3, 1.2]` で通り、werift の `warpSpedState` が `active`（`npm run sped:ci`）。（2026-11-23: `npm run sped:ci` 8/8。DataChannel 4、media 4）
+- [x] pion/webrtc#3362 ↔ werift `sped: true` の DataChannel が、両方向・DTLS 1.3 / `[1.3, 1.2]` で通り、werift の `warpSpedState` が `active`（`npm run test:pion-webrtc-sped`）。（2026-11-23: 4/4。ACK の修正後に単独で 25 回・4 並列で 16 回実行し、失敗は修正直後の 1 回だけで原因は特定できていない。`reviews/71cc0e0d-warp-webrtc-integration.md` §4.3.6）
+- [x] werift 側の修正（`a=ice-options:sped`、ACK による SPED 対応の判定）に単体テストがあり、README・`changelog.md`・生成 docs・AGENTS（`e2e` / `packages/webrtc`）に記載した。（`iceOptions.test.ts`、`packages/ice/tests/sped/session.test.ts`）
+- [x] `npm run ci`（既定の E2E を含む）と、既存の相互接続（旧 werift、Pion ICE agent、Pion SPED codec）が回帰しない。（2026-11-23: lint:imports・型・build・`npm run test`（全パッケージと E2E 77 + 31）が成功。`doc:check` は生成 docs が未コミットのため差分ありで止まるので、`npm run doc` の再実行で差分が変わらないことを確認した。`test:legacy-werift` 22/22、`test:pion-ice-agent` 2/2、`test:pion-sped` 5/5）

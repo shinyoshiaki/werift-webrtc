@@ -2,6 +2,7 @@ import {
   assertNegotiatedVersions,
   BROWSER_DTLS_CASES,
   ensureDtlsPeer,
+  hasSpedOption,
   peer,
   pingPong,
   requestWeriftStats,
@@ -26,7 +27,8 @@ describe("dtls parameterized datachannel", () => {
         };
 
         await pc.setLocalDescription(await pc.createOffer());
-        expect(pc.localDescription?.sdp.includes("goog-sped-v1")).toBe(false);
+        // Assert: Chromium の SPED は無効 (chromiumLaunch.ts) なので広告しない
+        expect(hasSpedOption(pc.localDescription?.sdp)).toBe(false);
 
         const answer = await peer.request(method, {
           type: "init",
@@ -36,7 +38,8 @@ describe("dtls parameterized datachannel", () => {
             description: pc.localDescription,
           },
         });
-        expect(answer.sped).toBe(false);
+        // Assert: werift は sped: true のときだけ SPED を広告する
+        expect(answer.sped).toBe(testCase.weriftSped === true);
         await pc.setRemoteDescription(answer.description);
         await opened;
 
@@ -78,7 +81,8 @@ describe("dtls parameterized datachannel", () => {
             sped: testCase.weriftSped,
           },
         });
-        expect(offer.sped).toBe(false);
+        // Assert: werift は sped: true のときだけ SPED を広告する
+        expect(offer.sped).toBe(testCase.weriftSped === true);
         await pc.setRemoteDescription(offer.description);
         await pc.setLocalDescription(await pc.createAnswer());
         peer
@@ -118,8 +122,9 @@ describe("dtls parameterized datachannel", () => {
           description: pc.localDescription,
         },
       });
-      // Assert: werift は SPED を広告せず (相手は SPED 非対応として direct DTLS に fallback する)
-      expect(answer.sped).toBe(false);
+      // Assert: werift は SPED を広告するが、Chromium の SPED は無効なので
+      // direct DTLS に fallback する
+      expect(answer.sped).toBe(true);
 
       // Act: DataChannel を開き、Chromium → werift ping、werift → Chromium pong
       await pc.setRemoteDescription(answer.description);
