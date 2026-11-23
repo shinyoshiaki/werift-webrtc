@@ -145,8 +145,17 @@ class TrackBroadcastSource {
   }
 
   stopAllTracks() {
+    // onended が投げても、他の track の停止は続ける。最初の例外は最後に再送出する。
+    let failed: { error: unknown } | undefined;
     for (const track of [...this.tracks]) {
-      track.stop();
+      try {
+        track.stop();
+      } catch (error) {
+        failed ??= { error };
+      }
+    }
+    if (failed) {
+      throw failed.error;
     }
   }
 }
@@ -260,8 +269,12 @@ export class MediaStreamTrack<K extends Kind = Kind> extends EventTarget {
     this.stopped = true;
     this.muted = true;
     this.onReceiveRtp.complete();
-    this.emit("ended");
-    this.broadcastSource.detach(this);
+    // ended の通知（onended を含む）が投げても detach / upstream 解放は必ず行う。
+    try {
+      this.emit("ended");
+    } finally {
+      this.broadcastSource.detach(this);
+    }
   };
 
   override emit(type: string | symbol, ...args: any[]): boolean {

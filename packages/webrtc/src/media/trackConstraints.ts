@@ -86,7 +86,8 @@ function pickSupported(
   for (const name of weriftConstraintNames) {
     const value = constraintSet?.[name];
     if (value != undefined) {
-      next[name] = value as WeriftConstrainDOMString;
+      // 呼び出し元の後からの変更が保存済み制約に影響しないよう、入れ子まで複製する。
+      next[name] = structuredClone(value) as WeriftConstrainDOMString;
     }
   }
   return next;

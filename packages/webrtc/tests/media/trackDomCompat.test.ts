@@ -230,4 +230,42 @@ describe("MediaStream DOM-compatible members", () => {
     expect(restored.id).toBe("fixed");
     expect(restored.getTracks()).toEqual([]);
   });
+
+  test("a throwing onended still stops clones and releases upstream", () => {
+    // Arrange: 元 track と clone が共有 source を持ち、元の onended が投げる。
+    const track = arrangeOpusTrack();
+    const clone = track.clone();
+    let upstreamStopped = 0;
+    track.bindUpstreamStop(() => {
+      upstreamStopped++;
+    });
+    track.onended = () => {
+      throw new Error("onended failed");
+    };
+
+    // Act: source ごと停止する。
+    const act = () => track.stopMediaSource();
+
+    // Assert: 例外は再送出されるが、両方 ended になり upstream も 1 回解放される。
+    expect(act).toThrow("onended failed");
+    expect(track.readyState).toBe("ended");
+    expect(clone.readyState).toBe("ended");
+    expect(upstreamStopped).toBe(1);
+  });
+
+  test("applied constraints are isolated from later caller mutation", async () => {
+    // Arrange
+    const track = arrangeOpusTrack();
+    const input = { mimeType: { ideal: ["audio/opus"] } } as any;
+    await track.applyConstraints(input);
+
+    // Act: resolve 後に入力の入れ子を書き換える。
+    input.mimeType.ideal.push("audio/PCMU");
+    input.mimeType.ideal[0] = "changed";
+
+    // Assert: 保存済み制約は変わらない。
+    expect(track.getConstraints()).toEqual({
+      mimeType: { ideal: ["audio/opus"] },
+    });
+  });
 });
