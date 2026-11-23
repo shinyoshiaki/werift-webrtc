@@ -85,11 +85,30 @@ describe("MdnsLookup when os.networkInterfaces() throws", () => {
     expect(warnings).toEqual([os.error, os.error]);
     expect(crash.uncaught).toEqual([]);
 
-    // Act: close する。
+    // Act: close し、ソケットの 'close'（次の tick に出る）まで進める。
     lookup.close();
+    await new Promise((resolve) => setImmediate(resolve));
 
     // Assert: interval は残らない。
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  test("multicast-dns never enumerates by itself: werift enumerates once at creation and once per 5 second update", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    os.succeed();
+    const lookup = new MdnsLookup();
+    lookups.push(lookup);
+    await ready(lookup);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    // Assert: 'listening' の後も、作成時の 1 回だけ（multicast-dns 自身は列挙しない）。
+    expect(os.spy).toHaveBeenCalledTimes(1);
+
+    // Act: membership 更新の interval を 2 回走らせる。
+    vi.advanceTimersByTime(10000);
+
+    // Assert: 列挙は werift の更新 1 回につき 1 回だけ増える。
+    expect(os.spy).toHaveBeenCalledTimes(3);
   });
 
   test("an interface that appears after creation is joined by the 5 second update", async () => {

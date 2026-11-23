@@ -49,6 +49,7 @@ const defaultMulticastInterface = (
 
 /**
  * The default mDNS socket of {@link MdnsLookup} (package-private).
+ * @see packages/ice/tests/ice/mdns-enumeration.test.ts「multicast-dns never enumerates by itself: werift enumerates once at creation and once per 5 second update」
  * @see packages/ice/tests/ice/mdns-enumeration.test.ts「an enumeration throwing on the 5 second membership update only warns, and close() leaves no timer」
  * @see packages/ice/tests/ice/mdns-enumeration.test.ts「an interface that appears after creation is joined by the 5 second update」
  */
@@ -63,17 +64,17 @@ export function createMulticastDns(options: mdns.Options = {}) {
       type: "udp4",
       reuseAddr: options.reuseAddr !== false,
     });
+  const multicast = options.multicast !== false;
   const instance = mdns({
     bind: "0.0.0.0",
     ...options,
     socket,
+    multicast: false,
   } as mdns.Options);
+  if (!multicast) return instance;
 
   const joined = new Set<string>();
-  let initial: NetworkInterfaceEnumeration | undefined = first;
-  (instance as unknown as { update: () => void }).update = () => {
-    const enumeration = initial ?? readNetworkInterfaces();
-    initial = undefined;
+  const update = (enumeration = readNetworkInterfaces()) => {
     if (enumeration.error !== undefined) {
       instance.emit("warning", enumeration.error);
       return;
@@ -100,6 +101,18 @@ export function createMulticastDns(options: mdns.Options = {}) {
     }
     instance.emit("networkInterface");
   };
+  let interval: ReturnType<typeof setInterval> | undefined;
+  socket.once("listening", () => {
+    try {
+      socket.setMulticastTTL(options.ttl ?? 255);
+      socket.setMulticastLoopback(options.loopback !== false);
+    } catch (error) {
+      instance.emit("warning", error);
+    }
+    update(first);
+    interval = setInterval(() => update(), 5000);
+  });
+  socket.once("close", () => clearInterval(interval));
   return instance;
 }
 

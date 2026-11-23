@@ -47,7 +47,7 @@ ide:
 <b style="color:#2e9e5b">After</b>
 <ol style="margin:6px 0;padding-left:18px">
 <li>[mDNS] <code>createMulticastDns()</code> が <code>readNetworkInterfaces()</code> で先に列挙</li>
-<li style="color:#2e9e5b"><b>失敗 → ソケットを作らず lookup を reject、候補は破棄。<code>update()</code> は try/catch 版に差し替え</b></li>
+<li style="color:#2e9e5b"><b>失敗 → ソケットを作らず lookup を reject、候補は破棄。<code>multicast: false</code> で作り、membership は werift が同じソケットで管理</b></li>
 <li style="color:#2e9e5b"><b><code>'error'</code> / <code>'warning'</code> のリスナーを登録（未処理 error でも落ちない）</b></li>
 <li>[gathering] 1 回の <code>readNetworkInterfaces()</code> の結果を host / assigned の両方で共有</li>
 <li style="color:#2e9e5b"><b>失敗 → <code>interface-enumeration-failed</code> を通知して続行。explicit / additional / STUN / TURN の候補で完了</b></li>
@@ -67,7 +67,7 @@ ide:
 - 世代の終了。[packages/ice/src/ice.ts:972](review-diff:packages/ice/src/ice.ts:972) の `endLocalCandidates()` は、候補が 0 個なら `no-candidates` を通知してから End にします。ICE restart で再 advertise された候補は数えます。
 - 通知の共通ガード。[packages/ice/src/ice.ts:990](review-diff:packages/ice/src/ice.ts:990) の `emitGatheringError()` は、世代が置き換わった後と close 後には発火しません。listener の throw は隔離して log に記録します。
 - 型。[packages/ice/src/gatheringError.ts:1](review-diff:packages/ice/src/gatheringError.ts:1) に `IceGatheringErrorReason`（`as const` と同名 union。`enum` は使っていません）と `IceGatheringErrorInfo` を追加しました。`IceConnection` への追加は optional です（[packages/ice/src/iceBase.ts](review-diff:packages/ice/src/iceBase.ts)）。
-- mDNS。[packages/ice/src/dns/lookup.ts:57](review-diff:packages/ice/src/dns/lookup.ts:57) の `createMulticastDns()` が、`multicast-dns` の `update()` を例外を投げない版に差し替えます。最初の列挙が失敗したら throw し、`MdnsLookup` は listen しないダミーソケットに切り替えて lookup を即 reject します。`'error'` と `'warning'` のリスナーも登録しました。`MdnsLookup` の公開形状（`cache`、`mdnsInstance`、constructor の factory 引数）は維持しています（[packages/ice/src/dns/lookup.ts:136](review-diff:packages/ice/src/dns/lookup.ts:136)）。
+- mDNS。[packages/ice/src/dns/lookup.ts:57](review-diff:packages/ice/src/dns/lookup.ts:57) の `createMulticastDns()` は、`multicast-dns` を公開オプション `multicast: false` で作ります。`multicast-dns` は自分では列挙せず（`'listening'` の `update()` も 5 秒ごとの interval も動かない）、werift が同じソケットで multicast の TTL・loopback・membership を設定し、5 秒ごとに列挙し直して増えたインターフェースに join します。ライブラリの関数の差し替え（モンキーパッチ）はしていません。最初の列挙が失敗したら throw し、`MdnsLookup` は listen しないダミーソケットに切り替えて lookup を即 reject します。`'error'` と `'warning'` のリスナーも登録しました。`MdnsLookup` の公開形状（`cache`、`mdnsInstance`、constructor の factory 引数）は維持しています（[packages/ice/src/dns/lookup.ts:136](review-diff:packages/ice/src/dns/lookup.ts:136)）。
 - 公開 API の契約。[packages/ice/src/utils.ts:41](review-diff:packages/ice/src/utils.ts:41) の `nodeIpAddress()` / `getHostAddresses()` は従来どおり throw し、JSDoc に `@throws` を明記しました。
 
 ### webrtc 層（`packages/webrtc`）
@@ -90,7 +90,7 @@ ide:
 | `iceGatheringState` に `failed` を追加する | 不採用 | 列挙型を広げると既存の switch が壊れます。 |
 | `connectionState` を `failed` にする | 不採用 | 失敗の判断はチェックリストの結果に任せます。 |
 | werift 拡張の `Event` を新設する | 採用 | 既存の `onIceCandidateError` / `onIceServerReached` と同じ形で、W3C の名前空間を使いません。 |
-| mDNS を `opts.interface` 指定で作る | `update()` を差し替える形に変更 | `opts.interface` は bind アドレスにも使われ、複数 NIC の membership を維持できません。`update()` の差し替えなら従来どおり wildcard bind を保ち、後から現れた NIC も join できます。 |
+| mDNS を `opts.interface` 指定で作る | `multicast: false` で作り、membership を werift が管理 | `opts.interface` は bind アドレスにも使われ、作成時の配列に固定されるので後から現れた NIC に join できず、配列が `setMulticastInterface()` に渡るとエラーになります。一度は `update()` を差し替えましたが、モンキーパッチを避ける追加要件により、公開オプション `multicast: false` と Node.js の `dgram` API だけで同じ挙動にしました。 |
 | 例外後に `localCandidatesStart` を戻して再 gather する | 不採用 | 開いたソケットが advertise 済みのままになるためです。 |
 
 ## 5. レビュアーが確認すべき点・リスク
