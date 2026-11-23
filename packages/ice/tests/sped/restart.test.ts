@@ -13,7 +13,7 @@ import { getRawAttributeValue } from "../../src/stun/rawAttributeValue";
 import { createTestConnection } from "../utils";
 import { SpedProtocolMock, spedPair, tcpSpedPair } from "./helpers";
 
-describe("ICE restart と SPED carry", () => {
+describe("ICE restart と SPED hybrid carrier", () => {
   it("await 後の旧 generation 応答は pair / role / nomination を更新しない", async () => {
     // Arrange: checkStart が STUN 応答待ちのまま restart する
     const connection = createTestConnection(true);
@@ -230,7 +230,7 @@ describe("ICE restart と SPED carry", () => {
     expect(handle.session.hasL1).toBe(true);
   });
 
-  it("carry の timeout は自己再実行しない", async () => {
+  it("L1 更新だけでは新規 Binding Request を出さない", async () => {
     // Arrange
     const connection = createTestConnection(true);
     connection.remoteUsername = "remote";
@@ -259,16 +259,16 @@ describe("ICE restart と SPED carry", () => {
       setMtu: () => {},
     });
 
-    // Act
+    // Act: 次 flight を L1 に載せるだけにする
     handle.onFlightCreated([Buffer.from([22, 1, 2, 3])]);
     await new Promise((r) => setTimeout(r, 50));
 
-    // Assert: timeout 1 回で止まり、L1 は consent / check に残す
-    expect(requests).toBe(1);
+    // Assert: synthetic carry は廃止し、通常 ICE Binding まで L1 を保持する
+    expect(requests).toBe(0);
     expect(handle.session.hasL1).toBe(true);
   });
 
-  it("inbound Binding 中に L1 が増えても処理後に carry する", async () => {
+  it("inbound Binding 中に L1 が増えても追加 Request は出さず Response に載せる", async () => {
     // Arrange: 認証済み Request の inject で server flight 相当の L1 を載せる
     const connection = createTestConnection(true);
     connection.remoteUsername = "remote";
@@ -318,7 +318,7 @@ describe("ICE restart と SPED carry", () => {
       .addMessageIntegrity(Buffer.from(connection.localPassword))
       .addFingerprint();
 
-    // Act: 受信処理中の flush はキューし、抜けたあと残 L1 を Binding で送る
+    // Act: 受信 Binding の Response 組み立て中に次 L1 が生成される
     await (connection as any).handleBindingRequest(
       protocol,
       request,
@@ -327,19 +327,16 @@ describe("ICE restart と SPED carry", () => {
     );
     await new Promise((r) => setTimeout(r, 20));
 
-    // Assert: inbound 中に捨てず、Response 後に残 L1 を Binding で送る
+    // Assert: 自然な Response に L1 を載せ、搬送専用 Request は増やさない
     expect(protocol.sentMessage).toBeDefined();
-    expect(requests.length).toBeGreaterThan(0);
     expect(
-      requests.some((message) => {
-        const data = getRawAttributeValue(message, DTLS_IN_STUN_DATA);
-        return data != null && data.length > 0;
-      }),
-    ).toBe(true);
+      getRawAttributeValue(protocol.sentMessage!, DTLS_IN_STUN_DATA),
+    ).toBeDefined();
+    expect(requests).toHaveLength(0);
   });
 
-  it("受信 DATA のあとローカル L1 が空でも peer 用 Binding を 1 本出す", async () => {
-    // Arrange: Full 側は CH を送り済みで L1 が空。Lite の残り L1 を引き出す
+  it("受信 DATA のあとローカル L1 が空でも追加 Binding を出さない", async () => {
+    // Arrange: Full 側は CH を送り済みで L1 が空
     const connection = createTestConnection(true);
     connection.remoteUsername = "remote";
     connection.remotePassword = "remotepw";
@@ -370,7 +367,7 @@ describe("ICE restart と SPED carry", () => {
     const response = new Message(methods.BINDING, classes.RESPONSE);
     response.appendRawAttribute(DTLS_IN_STUN_DATA, Buffer.from([22, 1, 2, 3]));
 
-    // Act: 空 L1 でも DATA 受信をきっかけに Binding を 1 本送る
+    // Act: DATA 受信だけをきっかけにしない
     await (connection as any).consumeSpedStun(
       response,
       ["9.9.9.9", 9],
@@ -380,8 +377,8 @@ describe("ICE restart と SPED carry", () => {
     );
     await new Promise((r) => setTimeout(r, 20));
 
-    // Assert: Lite が次の L1 を Response に載せられる
-    expect(requests).toHaveLength(1);
+    // Assert: peer 引き出し用の synthetic Binding は廃止済み
+    expect(requests).toHaveLength(0);
     expect(handle.session.hasL1).toBe(false);
   });
 });

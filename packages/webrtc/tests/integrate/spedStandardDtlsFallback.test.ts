@@ -1,15 +1,16 @@
 /**
  * `sped: true` with DTLS 1.3 and 1.2 against a peer without SPED: the SPED
- * DTLS is replaced by the standard DTLS handshake with the configured
- * versions (RTCDtlsTransport `switchToStandardDtls`, draft §3.3.4). The peer
- * is a default PeerConnection (DTLS 1.2 only, no SPED), like werift before
- * DTLS 1.3. These cases cover what the switch must release and the paths it
- * must keep working on (relay, ICE-TCP, ICE restart, loss).
+ * runtime falls back to the direct carrier and the same DTLS association
+ * sends its first, dual-version ClientHello bytes directly (never
+ * re-serialized; it carries the DTLS 1.2 extensions), so the peer completes
+ * DTLS 1.2 with it (draft §3.3.4). The peer is a default PeerConnection
+ * (DTLS 1.2 only, no SPED), like werift before DTLS 1.3. These cases cover
+ * what the fallback must release and the paths it must keep working on
+ * (relay, ICE-TCP, ICE restart, loss).
  */
 import { setTimeout as delay } from "node:timers/promises";
 
 import type { CandidatePair, Connection } from "../../../ice/src";
-import { connectionDatagramEvent } from "../../../ice/src/internal/datagram";
 import { getConnectionSpedRuntime } from "../../../ice/src/internal/sped-bind";
 import { getHostAddresses } from "../../../ice/src/utils";
 import {
@@ -44,13 +45,12 @@ function iceConnection(pc: RTCPeerConnection) {
   return pc.iceTransports[0]!.connection as unknown as Connection;
 }
 
-/** The SPED side replaced its SPED DTLS: no runtime, no SPED datagram subscriber. */
-function switchedToStandardDtls(pc: RTCPeerConnection) {
-  const ice = iceConnection(pc);
-  return (
-    getConnectionSpedRuntime(ice) === undefined &&
-    connectionDatagramEvent(ice).length === 0
-  );
+/** The SPED side fell back: its SPED runtime reports the direct DTLS carrier. */
+function fellBackToDirectDtls(pc: RTCPeerConnection) {
+  const diagnostics = getConnectionSpedRuntime(
+    iceConnection(pc),
+  )?.diagnosticsSnapshot();
+  return diagnostics?.state === "fallback" && diagnostics.carrier === "direct";
 }
 
 /**
@@ -179,7 +179,7 @@ const leakUnsupported = leakSupport();
 
 describe("SPED (DTLS 1.3 + 1.2) falls back to standard DTLS against a peer without SPED", () => {
   test.skipIf(leakUnsupported).each(spedSides)(
-    "SPED 側が %s: 切り替え後は SPED の受信登録・runtime・旧 socket が残らず、close 後に資源が解放される",
+    "SPED 側が %s: fallback 後も最初の DTLS socket のまま DTLS 1.2 で接続し、close 後に資源が解放される",
     async (spedSide) => {
       const before = activeResources();
       const tracker = new LeakTracker();
@@ -187,6 +187,7 @@ describe("SPED (DTLS 1.3 + 1.2) falls back to standard DTLS against a peer witho
       // keeps them reachable once it returned.
       const runSession = async () => {
         const session = createPlainPeerSession(spedSide);
+        let firstSocket: unknown;
         try {
           await session.negotiate((pc, role) => {
             if (role !== "sped") return;
@@ -195,23 +196,24 @@ describe("SPED (DTLS 1.3 + 1.2) falls back to standard DTLS against a peer witho
               if (state !== "connecting") return;
               subscription.unSubscribe();
               // start() creates the SPED socket synchronously after connecting
-              queueMicrotask(() =>
-                tracker.track(transport.dtls, "SPED DtlsSocket"),
-              );
+              queueMicrotask(() => {
+                firstSocket = transport.dtls;
+                tracker.track(transport.dtls, "SPED DtlsSocket");
+              });
             });
           });
           const channels = await session.open;
-          // Act: 切り替えた接続でデータを往復させ、旧 flight の再送時間を過ぎるまで待つ
+          // Act: fallback した接続でデータを往復させ、最初の flight の再送時間を過ぎるまで待つ
           expect(await roundTrip(channels, "release")).toEqual([
             "release->",
             "<-release",
           ]);
           await delay(2_500);
 
-          // Assert: SPED の wiring が外れ、捨てた SPED socket は接続中でも回収される
+          // Assert: direct carrier へ fallback し、作り直さずに最初の socket で DTLS 1.2 が完了している
           expect(tracker.size).toBe(1);
-          expect(switchedToStandardDtls(session.sped)).toBe(true);
-          expect(await tracker.survivors()).toEqual([]);
+          expect(fellBackToDirectDtls(session.sped)).toBe(true);
+          expect(session.sped.dtlsTransports[0]!.dtls).toBe(firstSocket);
           await expectDtls12(session.offerer, session.answerer);
           expect(session.sped.connectionState).toBe("connected");
           tracker.trackPeer(session.offerer);
@@ -273,7 +275,7 @@ describe("SPED (DTLS 1.3 + 1.2) falls back to standard DTLS against a peer witho
   );
 
   test.each(spedSides)(
-    "SPED 側が %s: ICE-TCP だけの経路で切り替えて DTLS 1.2 で接続する",
+    "SPED 側が %s: ICE-TCP だけの経路で fallback して DTLS 1.2 で接続する",
     async (spedSide) => {
       // Act: TCP の pair だけを使って接続する
       const session = await connectAgainstPlainPeer(spedSide, {
@@ -281,12 +283,12 @@ describe("SPED (DTLS 1.3 + 1.2) falls back to standard DTLS against a peer witho
         plainConfig: tcpOnly,
       });
       try {
-        // Assert: TCP 上で切り替え、データが往復する
+        // Assert: TCP 上で fallback し、データが往復する
         expect(await roundTrip(session.channels, "tcp")).toEqual([
           "tcp->",
           "<-tcp",
         ]);
-        expect(switchedToStandardDtls(session.sped)).toBe(true);
+        expect(fellBackToDirectDtls(session.sped)).toBe(true);
         await expectDtls12(session.offerer, session.answerer);
         expect(
           iceConnection(
@@ -301,9 +303,9 @@ describe("SPED (DTLS 1.3 + 1.2) falls back to standard DTLS against a peer witho
   );
 
   test.each(spedSides)(
-    "SPED 側が %s: 切り替え後の handshake 中に ICE restart しても接続する",
+    "SPED 側が %s: fallback 後の handshake 中に ICE restart しても接続する",
     async (spedSide) => {
-      // Arrange: 相手の DTLS 送信を止め、切り替え後の handshake を完了させない
+      // Arrange: 相手の DTLS 送信を止め、fallback 後の handshake を完了させない
       let hold = true;
       let held = { dropped: 0 };
       const session = createPlainPeerSession(spedSide);
@@ -312,8 +314,8 @@ describe("SPED (DTLS 1.3 + 1.2) falls back to standard DTLS against a peer witho
           if (role === "plain") held = dropOutgoingDtls(pc, () => hold);
         });
         await waitUntil(
-          () => switchedToStandardDtls(session.sped) && held.dropped > 0,
-          "switched handshake held",
+          () => fellBackToDirectDtls(session.sped) && held.dropped > 0,
+          "fallback handshake held",
         );
         expect(session.sped.dtlsTransports[0]!.state).toBe("connecting");
 
@@ -337,13 +339,13 @@ describe("SPED (DTLS 1.3 + 1.2) falls back to standard DTLS against a peer witho
         hold = false;
         const channels = await session.open;
 
-        // Assert: restart 後の generation で DTLS 1.2 が完了し、SPED に戻らずデータが往復する
+        // Assert: restart 後の generation で DTLS 1.2 が完了し、SPED carrier に戻らずデータが往復する
         expect(ufrag()).not.toBe(before);
         expect(await roundTrip(channels, "restart")).toEqual([
           "restart->",
           "<-restart",
         ]);
-        expect(switchedToStandardDtls(session.sped)).toBe(true);
+        expect(fellBackToDirectDtls(session.sped)).toBe(true);
         await expectDtls12(session.offerer, session.answerer);
       } finally {
         await session.close();
@@ -357,7 +359,7 @@ describe("SPED (DTLS 1.3 + 1.2) falls back to standard DTLS against a peer witho
       (["sped", "plain"] as const).map((loser) => [spedSide, loser] as const),
     ),
   )(
-    "SPED 側が %s: 切り替え直後に %s 側の最初の DTLS 送信が落ちても再送で接続する",
+    "SPED 側が %s: fallback 直後に %s 側の最初の DTLS 送信が落ちても再送で接続する",
     async (spedSide, loser) => {
       // Arrange: 指定した側が直接送る最初の DTLS datagram だけを落とす
       let lost = { dropped: 0 };
@@ -372,7 +374,7 @@ describe("SPED (DTLS 1.3 + 1.2) falls back to standard DTLS against a peer witho
         // Assert: 実際に 1 つ落とし、再送で DTLS 1.2 が完了してデータが往復する
         expect(lost.dropped).toBe(1);
         expect(await roundTrip(channels, "loss")).toEqual(["loss->", "<-loss"]);
-        expect(switchedToStandardDtls(session.sped)).toBe(true);
+        expect(fellBackToDirectDtls(session.sped)).toBe(true);
         await expectDtls12(session.offerer, session.answerer);
       } finally {
         await session.close();

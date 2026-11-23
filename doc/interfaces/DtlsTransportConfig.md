@@ -31,3 +31,21 @@ PeerConfig.dtlsHandshakeValidation (DTLS 1.2 handshake validation).
 ### protocolVersions?
 
 > `optional` **protocolVersions?**: readonly [`DtlsVersion`](../enumerations/DtlsVersion.md)[]
+
+***
+
+### warp?
+
+> `optional` **warp?**: `object`
+
+#### allowEarlyServerData?
+
+> `optional` **allowEarlyServerData?**: `boolean`
+
+#### earlyMediaPolicy?
+
+> `optional` **earlyMediaPolicy?**: `"buffer"` \| `"drop"`
+
+#### sendBeforeNomination?
+
+> `optional` **sendBeforeNomination?**: `boolean`

@@ -2,12 +2,21 @@ import { createSocket } from "dgram";
 import { setTimeout } from "timers/promises";
 import { vi } from "vitest";
 
-import { dataChunkBookSize as book, SCTP, SCTP_STATE } from "../src";
+import {
+  dataChunkBookSize as book,
+  SCTP,
+  SCTP_STATE,
+  SCTPSendPermissionRevokedError,
+  type Transport,
+} from "../src";
 import {
   AbortChunk,
+  CookieAckChunk,
+  CookieEchoChunk,
   DataChunk,
   ForwardTsnChunk,
   HeartbeatChunk,
+  InitChunk,
   SackChunk,
   SCTP_COMMON_HEADER_SIZE,
   serializePacket,
@@ -17,13 +26,18 @@ import { createUdpTransport } from "../src/transport";
 import {
   buildSack,
   createChunkQueue,
+  createControlledTransport,
   createMockSctp,
   disposeMockSctp,
   expectFlightSizeInvariant,
   flightSizeOf,
   holdTransport,
+  receiveCookieEcho,
+  receiveInitAck,
+  receiveInitAndTakeCookie,
   receiveSack,
   sentChunks,
+  sentChunkTypes,
   sentDataTsns,
   sentQueueOf,
   settle,
@@ -121,6 +135,51 @@ describe("sctp timers and ack policy", () => {
     expect(spy).toHaveBeenCalledWith(expect.any(Function), 5000);
     (sctp as any).timer3Cancel();
     spy.mockRestore();
+  });
+
+  test("INIT send permission revocation closes and rejects the association", async () => {
+    // Arrange: INIT を送信する transport が送信許可の取消しで失敗する。
+    // (単なる送信失敗は損失として T1 に任せる: 下の INIT 送信失敗のテスト)
+    const transport: Transport = {
+      send: vi.fn(async () => {
+        throw new SCTPSendPermissionRevokedError("transport unavailable");
+      }),
+      close: vi.fn(),
+    };
+    const sctp = SCTP.client(transport, 5000);
+    sctp.setRemotePort(5001);
+
+    // Act: association start を実行する。
+    await expect(sctp.start(5001)).rejects.toThrow("transport unavailable");
+
+    // Assert: INIT failure が CLOSED 通知まで到達する。
+    expect(sctp.state).toBe("closed");
+    expect(sctp.associationState).toBe(SCTP_STATE.CLOSED);
+  });
+
+  test("T1 timeout publishes closed instead of leaving the waiter pending", async () => {
+    // Arrange: 応答を返さない transport と短い RTO を用意する。
+    vi.useFakeTimers();
+    const transport: Transport = {
+      send: vi.fn(async () => {}),
+      close: vi.fn(),
+    };
+    const sctp = SCTP.client(transport, 5000);
+    sctp.setRemotePort(5001);
+    (sctp as any).rto = 0.001;
+    const closed = sctp.stateChanged.closed.asPromise();
+
+    try {
+      // Act: INIT を送信し、T1 再送上限を超えるまで時間を進める。
+      await sctp.start(5001);
+      await vi.advanceTimersByTimeAsync(20);
+
+      // Assert: close event が発火し、接続待ちが終端状態になる。
+      await expect(closed).resolves.toEqual([]);
+      expect(sctp.state).toBe("closed");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test("peer rwnd is derived from latest advertised rwnd and flight size", async () => {
@@ -268,6 +327,241 @@ describe("sctp timers and ack policy", () => {
       vi.useRealTimers();
     }
   });
+});
+
+describe("sctp start commit boundary", () => {
+  test("開始側は COOKIE_ECHO を送信処理へ渡す前に COOKIE_ECHOED へ進み、送信中の取消し・重複 INIT_ACK を受け付けない", async () => {
+    // Arrange: INIT 送信済みの開始側で、以降の送信を保留できる transport。
+    const control = createControlledTransport();
+    const sctp = SCTP.client(control.transport, 5000);
+    await sctp.start(5001);
+    expect(sctp.startCommitted).toBe(false);
+    control.holdSends();
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+
+    try {
+      // Act: INIT_ACK を受信し、COOKIE_ECHO の送信完了待ちに入る。
+      const handling = receiveInitAck(sctp);
+      await setTimeout(0);
+
+      // Assert: 送信完了前に状態遷移と確定が済んでいる。
+      expect(sentChunkTypes(control.sent)).toEqual([
+        InitChunk.type,
+        CookieEchoChunk.type,
+      ]);
+      expect(sctp.associationState).toBe(SCTP_STATE.COOKIE_ECHOED);
+      expect(sctp.startCommitted).toBe(true);
+
+      // Act: 送信中に取消しを要求し、重複した INIT_ACK も受信する。
+      const cancelled = sctp.cancelStart();
+      await receiveInitAck(sctp);
+
+      // Assert: 取消しは拒否され、重複 INIT_ACK は状態確認で無視される。
+      expect(cancelled).toBe(false);
+      expect(sctp.state).not.toBe("closed");
+      expect(sctp.startCancellationError).toBeUndefined();
+      expect(sentChunkTypes(control.sent)).toHaveLength(2);
+
+      // Act: 送信を完了させる。
+      control.release();
+      await handling;
+      await setTimeout(0);
+
+      // Assert: COOKIE_ECHOED を保ち、未処理 rejection も出ない。
+      expect(sctp.associationState).toBe(SCTP_STATE.COOKIE_ECHOED);
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off("unhandledRejection", unhandled);
+      control.release();
+      await sctp.stop();
+    }
+  });
+
+  test("開始側は INIT の送信完了前に届いた INIT_ACK も処理する", async () => {
+    // Arrange: INIT の送信完了を保留する開始側。
+    const control = createControlledTransport();
+    const sctp = SCTP.client(control.transport, 5000);
+    control.holdSends();
+    const starting = sctp.start(5001);
+    await setTimeout(0);
+
+    try {
+      // Assert: 送信完了前に COOKIE_WAIT へ進んでいる。
+      expect(sctp.associationState).toBe(SCTP_STATE.COOKIE_WAIT);
+
+      // Act: INIT の送信完了前に INIT_ACK を受信し、その後で送信を完了させる。
+      const handling = receiveInitAck(sctp);
+      await setTimeout(0);
+      control.release();
+      await Promise.all([starting, handling]);
+
+      // Assert: INIT_ACK は捨てられず、COOKIE_ECHO を送って COOKIE_ECHOED へ進む。
+      expect(sentChunkTypes(control.sent)).toEqual([
+        InitChunk.type,
+        CookieEchoChunk.type,
+      ]);
+      expect(sctp.associationState).toBe(SCTP_STATE.COOKIE_ECHOED);
+    } finally {
+      control.release();
+      await sctp.stop();
+    }
+  });
+
+  test("開始側の COOKIE_ECHO 送信中に stop しても、送信完了で状態は戻らない", async () => {
+    // Arrange: COOKIE_ECHO の送信完了待ちの開始側。
+    const control = createControlledTransport();
+    const sctp = SCTP.client(control.transport, 5000);
+    await sctp.start(5001);
+    control.holdSends();
+    const handling = receiveInitAck(sctp);
+    await setTimeout(0);
+
+    // Act: 送信中に stop し、その後で送信を完了させる。
+    const stopping = sctp.stop();
+    control.release();
+    await Promise.all([handling, stopping]);
+
+    // Assert: 遅れて完了した送信処理が CLOSED を上書きしない。
+    expect(sctp.associationState).toBe(SCTP_STATE.CLOSED);
+    expect(sctp.state).toBe("closed");
+  });
+
+  test("応答側の COOKIE_ACK 送信失敗は損失として扱い、再送された COOKIE_ECHO に同じ association で応答する", async () => {
+    // Arrange: INIT を受けて state cookie を発行した応答側。
+    const control = createControlledTransport();
+    const sctp = SCTP.server(control.transport, 5000);
+    sctp.setRemotePort(5001);
+    const cookie = await receiveInitAndTakeCookie(sctp, control.sent);
+
+    try {
+      // Act: COOKIE_ACK の送信が失敗する状態で COOKIE_ECHO を受信する。
+      control.failSends();
+      await receiveCookieEcho(sctp, cookie);
+
+      // Assert: RFC 4960 5.1 (D) どおり確立し、取消しは起きない。
+      expect(sctp.associationState).toBe(SCTP_STATE.ESTABLISHED);
+      expect(sctp.startCommitted).toBe(true);
+      expect(sctp.startCancellationError).toBeUndefined();
+
+      // Act: 開始側が COOKIE_ECHO を再送し、今度は送信が成功する。
+      control.restoreSends();
+      await receiveCookieEcho(sctp, cookie);
+
+      // Assert: 同じ cookie 鍵の association が COOKIE_ACK を返す。
+      expect(sentChunkTypes(control.sent).at(-1)).toBe(CookieAckChunk.type);
+      expect(sctp.associationState).toBe(SCTP_STATE.ESTABLISHED);
+    } finally {
+      await sctp.stop();
+    }
+  });
+
+  test.each([
+    {
+      phase: "COOKIE_WAIT",
+      kind: "revoked",
+      afterInitAck: false,
+      cancelled: true,
+    },
+    {
+      phase: "COOKIE_WAIT",
+      kind: "loss",
+      afterInitAck: false,
+      cancelled: false,
+    },
+    {
+      phase: "COOKIE_ECHOED",
+      kind: "revoked",
+      afterInitAck: true,
+      cancelled: false,
+    },
+    {
+      phase: "COOKIE_ECHOED",
+      kind: "loss",
+      afterInitAck: true,
+      cancelled: false,
+    },
+  ] as const)(
+    "T1 再送の送信失敗は確定前かつ送信許可の取消しのときだけ start を取り消す ($phase, $kind)",
+    async ({ kind, afterInitAck, cancelled }) => {
+      // Arrange: 短い RTO の開始側を、指定のフェーズまで進める。
+      vi.useFakeTimers();
+      const control = createControlledTransport();
+      const sctp = SCTP.client(control.transport, 5000);
+      (sctp as unknown as { rto: number }).rto = 0.001;
+      try {
+        await sctp.start(5001);
+        if (afterInitAck) await receiveInitAck(sctp);
+        const phase = sctp.associationState;
+
+        // Act: 以降の送信を指定の種類で失敗させ、T1 再送を1回発生させる。
+        control.failSends(kind);
+        await vi.advanceTimersByTimeAsync(2);
+
+        // Assert: 送信許可の取消しは確定前だけ即時取消し。単なる送信失敗
+        // (損失) は確定前でも association を維持し、T1 再送に任せる。
+        if (cancelled) {
+          expect(sctp.state).toBe("closed");
+          expect(sctp.startCancellationError?.message).toBe(
+            "transport rejected",
+          );
+        } else {
+          expect(sctp.state).not.toBe("closed");
+          expect(sctp.associationState).toBe(phase);
+          expect(sctp.startCancellationError).toBeUndefined();
+        }
+
+        if (!cancelled) {
+          // Act: 送信を回復させ、次の T1 再送を発生させる。
+          const before = control.sent.length;
+          control.restoreSends();
+          await vi.advanceTimersByTimeAsync(5);
+
+          // Assert: 同じ association が開始 chunk を再送している。
+          expect(control.sent.length).toBeGreaterThan(before);
+        }
+      } finally {
+        await sctp.stop();
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  test.each(["loss", "revoked"] as const)(
+    "INIT 送信失敗 (%s) は送信許可の取消しのときだけ association を閉じる",
+    async (kind) => {
+      // Arrange: 送信が失敗する transport の開始側。
+      vi.useFakeTimers();
+      const control = createControlledTransport();
+      const sctp = SCTP.client(control.transport, 5000);
+      (sctp as unknown as { rto: number }).rto = 0.001;
+      control.failSends(kind);
+
+      try {
+        // Act: INIT を送信する。
+        const starting = sctp.start(5001);
+
+        // Assert: 取消しは CLOSED + reject、損失は COOKIE_WAIT で T1 に任せる。
+        if (kind === "revoked") {
+          await expect(starting).rejects.toThrow("transport rejected");
+          expect(sctp.state).toBe("closed");
+          return;
+        }
+        await starting;
+        expect(sctp.associationState).toBe(SCTP_STATE.COOKIE_WAIT);
+
+        // Act: 送信を回復させ、T1 を満了させる。
+        control.restoreSends();
+        await vi.advanceTimersByTimeAsync(5);
+
+        // Assert: T1 が INIT を再送している。
+        expect(sentChunkTypes(control.sent)).toContain(InitChunk.type);
+      } finally {
+        await sctp.stop();
+        vi.useRealTimers();
+      }
+    },
+  );
 });
 
 describe("sctp flight size accounting", () => {

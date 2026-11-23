@@ -28,3 +28,14 @@ export const chromiumLaunchArgs = [
   "--disable-features=WebRtcHideLocalIpsWithMdns",
   ...chromiumFieldTrialArgs,
 ];
+
+/**
+ * Chromium with its SPED on (`WebRTC-IceHandshakeDtls/Enabled/`, SDP
+ * `a=ice-options:goog-sped-v1`), for the opt-in SPED interop E2E
+ * (`vitest.sped.config.mts`, `npm run sped:ci`). Not part of `npm run e2e`.
+ */
+export const chromiumSpedLaunchArgs = [
+  ...chromiumMediaArgs,
+  "--disable-features=WebRtcHideLocalIpsWithMdns",
+  "--force-fieldtrials=WebRTC-IceHandshakeDtls/Enabled/",
+];
