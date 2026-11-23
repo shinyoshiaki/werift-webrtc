@@ -1,4 +1,4 @@
-import type { SCTPOptions } from "../../sctp/src";
+import { type SCTP, SCTP_STATE, type SCTPOptions } from "../../sctp/src";
 import {
   RTCDataChannel,
   type RTCDataChannelBinaryType,
@@ -81,12 +81,12 @@ export class SctpTransportManager {
   dataChannelsOpened = 0;
   dataChannelsClosed = 0;
   private dataChannels: RTCDataChannel[] = [];
-  /** In-flight connect of one transport; a replaced transport starts its own. */
-  private connecting?: { transport: RTCSctpTransport; promise: Promise<void> };
-  /**
-   * SCTP transports that carry a `createDataChannel` call. They are
-   * application state: negotiation rollback keeps them instead of stopping.
-   */
+  /** A fulfilled promise belongs to one concrete SCTP association only. */
+  private connectAttempt?: {
+    association: SCTP;
+    promise: Promise<void>;
+  };
+  /** SCTP transports that carry a createDataChannel call survive rollback. */
   private readonly applicationOwned = new WeakSet<RTCSctpTransport>();
 
   readonly onDataChannel = new Event<[RTCDataChannel]>();
@@ -312,56 +312,111 @@ export class SctpTransportManager {
 
   /**
    * Start the association of the negotiated application m-line and wait
-   * until it is established. Safe to call any number of times: an
+   * until it connects or closes. Safe to call any number of times: an
    * established (also passively established) or handshaking association is
-   * not started again, and a closed one is not waited for. The wait is
-   * bounded even if the remote never answers: the INIT retries (T1) give up
-   * and the association emits `closed`.
+   * not started again. The wait is bounded even if the remote never answers:
+   * the INIT retries (T1) give up and the association emits `closed`.
    */
   async connectSctp() {
     const transport = this.sctpTransport;
     if (!transport || !this.sctpRemotePort) {
       return;
     }
-    if (this.connecting?.transport === transport) {
-      await this.connecting.promise;
+    const association =
+      transport.sctp.state === "closed"
+        ? transport.prepareForStart()
+        : transport.sctp;
+    const previousAttempt = this.connectAttempt;
+    if (previousAttempt?.association === association) {
+      await previousAttempt.promise;
       return;
     }
-
-    const { sctp } = transport;
-    if (sctp.state === "closed") {
-      log("sctp closed");
-      return;
-    }
-    // Subscribe before starting so a transition during start is not missed.
-    const settled =
-      sctp.state === "connected"
-        ? undefined
-        : Promise.race([
-            sctp.stateChanged.connected.asPromise(),
-            sctp.stateChanged.closed.asPromise(),
-          ]);
-    const promise = (async () => {
-      await transport.ensureStarted(this.sctpRemotePort!);
-      // The state may have settled while starting.
-      if (settled && !["connected", "closed"].includes(sctp.state)) {
-        await settled;
+    const outcome = this.waitForSctpOutcome(association);
+    // Attach a fulfillment handler before starting SCTP.  INIT failure can
+    // synchronously transition the association to CLOSED, so awaiting only
+    // transport.start() would leave outcome.promise rejected and unhandled.
+    const outcomeResult = outcome.promise.then(
+      () => ({ ok: true as const }),
+      (error: unknown) => ({ ok: false as const, error }),
+    );
+    const attempt = (async () => {
+      try {
+        await transport.ensureStarted(this.sctpRemotePort!);
+        const result = await outcomeResult;
+        if (result.ok === false) {
+          throw result.error;
+        }
+        log("sctp connected");
+      } finally {
+        outcome.dispose();
       }
-      log("sctp", sctp.state);
     })();
-    const connecting = { transport, promise };
-    this.connecting = connecting;
+    const currentAttempt = { association, promise: attempt };
+    this.connectAttempt = currentAttempt;
     try {
-      await promise;
-    } finally {
-      if (this.connecting === connecting) this.connecting = undefined;
+      await attempt;
+    } catch (error) {
+      if (this.connectAttempt === currentAttempt) {
+        this.connectAttempt = undefined;
+      }
+      throw error;
     }
   }
 
-  /**
-   * A renegotiation pranswer / answer keeps the association (and its port)
-   * but updates the data max message size it negotiates.
-   */
+  private waitForSctpOutcome(sctp: SCTP) {
+    let settled = false;
+    let unSubscribeConnected = () => {};
+    let unSubscribeClosed = () => {};
+    const dispose = () => {
+      unSubscribeConnected();
+      unSubscribeClosed();
+      unSubscribeConnected = () => {};
+      unSubscribeClosed = () => {};
+    };
+
+    const promise = new Promise<void>((resolve, reject) => {
+      const complete = (callback: () => void) => {
+        if (settled) return;
+        settled = true;
+        dispose();
+        callback();
+      };
+
+      if (sctp.state === "connected") {
+        complete(resolve);
+        return;
+      }
+      if (sctp.state === "closed") {
+        complete(() => {
+          if (sctp.startCancellationError) {
+            reject(sctp.startCancellationError);
+          } else {
+            resolve();
+          }
+        });
+        return;
+      }
+
+      unSubscribeConnected = sctp.stateChanged.connected.subscribe(() =>
+        complete(resolve),
+      ).unSubscribe;
+      unSubscribeClosed = sctp.stateChanged.closed.subscribe(() =>
+        complete(() => {
+          if (sctp.startCancellationError) {
+            reject(sctp.startCancellationError);
+          } else {
+            // T1 exhaustion is a settled association outcome, not an error
+            // from start(). Keep the pre-WARP contract used by negotiation.
+            resolve();
+          }
+        }),
+      ).unSubscribe;
+    });
+
+    return { promise, dispose };
+  }
+
+  /** Update negotiated message size while retaining the current association. */
   updateRemoteMaxMessageSize(remoteMedia: MediaDescription) {
     this.sctpTransport?.setRemoteMaxMessageSize(
       remoteMedia.sctpCapabilities?.maxMessageSize,
@@ -408,6 +463,16 @@ export class SctpTransportManager {
       // UdpTransport.send は既知アドレスでは callback を待たない。呼び出し側が
       // 直後に ICE ソケットを閉じると queued な AbortChunk が落ちるので、1 tick 譲る。
       await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    // transport.stop() は rollback 用に未告知 (OPEN 待ち) の channel を残す。
+    // PeerConnection の close ではそれらも含めすべての channel を閉じる。
+    for (const channel of [...this.dataChannels]) {
+      if (channel.readyState === "closed") continue;
+      try {
+        channel.setReadyState("closed");
+      } catch (error) {
+        log("datachannel close callback failed", error);
+      }
     }
 
     this.onDataChannel.allUnsubscribe();

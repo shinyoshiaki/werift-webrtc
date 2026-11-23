@@ -1615,6 +1615,8 @@ Requires explicit DTLS 1.3 in `dtls.protocolVersions`
 (`dtls.protocolVersions` defaults to empty / DTLS 1.2 only).
 Cannot be combined with `dtls.helloRetryRequest: true`
 (SPED uses ICE-authenticated address validation, not a DTLS cookie).
+Both are validated by the constructor and `setConfiguration()`, which
+throw synchronously and leave the configuration unchanged.
 
 ##### transceiverPairing
 
@@ -1655,6 +1657,10 @@ after construction.
 Preferred IP family of the TURN/UDP socket, applied only when the TURN
 server is a hostname. Ignored for an IP literal server, whose own family
 always selects the socket. Defaults to 4 when undefined.
+
+##### warp
+
+> **warp**: \{ `allowEarlyServerData?`: `boolean`; `earlyMediaPolicy?`: `"buffer"` \| `"drop"`; `sendBeforeNomination?`: `boolean`; \} \| `undefined`
 
 ***
 

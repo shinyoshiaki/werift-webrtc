@@ -25,8 +25,9 @@ Rules that apply to one package or directory belong in the nearest `AGENTS.md`.
 7. Compare against another revision in a temporary worktree (`git worktree add --detach <tmp-dir> <rev>`). Don't check out, reset, or stash the active worktree: external tooling may auto-commit it at any time.
 8. Before a long-running verification, state the current revision, the uncommitted changes, and the intent, so interrupted work can be resumed.
 9. Run `git submodule update --init --recursive` after checkout before WPT work.
-10. Generated docs (`doc/`, `packages/*/doc`): resolve conflicts by regenerating with `npm run doc` from the final source, not by merging text. After a merge, check that public APIs match the generated docs, READMEs, and `changelog.md`.
-11. When code and docs disagree, decide the correct behavior from history, requirements, specs, and compatibility, then fix the side that is wrong.
+10. Keep CI-facing nested dependency installs cache-friendly and non-auditing (`npm install --prefer-offline --no-audit --no-fund --no-update-notifier`).
+11. Generated docs (`doc/`, `packages/*/doc`): resolve conflicts by regenerating with `npm run doc` from the final source, not by merging text. After a merge, check that public APIs match the generated docs, READMEs, and `changelog.md`.
+12. When code and docs disagree, decide the correct behavior from history, requirements, specs, and compatibility, then fix the side that is wrong.
 
 ## Don't
 

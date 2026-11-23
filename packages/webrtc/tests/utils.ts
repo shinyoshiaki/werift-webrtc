@@ -16,6 +16,7 @@ import {
   createLocalTurnServer,
   turnAllocations,
 } from "../../ice/tests/utils";
+import { SCTP_STATE } from "../../sctp/src";
 import { DataChunk, parsePacket } from "../../sctp/src/chunk";
 import type { SCTP } from "../../sctp/src/sctp";
 import {
@@ -484,6 +485,20 @@ export async function waitForConnectionState(
   ]);
 }
 
+/** Arrange: wait until the peer's SCTP association reaches ESTABLISHED. */
+export async function waitForSctpEstablished(
+  pc: RTCPeerConnection,
+  timeoutMs = 10_000,
+) {
+  const deadline = Date.now() + timeoutMs;
+  while (pc.sctpTransport?.sctp.associationState !== SCTP_STATE.ESTABLISHED) {
+    if (Date.now() > deadline) {
+      throw new Error("timed out waiting for the SCTP association");
+    }
+    await delay(10);
+  }
+}
+
 export async function waitForDtlsState(
   transport: RTCDtlsTransport,
   state: RTCDtlsTransport["state"],
@@ -527,6 +542,22 @@ export async function getTransportStats(pc: RTCPeerConnection) {
   return [...stats.values()].find(
     (stat): stat is RTCTransportStats => stat.type === "transport",
   );
+}
+
+/**
+ * Arrange: a description whose ICE credentials changed (a restart by its
+ * author only) and whose candidates have not arrived yet (trickled later).
+ */
+export function withRestartedIceCredentials(sdp: string) {
+  return sdp
+    .replace(/a=ice-ufrag:\S+/g, "a=ice-ufrag:rstr")
+    .replace(/a=ice-pwd:\S+/g, "a=ice-pwd:restartedpassword0123456789")
+    .split("\r\n")
+    .filter(
+      (line) =>
+        !line.startsWith("a=candidate:") && line !== "a=end-of-candidates",
+    )
+    .join("\r\n");
 }
 
 export function mutateSdpFingerprint(sdp: string) {
@@ -973,6 +1004,7 @@ export async function startActivationWaiting(
     state: "new",
     hasRemoteParameters: true,
     onStateChange: new Event<[string]>(),
+    onRoleChange: new Event<[]>(),
     start: vi.fn(async () => {}) as Mock<() => Promise<void>>,
   };
   const pending = waiter.startsWith("pending");

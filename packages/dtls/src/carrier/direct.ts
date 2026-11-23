@@ -29,6 +29,7 @@ export class DirectHandshakeCarrier implements DtlsHandshakeCarrier {
   private injectHandler?: (
     bytes: Buffer,
     peer?: InjectPeerAddr,
+    opts?: { rxGeneration?: number },
   ) => void | Promise<void>;
   private closed = false;
   private inboundInjectEpoch = 0;
@@ -57,7 +58,11 @@ export class DirectHandshakeCarrier implements DtlsHandshakeCarrier {
   }
 
   setInjectHandler(
-    handler: (bytes: Buffer, peer?: InjectPeerAddr) => void | Promise<void>,
+    handler: (
+      bytes: Buffer,
+      peer?: InjectPeerAddr,
+      opts?: { rxGeneration?: number },
+    ) => void | Promise<void>,
   ) {
     this.injectHandler = handler;
   }
@@ -94,7 +99,11 @@ export class DirectHandshakeCarrier implements DtlsHandshakeCarrier {
     await this.transport.send(wireBytes, addr);
   }
 
-  async inject(bytes: Buffer, peer?: InjectPeerAddr): Promise<void> {
+  async inject(
+    bytes: Buffer,
+    peer?: InjectPeerAddr,
+    opts?: { rxGeneration?: number },
+  ): Promise<void> {
     if (this.closed) return;
     const epoch = this.inboundInjectEpoch;
     await inboundInjectEpochAls.run(epoch, async () => {
@@ -102,7 +111,7 @@ export class DirectHandshakeCarrier implements DtlsHandshakeCarrier {
       if (this.closed || this.inboundInjectEpoch !== epoch) {
         return;
       }
-      await this.injectHandler?.(Buffer.from(bytes), peer);
+      await this.injectHandler?.(Buffer.from(bytes), peer, opts);
     });
   }
 

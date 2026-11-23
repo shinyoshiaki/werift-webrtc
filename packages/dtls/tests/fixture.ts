@@ -1,5 +1,6 @@
+import { spawn } from "child_process";
 import type { Address, Transport } from "../../common/src";
-import { UdpTransport } from "../../common/src";
+import { randomPort, UdpTransport } from "../../common/src";
 import type { SrtpProfile } from "../../rtp/src/srtp/const";
 import { DtlsClient, DtlsServer, DtlsVersion } from "../src";
 import {
@@ -9,6 +10,8 @@ import {
   SignatureAlgorithm,
 } from "../src/cipher/const";
 import { generateKeyPair } from "../src/cipher/namedCurve";
+import { SessionType } from "../src/cipher/suites/abstract";
+import { Dtls13Connection } from "../src/engine/v1_3/connection";
 import { EllipticCurves } from "../src/handshake/extensions/ellipticCurves";
 import { ExtendedMasterSecret } from "../src/handshake/extensions/extendedMasterSecret";
 import { KeyShare } from "../src/handshake/extensions/keyShare";
@@ -125,6 +128,12 @@ export type Dtls13PairExtra = {
   srtpProfiles?: SrtpProfile[];
   maxEarlyAppDataRecords?: number;
   maxEarlyAppDataBytes?: number;
+  /** Override the default `[1.3]` (e.g. `[1.2]` for legacy lifecycle tests). */
+  protocolVersions?: DtlsVersion[];
+  /** Required by the DTLS 1.2 handshake. */
+  signatureHash?: Options["signatureHash"];
+  /** Server-only override of `protocolVersions` (e.g. dual client → 1.2 server). */
+  serverProtocolVersions?: DtlsVersion[];
 };
 
 /**
@@ -135,16 +144,218 @@ export async function arrangeDtls13Pair(extra?: Dtls13PairExtra) {
   const serverTransport = await UdpTransport.init("udp4");
   const clientTransport = await UdpTransport.init("udp4");
   clientTransport.rinfo = serverTransport.address;
+  const { serverProtocolVersions, ...shared } = extra ?? {};
   const base = {
     cert: certPem,
     key: keyPem,
     protocolVersions: [DtlsVersion.V1_3] as const,
     addressValidation: "none" as const,
-    ...extra,
+    ...shared,
   };
-  const server = new DtlsServer({ transport: serverTransport, ...base });
+  const server = new DtlsServer({
+    transport: serverTransport,
+    ...base,
+    ...(serverProtocolVersions
+      ? { protocolVersions: serverProtocolVersions }
+      : {}),
+  });
   const client = new DtlsClient({ transport: clientTransport, ...base });
   return { server, client, serverTransport, clientTransport };
+}
+
+/**
+ * Arrange: `openssl s_server -dtls1_2` on an OS-assigned free UDP port.
+ *
+ * Fixed ports (e.g. 55562) sit inside the Linux ephemeral range, so any
+ * unrelated process can already hold them; openssl then fails to bind and
+ * the handshake only surfaces as a timeout. Pick the port at runtime, wait
+ * for openssl's `ACCEPT` instead of a fixed sleep, and report its stderr if
+ * it never starts listening.
+ */
+export async function spawnOpensslDtls12Server(
+  extraArgs: string[] = [],
+  { attempts = 3 }: { attempts?: number } = {},
+) {
+  for (let attempt = 1; ; attempt++) {
+    const port = await randomPort("udp4");
+    const proc = spawn("openssl", [
+      "s_server",
+      "-cert",
+      "./assets/cert.pem",
+      "-key",
+      "./assets/key.pem",
+      "-dtls1_2",
+      "-accept",
+      `127.0.0.1:${port}`,
+      ...extraArgs,
+    ]);
+    proc.stdout.setEncoding("ascii");
+    proc.stderr.setEncoding("ascii");
+    let stderr = "";
+    proc.stderr.on("data", (data: string) => {
+      stderr += data;
+    });
+
+    const listening = await new Promise<boolean>((resolve, reject) => {
+      const cleanup = () => {
+        clearTimeout(timer);
+        proc.stdout.off("data", onData);
+        proc.off("exit", onExit);
+        proc.off("error", onError);
+      };
+      const onData = (data: string) => {
+        if (data.includes("ACCEPT")) {
+          cleanup();
+          resolve(true);
+        }
+      };
+      const onExit = () => {
+        cleanup();
+        resolve(false);
+      };
+      const onError = (error: Error) => {
+        cleanup();
+        reject(error);
+      };
+      const timer = setTimeout(onExit, 5_000);
+      proc.stdout.on("data", onData);
+      proc.once("exit", onExit);
+      proc.once("error", onError);
+    });
+
+    if (listening) {
+      return {
+        port,
+        stdout: proc.stdout,
+        close: () => {
+          proc.kill("SIGTERM");
+        },
+      };
+    }
+    proc.kill("SIGTERM");
+    if (attempt >= attempts) {
+      throw new Error(
+        `openssl s_server did not start on 127.0.0.1:${port}: ${stderr.trim()}`,
+      );
+    }
+  }
+}
+
+/**
+ * Arrange: a plain DTLS 1.3 engine pair (Dtls13Connection) over loopback UDP,
+ * for tests that patch engine internals (e.g. the server's ACK send).
+ */
+export async function arrangeDtls13EnginePair({
+  certificateRequest = false,
+}: {
+  certificateRequest?: boolean;
+} = {}) {
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+  const base = {
+    cert: certPem,
+    key: keyPem,
+    addressValidation: "none" as const,
+    offeredProtocolVersions: [DtlsVersion.V1_3],
+  };
+  const server = new Dtls13Connection(
+    { ...base, transport: serverTransport, certificateRequest },
+    SessionType.SERVER,
+  );
+  const client = new Dtls13Connection(
+    { ...base, transport: clientTransport },
+    SessionType.CLIENT,
+  );
+  return {
+    server,
+    client,
+    serverTransport,
+    clientTransport,
+    close: async () => {
+      client.close();
+      server.close();
+      await Promise.allSettled([
+        serverTransport.close(),
+        clientTransport.close(),
+      ]);
+    },
+  };
+}
+
+/**
+ * Arrange: DTLS 1.3 engine pair where the server has epoch-3 write keys and
+ * the client has epoch-3 read keys but its markConnected() is held, so server
+ * application data lands in the client's pre-connect early buffer.
+ * `release()` lets the client finish the handshake.
+ */
+export async function arrangeHeldEarlyServerAppData(
+  clientLimits: {
+    maxEarlyAppDataRecords?: number;
+    maxEarlyAppDataBytes?: number;
+  } = {},
+) {
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+  const base = {
+    cert: certPem,
+    key: keyPem,
+    addressValidation: "none" as const,
+    offeredProtocolVersions: [DtlsVersion.V1_3],
+  };
+  const server = new Dtls13Connection(
+    { ...base, transport: serverTransport },
+    SessionType.SERVER,
+  );
+  const client = new Dtls13Connection(
+    { ...base, transport: clientTransport, ...clientLimits },
+    SessionType.CLIENT,
+  );
+
+  // epoch-3 鍵は入れつつ markConnected だけ遅らせ、早期バッファを観測する
+  const originalMarkConnected = client["markConnected"].bind(client);
+  let heldOpts: Parameters<Dtls13Connection["markConnected"]> | undefined;
+  client["markConnected"] = (opts) => {
+    heldOpts = [opts];
+  };
+  const received: string[] = [];
+  client.onData.subscribe((data) => {
+    received.push(data.toString());
+  });
+  const errors: Error[] = [];
+  client.onError.subscribe((e) => errors.push(e));
+  server.onError.subscribe((e) => errors.push(e));
+
+  void client.connect();
+  for (let i = 0; i < 100; i++) {
+    if (client["epochs"].get(3)?.readKeys && !client.connected) break;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  for (let i = 0; i < 50; i++) {
+    if (server["writeEpoch"] >= 3) break;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+
+  return {
+    server,
+    client,
+    received,
+    errors,
+    /** Resume the held markConnected() and wait for the client onConnect. */
+    release: async () => {
+      const connected = new Promise<void>((resolve) => {
+        client.onConnect.subscribe(() => resolve());
+      });
+      client["markConnected"] = originalMarkConnected;
+      originalMarkConnected(...(heldOpts ?? []));
+      await connected;
+    },
+    close: () => {
+      client.close();
+      server.close();
+    },
+  };
 }
 
 /**
@@ -166,6 +377,52 @@ export function createSilentTransport() {
     },
   };
   return { transport, sent };
+}
+
+/**
+ * Arrange: a DTLS 1.3 self pair stopped part-way through the handshake.
+ * - `server-before-peer-finished`: the server is write-ready but holds the
+ *   client's Finished (peer not authenticated, handshake not complete).
+ * - `client-before-final-ack`: the client is connected (peer authenticated)
+ *   but the server never ACKs the client's final flight.
+ * `release()` lets a held handshake continue so the pair can shut down.
+ */
+export async function arrangePartialDtls13Handshake(
+  stop: "server-before-peer-finished" | "client-before-final-ack",
+) {
+  const pair = await arrangeDtls13Pair({
+    signatureHash: {
+      hash: HashAlgorithm.sha256_4,
+      signature: SignatureAlgorithm.rsa_1,
+    },
+  });
+  const { server, client } = pair;
+  let release = () => {};
+  const engine = (
+    server as unknown as {
+      engine13: {
+        onClientFinished: () => Promise<void>;
+        sendAck: () => Promise<number>;
+      };
+    }
+  ).engine13;
+  if (stop === "server-before-peer-finished") {
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    engine.onClientFinished = async () => {
+      await held;
+    };
+    await client.connect();
+    await server.waitForWriteReady();
+  } else {
+    engine.sendAck = async () => 0;
+    const connected = client.onConnect.asPromise();
+    await client.connect();
+    await connected;
+  }
+  const stopped = stop === "server-before-peer-finished" ? server : client;
+  return { ...pair, stopped, release: () => release() };
 }
 
 /** signatureHash matching the RSA fixture certificate ({@link certPem} / {@link keyPem}). */

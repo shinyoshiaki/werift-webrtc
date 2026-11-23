@@ -211,8 +211,37 @@ export interface PeerConfig {
    * (`dtls.protocolVersions` defaults to empty / DTLS 1.2 only).
    * Cannot be combined with `dtls.helloRetryRequest: true`
    * (SPED uses ICE-authenticated address validation, not a DTLS cookie).
+   * Both are validated by the constructor and `setConfiguration()`, which
+   * throw synchronously and leave the configuration unchanged.
    */
   sped?: boolean;
+  /**
+   * WARP early outbound and encrypted-media buffering policy.
+   * - `allowEarlyServerData` (default false): the DTLS server may send
+   *   application data / media before the SDP fingerprint is verified.
+   *   Requires {@link PeerConfig.sped} `true` and DTLS 1.3; the constructor
+   *   and `setConfiguration()` throw synchronously otherwise.
+   * - `earlyMediaPolicy` (default `"drop"`): `"buffer"` retains inbound
+   *   encrypted media received before authentication (bounded) instead of
+   *   dropping it. Inbound data is never delivered before authentication.
+   * - `sendBeforeNomination` (default false): once the DTLS handshake is
+   *   done on this side (the DTLS client right after its Finished) and the
+   *   peer is authenticated, send application data and media on a valid
+   *   candidate pair (its own connectivity check succeeded) instead of
+   *   waiting for ICE nomination and consent (RFC 8445 §12.1, SPED
+   *   draft-00 §3.1.2.2). Applies only until a selected pair exists; never
+   *   during an ICE restart or on relay pairs. A peer that drops data
+   *   arriving before its own nomination only loses it like any packet loss
+   *   (SCTP retransmits). Requires {@link PeerConfig.sped} `true`; the
+   *   constructor and `setConfiguration()` throw synchronously otherwise.
+   * `setConfiguration()` merges these fields and applies them to every open
+   * DTLS transport, including ones a pending description prepared.
+   */
+  warp?: {
+    allowEarlyServerData?: boolean;
+    earlyMediaPolicy?: "drop" | "buffer";
+    sendBeforeNomination?: boolean;
+  };
   /**
    * Integrity attributes of the ICE connectivity checks and consent requests
    * werift sends (RFC 8489 short-term credentials). Applies to ICE transports
@@ -239,7 +268,7 @@ export interface PeerConfig {
     /**
      * DTLS protocol versions in preference order.
      * Unspecified / empty keeps DTLS 1.2 only. DTLS 1.3 requires explicit opt-in.
-     * Independent of {@link PeerConfig.sped} (SPED also requires DTLS 1.3 at connect()).
+     * Independent of {@link PeerConfig.sped} (SPED also requires DTLS 1.3; validated by the constructor / setConfiguration()).
      */
     protocolVersions: readonly DtlsVersion[];
     /**
@@ -597,6 +626,11 @@ export function generateDefaultPeerConfig(): Required<PeerConfig> {
     iceUseLinkLocalAddress: undefined,
     dtls: {},
     sped: false,
+    warp: {
+      allowEarlyServerData: false,
+      earlyMediaPolicy: "drop",
+      sendBeforeNomination: false,
+    },
     bundlePolicy: "max-compat",
     rtcpMuxPolicy: "require",
     iceCandidatePoolSize: 0,
@@ -676,6 +710,19 @@ function normalizePeerConfiguration(
     normalizedConfig.sped = input.sped === true;
   }
 
+  if ("warp" in input) {
+    if (
+      input.warp?.earlyMediaPolicy !== undefined &&
+      input.warp.earlyMediaPolicy !== "drop" &&
+      input.warp.earlyMediaPolicy !== "buffer"
+    ) {
+      throw createWebRtcTypeError(
+        'warp.earlyMediaPolicy must be "drop" or "buffer"',
+      );
+    }
+    normalizedConfig.warp = input.warp ? { ...input.warp } : {};
+  }
+
   return normalizedConfig;
 }
 
@@ -735,6 +782,7 @@ export function clonePeerConfiguration(config: PeerConfig) {
         : undefined,
       helloRetryRequest: config.dtls.helloRetryRequest,
     },
+    warp: config.warp ? { ...config.warp } : undefined,
     certificates: [...config.certificates],
     debug: { ...config.debug },
     sctp: { ...config.sctp },
@@ -772,6 +820,9 @@ export function mergePeerConfiguration(
   },
 ) {
   const normalizedConfig = normalizePeerConfiguration(input);
+  if (normalizedConfig.warp !== undefined) {
+    normalizedConfig.warp = { ...config.warp, ...normalizedConfig.warp };
+  }
 
   if (
     normalizedConfig.rtcpMuxPolicy &&
@@ -932,6 +983,32 @@ export function mergePeerConfiguration(
   if (normalizedConfig.dtls !== undefined) {
     deepMerge(nextDtls, normalizedConfig.dtls);
     normalizedConfig.dtls = nextDtls;
+  }
+  const nextWarp = { ...config.warp, ...normalizedConfig.warp };
+  const nextSped = normalizedConfig.sped ?? config.sped;
+  const nextHasDtls13 = (nextDtls.protocolVersions ?? []).some(
+    (version) => String(version) === "1.3",
+  );
+  if (nextSped === true && !nextHasDtls13) {
+    throw new Error(
+      "PeerConfig.sped requires DTLS 1.3 in dtls.protocolVersions",
+    );
+  }
+  if (nextSped === true && nextDtls.helloRetryRequest) {
+    throw new Error(
+      "PeerConfig.sped cannot be combined with dtls.helloRetryRequest",
+    );
+  }
+  if (
+    nextWarp.allowEarlyServerData === true &&
+    (nextSped !== true || !nextHasDtls13)
+  ) {
+    throw new Error(
+      "warp.allowEarlyServerData requires PeerConfig.sped and DTLS 1.3",
+    );
+  }
+  if (nextWarp.sendBeforeNomination === true && nextSped !== true) {
+    throw new Error("warp.sendBeforeNomination requires PeerConfig.sped");
   }
 
   if (dtlsTransportCreated) {

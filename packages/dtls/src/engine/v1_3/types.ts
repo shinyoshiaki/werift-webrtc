@@ -80,10 +80,30 @@ export const MAX_EARLY_APP_DATA_RECORDS = 256;
  * couple of back-to-back messages.
  */
 export const MAX_EARLY_APP_DATA_BYTES = 256 * 1024;
+export const EARLY_APP_DATA_RETENTION_MS = 2_000;
+
+/**
+ * Pre-authentication queue limits shared by the DTLS engine's early
+ * app-data buffer and the WebRTC fingerprint gate / early media buffer, so a
+ * spec limit change applies to every pre-auth queue at once.
+ */
+export const EARLY_DATA_LIMITS = Object.freeze({
+  maxRecords: MAX_EARLY_APP_DATA_RECORDS,
+  maxBytes: MAX_EARLY_APP_DATA_BYTES,
+  retentionMs: EARLY_APP_DATA_RETENTION_MS,
+});
+
+export interface DtlsReadiness {
+  writeReady: boolean;
+  peerHandshakeAuthenticated: boolean;
+  handshakeComplete: boolean;
+}
 /**
  * Opt-in unbounded early-app-data buffer for trusted P2P paths.
  * Pass as `maxEarlyAppDataRecords` / `maxEarlyAppDataBytes`.
- * There is no hidden ceiling — the association will buffer until `onConnect`.
+ * This removes only the record / byte caps. The {@link EARLY_APP_DATA_RETENTION_MS}
+ * (2 s) retention still applies: if `onConnect` does not happen within it,
+ * the whole buffered queue is dropped (counted in the early-data stats).
  */
 export const EARLY_APP_DATA_UNLIMITED = Number.POSITIVE_INFINITY;
 
@@ -158,13 +178,14 @@ export interface Dtls13Options {
    * Max epoch-3 application-data records buffered before markConnected
    * (UDP reorder / 0.5-RTT). Default {@link MAX_EARLY_APP_DATA_RECORDS} (256).
    * Sized for WebRTC DataChannel. Use {@link EARLY_APP_DATA_UNLIMITED} on
-   * trusted P2P paths (no ceiling).
+   * trusted P2P paths (no record cap; the 2 s retention still applies).
    */
   maxEarlyAppDataRecords?: number;
   /**
    * Max bytes of epoch-3 application data buffered before markConnected.
    * Default {@link MAX_EARLY_APP_DATA_BYTES} (256 KiB).
-   * Use {@link EARLY_APP_DATA_UNLIMITED} on trusted P2P paths (no ceiling).
+   * Use {@link EARLY_APP_DATA_UNLIMITED} on trusted P2P paths (no byte cap;
+   * the 2 s retention still applies).
    */
   maxEarlyAppDataBytes?: number;
   /**

@@ -72,16 +72,6 @@ Dual client also flips dualPhase=closed; this flag is the base guard.
 
 ***
 
-### connected
-
-> **connected**: `boolean` = `false`
-
-#### Inherited from
-
-[`DtlsSocket`](DtlsSocket.md).[`connected`](DtlsSocket.md#connected)
-
-***
-
 ### dtls
 
 > **dtls**: `DtlsContext`
@@ -174,7 +164,7 @@ peer certificate), and with other errors raised by the handshake.
 
 ### onHandleHandshakes
 
-> **onHandleHandshakes**: (`assembled`, `peer?`) => `Promise`\<`void`\>
+> **onHandleHandshakes**: (`assembled`, `peer?`, `meta?`) => `Promise`\<`void`\>
 
 Assembled handshake handler. `peer` is the source of the datagram that
 produced these messages (explicit UDP/inject addr) — async handlers must
@@ -189,6 +179,10 @@ reply to this address rather than reading mutable transport.rinfo.
 ##### peer?
 
 readonly \[`string`, `number`\]
+
+##### meta?
+
+[`DatagramRxMeta`](../interfaces/DatagramRxMeta.md)
 
 #### Returns
 
@@ -263,6 +257,36 @@ Default upper bound (ms) for waiting until an alert has been sent.
 [`DtlsSocket`](DtlsSocket.md).[`AlertSendTimeoutMs`](DtlsSocket.md#alertsendtimeoutms)
 
 ## Accessors
+
+### connected
+
+#### Get Signature
+
+> **get** **connected**(): `boolean`
+
+##### Returns
+
+`boolean`
+
+#### Set Signature
+
+> **set** **connected**(`value`): `void`
+
+##### Parameters
+
+###### value
+
+`boolean`
+
+##### Returns
+
+`void`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`connected`](DtlsSocket.md#connected)
+
+***
 
 ### handshakeStopped
 
@@ -761,7 +785,7 @@ returns a message only once every byte was received"
 
 ### handleUdpDatagram()
 
-> `protected` **handleUdpDatagram**(`data`, `addr?`): `void`
+> `protected` **handleUdpDatagram**(`data`, `addr?`, `meta?`): `void`
 
 Process one UDP datagram on the DTLS 1.2 record path.
 Subclasses (dual client) may intercept before calling this.
@@ -779,6 +803,10 @@ via unauthenticated alerts.
 ##### addr?
 
 readonly \[`string`, `number`\]
+
+##### meta?
+
+[`DatagramRxMeta`](../interfaces/DatagramRxMeta.md)
 
 #### Returns
 
@@ -811,6 +839,24 @@ but either is sufficient for association-lifecycle alert decisions.
 #### Inherited from
 
 [`DtlsSocket`](DtlsSocket.md).[`hasAssociationPeerAuth`](DtlsSocket.md#hasassociationpeerauth)
+
+***
+
+### invalidateLegacy12HandshakeOwnership()
+
+> `protected` **invalidateLegacy12HandshakeOwnership**(): `void`
+
+Invalidate legacy handshake callbacks that no longer own the association.
+Used by dual-version selection and renegotiation before replacing the
+lower-level state while keeping the public socket alive.
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`invalidateLegacy12HandshakeOwnership`](DtlsSocket.md#invalidatelegacy12handshakeownership)
 
 ***
 
@@ -857,6 +903,34 @@ Driven by [peerIdentityMode](DtlsSocket.md#peeridentitymode) (public Options) wh
 #### Inherited from
 
 [`DtlsSocket`](DtlsSocket.md).[`isAuthenticatedSinglePeerTransport`](DtlsSocket.md#isauthenticatedsinglepeertransport)
+
+***
+
+### isCurrentRxGeneration()
+
+> `protected` **isCurrentRxGeneration**(`rxGeneration?`): `boolean`
+
+Check the carrier generation at every DTLS 1.2 receive boundary.
+
+DTLS 1.3 performs this check again when its record queue resumes.  The
+legacy path has asynchronous Flight handlers instead, so the association
+must reject an old datagram both before parsing and after each await.  An
+unset provider means this socket is being used by the standalone UDP API,
+where no carrier generation exists and the check is intentionally disabled.
+
+#### Parameters
+
+##### rxGeneration?
+
+`number`
+
+#### Returns
+
+`boolean`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`isCurrentRxGeneration`](DtlsSocket.md#iscurrentrxgeneration)
 
 ***
 
@@ -965,6 +1039,26 @@ skip a listener registered after it.
 
 ***
 
+### notifyEngine13Selected()
+
+> `protected` **notifyEngine13Selected**(): `void`
+
+Notify association-level readiness waiters that DTLS 1.3 is active.
+
+A dual-stack client can resume a parked candidate without rebuilding its
+event bridge, so that path must share the same selection notification as a
+freshly created engine.
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`notifyEngine13Selected`](DtlsSocket.md#notifyengine13selected)
+
+***
+
 ### onEngine13PeerOrLocalClose()
 
 > `protected` **onEngine13PeerOrLocalClose**(): `void`
@@ -980,6 +1074,43 @@ hard-close carrier / transport / candidates.
 #### Inherited from
 
 [`DtlsSocket`](DtlsSocket.md).[`onEngine13PeerOrLocalClose`](DtlsSocket.md#onengine13peerorlocalclose)
+
+***
+
+### ownsLegacy12Handshake()
+
+> `protected` **ownsLegacy12Handshake**(`ownership`, `rxGeneration`, `peer?`): `boolean`
+
+Check ownership before an asynchronous legacy handshake rejection is
+allowed to change association state.
+
+The receive path validates these conditions before starting the async
+handler, but a later rejection resumes outside that synchronous boundary.
+A DTLS 1.2 handler from an old ICE generation, a released dual candidate,
+or a changed peer pin must be discarded instead of failing the current
+association.
+
+#### Parameters
+
+##### ownership
+
+`number`
+
+##### rxGeneration
+
+`number` \| `undefined`
+
+##### peer?
+
+readonly \[`string`, `number`\]
+
+#### Returns
+
+`boolean`
+
+#### Inherited from
+
+[`DtlsSocket`](DtlsSocket.md).[`ownsLegacy12Handshake`](DtlsSocket.md#ownslegacy12handshake)
 
 ***
 
@@ -1258,7 +1389,7 @@ Explicit peer for this reply. Required pre-cookie so a concurrent
 
 ### udpOnMessage()
 
-> `protected` **udpOnMessage**(`data`, `addr?`): `void` \| `Promise`\<`void`\>
+> `protected` **udpOnMessage**(`data`, `addr?`, `meta?`): `void` \| `Promise`\<`void`\>
 
 Association RX: 1.3 engine when active, else DTLS 1.2 record path.
 Terminal association drops all inbound (UDP and inject).
@@ -1272,6 +1403,10 @@ Terminal association drops all inbound (UDP and inject).
 ##### addr?
 
 readonly \[`string`, `number`\]
+
+##### meta?
+
+[`DatagramRxMeta`](../interfaces/DatagramRxMeta.md)
 
 #### Returns
 

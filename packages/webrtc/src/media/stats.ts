@@ -236,6 +236,19 @@ export interface RTCTransportStats extends RTCStats {
   srtpCipher?: string;
   selectedCandidatePairChanges?: number;
   iceRestarts?: number;
+  warpSpedState?: "disabled" | "probing" | "active" | "fallback";
+  warpCarrier?: "direct" | "sped";
+  warpHandshakeRttMs?: number;
+  warpDtlsRetransmissions?: number;
+  warpSpedRetransmissions?: number;
+  warpEarlyBufferedPackets?: number;
+  warpEarlyBufferedBytes?: number;
+  warpEarlyDroppedPackets?: number;
+  warpEarlyDroppedBytes?: number;
+  warpEarlyServerSendUsed?: boolean;
+  /** WARP `sendBeforeNomination`: data or media left on a valid pair before ICE nomination. */
+  warpPreNominationSendUsed?: boolean;
+  iceGeneration?: number;
 }
 
 export interface RTCIceCandidateStats extends RTCStats {

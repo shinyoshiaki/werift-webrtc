@@ -18,7 +18,7 @@ A small number of intentional or known edge-case differences remain for backward
 
 ## DTLS 1.3 opt-in
 
-Default `new RTCPeerConnection()` still uses DTLS 1.2 only. DTLS 1.3 is an explicit opt-in via `dtls.protocolVersions`. SPED (DTLS handshake in ICE Binding) is a separate opt-in via `sped: true` (default false) and requires DTLS 1.3 at `connect()`.
+Default `new RTCPeerConnection()` still uses DTLS 1.2 only. DTLS 1.3 is an explicit opt-in via `dtls.protocolVersions`. SPED (DTLS handshake in ICE Binding) is a separate opt-in via `sped: true` (default false) and requires DTLS 1.3; the constructor and `setConfiguration()` reject `sped: true` without it.
 
 On the ICE-selected path, DTLS 1.3 omits the HelloRetryRequest cookie exchange by default so the handshake does not pay an extra RTT. Set `dtls.helloRetryRequest: true` only when you want a cookie-bearing HRR. Group-only HRR for `key_share` correction is unrelated and may still be sent.
 
@@ -50,7 +50,36 @@ const cookieHrr = new RTCPeerConnection({
 
 ## SPED opt-in
 
-`PeerConfig.sped` defaults to `false`: ICE completes, then DTLS starts. Set `sped: true` together with DTLS 1.3 so this PeerConnection embeds the DTLS 1.3 handshake in authenticated ICE Binding attributes (`0xC070` / `0xC071`). `connect()` throws if `sped` is true and `dtls.protocolVersions` does not include `"1.3"`. Against a peer without SPED (no `0xC070` in its first authenticated Binding) the DTLS 1.3 flight is sent directly with the same bytes; if `dtls.protocolVersions` also offers `"1.2"`, this side runs the standard DTLS handshake with the configured versions instead (as `sped: false` would), so a DTLS 1.2-only peer still connects. SPED is not carried over relay / TURN: when ICE selects such a pair before the peer's SPED support is known, DTLS also goes direct on that pair (the standard handshake when `"1.2"` is offered and no handshake packet was embedded yet). `sped: true` cannot be combined with `dtls.helloRetryRequest: true` (SPED uses ICE-authenticated address validation, not a DTLS cookie). Only a `sped: true` PeerConnection applies the SPED request boundary on its ICE agent: incoming Binding requests must carry a valid `MESSAGE-INTEGRITY` (others are dropped), a check carrying an older generation's ufrag is answered without touching the current checklist, and checks arriving before `connect()` are paired at once and held until it. Without `sped` the ICE agent keeps its default request handling.
+`PeerConfig.sped` defaults to `false`: ICE completes, then DTLS starts. Set `sped: true` together with DTLS 1.3 so this PeerConnection embeds the DTLS 1.3 handshake in authenticated ICE Binding attributes (`0xC070` / `0xC071`). The `RTCPeerConnection` constructor and `setConfiguration()` throw synchronously (and leave the configuration unchanged) if `sped` is true and `dtls.protocolVersions` does not include `"1.3"`. Against a peer without SPED (no `0xC070` in its first authenticated Binding) the first DTLS flight is sent directly with the same bytes, never re-serialized. If `dtls.protocolVersions` also offers `"1.2"`, a dual-stack client's first ClientHello carries the DTLS 1.2 extensions, so a DTLS 1.2-only peer answers it and still connects over DTLS 1.2. SPED is not carried over relay / TURN: when ICE selects such a pair before the peer's SPED support is known, DTLS goes direct on that pair in the same way. `sped: true` cannot be combined with `dtls.helloRetryRequest: true` (SPED uses ICE-authenticated address validation, not a DTLS cookie); this is rejected the same way. Only a `sped: true` PeerConnection applies the SPED request boundary on its ICE agent: incoming Binding requests must carry a valid `MESSAGE-INTEGRITY` (others are dropped), a check carrying an older generation's ufrag is answered without touching the current checklist, and checks arriving before `connect()` are paired at once and held until it. Without `sped` the ICE agent keeps its default request handling.
+
+A `sped: true` PeerConnection advertises `a=ice-options:sped` in its offers and answers. draft-hancke-webrtc-sped-00 negotiates SPED in band, but Chromium (field trial `WebRTC-IceHandshakeDtls/Enabled/`) and Pion (pion/webrtc#3362) use SPED only when the offer advertises `sped`. werift has been checked against both with SPED on, in both offer directions (`e2e`: `npm run sped:ci`; `packages/webrtc`: `npm run test:pion-webrtc-sped`).
+
+WARP early server traffic is separately and explicitly enabled with
+`warp: { allowEarlyServerData: true }`. It requires both `sped: true` and DTLS
+1.3; otherwise the constructor and `setConfiguration()` throw synchronously. Inbound application data and media remain hidden until the SDP
+fingerprint matches. Pre-authentication encrypted media is dropped by default;
+set `warp.earlyMediaPolicy` to `"buffer"` to retain up to 256 packets / 256 KiB
+for at most two seconds.
+
+`warp: { sendBeforeNomination: true }` (requires `sped: true`) lets this side
+send application data and media as soon as its DTLS handshake is done (the
+DTLS client right after its Finished) and the peer is authenticated, on a
+valid candidate pair (its own connectivity check succeeded) instead of waiting
+for ICE nomination and consent (RFC 8445 §12.1, SPED draft-00 §3.1.2.2). It
+applies only until ICE has a selected pair, never during an ICE restart, and
+never on relay pairs. A peer that drops data arriving before its own
+nomination only loses it like any other packet (SCTP retransmits). Transport
+stats report `warpPreNominationSendUsed` when it was used.
+
+`close()` can interrupt the DTLS handshake with or without DataChannels.
+Revoking early sending with `setConfiguration({ warp: {
+allowEarlyServerData: false } })` cancels unfinished SCTP starts of the DTLS
+server. A cancelled association stays closed even if an in-flight send
+completes later; a retry uses a fresh association. Once COOKIE_ECHO or
+COOKIE_ACK has been handed to DTLS the peer may already be established, so the
+start is no longer cancelled: a send that fails afterwards counts as packet
+loss and SCTP retransmits (immediately on cancel/revoke and when DTLS
+connects) on the same association.
 
 ```ts
 const pc = new RTCPeerConnection({
