@@ -293,12 +293,17 @@ export class SessionDescription {
               break;
             case "rid":
               {
-                const [rid, direction] = divide(value, " ");
+                const [rid, rest] = divide(value, " ");
+                // (tests/sdp.test.ts "a=rid の方向と制約を分けて読み、書き戻すと元の行になる")
+                const [direction, ...restrictions] = (rest ?? "").split(" ");
 
                 currentMedia.simulcastParameters.push(
                   new RTCRtpSimulcastParameters({
                     rid,
                     direction: direction as any,
+                    ...(restrictions.length
+                      ? { restrictions: restrictions.join(" ") }
+                      : {}),
                   }),
                 );
               }
@@ -621,7 +626,11 @@ export class MediaDescription {
     // simulcast
     if (this.simulcastParameters.length) {
       this.simulcastParameters.forEach((param) => {
-        lines.push(`a=rid:${param.rid} ${param.direction}`);
+        lines.push(
+          `a=rid:${param.rid} ${param.direction}${
+            param.restrictions ? ` ${param.restrictions}` : ""
+          }`,
+        );
       });
       let line = `a=simulcast:`;
       const recv = this.simulcastParameters.filter(

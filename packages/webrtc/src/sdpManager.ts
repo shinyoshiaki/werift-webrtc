@@ -1095,6 +1095,8 @@ export class SDPManager {
           (v) => ({
             ...v,
             direction: v.direction === "send" ? "recv" : "send",
+            // (tests/media/firefoxSimulcastSsrc.test.ts "制約付き RID の offer への answer は recv を返し、offer 側がその answer を適用できる")
+            restrictions: undefined,
           }),
         );
       }

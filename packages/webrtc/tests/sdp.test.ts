@@ -315,3 +315,49 @@ describe("ice-options", () => {
     });
   });
 });
+
+describe("a=rid restrictions (RFC 8851)", () => {
+  const offer = [
+    "v=0",
+    "o=- 1 2 IN IP4 0.0.0.0",
+    "s=-",
+    "t=0 0",
+    "m=video 9 UDP/TLS/RTP/SAVPF 96",
+    "c=IN IP4 0.0.0.0",
+    "a=mid:0",
+    "a=rtpmap:96 VP8/90000",
+    "a=rid:high send max-width=1280;max-height=720",
+    "a=rid:low send",
+    "a=simulcast:send high;low",
+    "",
+  ].join("\r\n");
+
+  test("a=rid の方向と制約を分けて読み、書き戻すと元の行になる", () => {
+    // Act: parse して文字列に戻す。
+    const parsed = SessionDescription.parse(offer);
+    const written = parsed.string;
+
+    // Assert: 方向は send だけで、制約は restrictions に入り、制約のない RID には付かない。
+    expect(
+      parsed.media[0].simulcastParameters.map(
+        ({ rid, direction, restrictions }) => ({
+          rid,
+          direction,
+          restrictions,
+        }),
+      ),
+    ).toEqual([
+      {
+        rid: "high",
+        direction: "send",
+        restrictions: "max-width=1280;max-height=720",
+      },
+      { rid: "low", direction: "send", restrictions: undefined },
+    ]);
+    // Assert: 書き戻した a=rid 行は元と同じ。
+    expect(written).toContain(
+      "a=rid:high send max-width=1280;max-height=720\r\n",
+    );
+    expect(written).toContain("a=rid:low send\r\n");
+  });
+});

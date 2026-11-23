@@ -140,8 +140,20 @@ export class RTCRtpReceiver {
     );
   }
   private readonly ssrcByRtx: { [rtxSsrc: number]: number } = {};
+  /**
+   * RTX SSRC → media SSRC of the committed FID pairs of a RID m-line, read
+   * per packet by {@link mediaSsrcOfRtx}
+   * (tests/media/firefoxSimulcastSsrc.test.ts "再 offer が 2 レイヤーの FID の RTX SSRC を交換して確定したら、repaired RID がなくても RTX は新しい対応先のレイヤーで復元される").
+   */
+  private readonly ridFidMediaByRtx: { [rtxSsrc: number]: number } = {};
   private readonly stagedCodecs: { [pt: number]: RTCRtpCodecParameters } = {};
   private readonly stagedSsrcByRtx: { [rtxSsrc: number]: number } = {};
+  /**
+   * The latest pending description's whole FID table; the commit replaces
+   * {@link ridFidMediaByRtx} with it
+   * (tests/media/firefoxSimulcastSsrc.test.ts "pranswer を 2 回適用してから answer で確定しても、FID 表は最後の answer の組だけになり、repaired RID のない RTX はその組で復元される").
+   */
+  private stagedRidFidTable?: { [rtxSsrc: number]: number };
   /** SSRCs of `trackBySSRC` learned from RID packets rather than SDP. */
   readonly learnedTrackSsrcs = new Set<number>();
   /**
@@ -164,6 +176,8 @@ export class RTCRtpReceiver {
   /** SSRCs retired by a media SSRC change, per RID, oldest first. */
   readonly retiredSsrcsByRid: { [rid: string]: number[] } = {};
   private readonly forgottenSsrcs: number[] = [];
+  /** FID RTX SSRCs a commit removed ({@link takeDroppedFidRtxSsrcs}). */
+  private readonly droppedFidRtxSsrcs: number[] = [];
   private readonly rejectedSsrcs: number[] = [];
   private readonly nack = new NackHandler(this);
   private readonly audioRedHandler = new RedHandler();
@@ -543,14 +557,34 @@ export class RTCRtpReceiver {
         this.codecs[c.payloadType] = c;
       }
     });
-    params.encodings.forEach((e) => {
-      if (!e.rtx) return;
-      const existing = this.ssrcByRtx[e.rtx.ssrc];
-      if (deferConflicts && existing !== undefined && existing !== e.ssrc) {
-        this.stagedSsrcByRtx[e.rtx.ssrc] = e.ssrc;
+    const pairs = [
+      ...params.encodings.flatMap((e) =>
+        e.rtx ? [{ ssrc: e.ssrc, rtxSsrc: e.rtx.ssrc }] : [],
+      ),
+    ];
+    if (deferConflicts) {
+      this.stagedRidFidTable = Object.fromEntries(
+        (params.ridRtxPairs ?? []).map(({ ssrc, rtxSsrc }) => [rtxSsrc, ssrc]),
+      );
+    }
+    params.ridRtxPairs?.forEach(({ ssrc, rtxSsrc }) => {
+      const existing = this.ridFidMediaByRtx[rtxSsrc];
+      const inUse = existing === undefined && rtxSsrc in this.ridByRtxSsrc;
+      const changes = existing !== undefined && existing !== ssrc;
+      // Staged until the commit
+      // (tests/media/firefoxSimulcastSsrc.test.ts "保留中の offer が同じ RTX SSRC に別の FID 媒体 SSRC を割り当てても、現行セッションの RTX は復元され、rollback 後も元の対応に戻る";
+      // tests/media/firefoxSimulcastSsrc.test.ts "現行通信が repaired RID で RID high に学習した RTX SSRC を、保留中の offer が RID low の FID に記載しても、確定まで high の RTX は復元され、rollback 後も復元される").
+      if (deferConflicts && (changes || inUse)) return;
+      if (changes) this.unbindRtxSsrc(rtxSsrc);
+      this.ridFidMediaByRtx[rtxSsrc] = ssrc;
+    });
+    pairs.forEach(({ ssrc, rtxSsrc }) => {
+      const existing = this.ssrcByRtx[rtxSsrc];
+      if (deferConflicts && existing !== undefined && existing !== ssrc) {
+        this.stagedSsrcByRtx[rtxSsrc] = ssrc;
       } else {
-        delete this.stagedSsrcByRtx[e.rtx.ssrc];
-        this.ssrcByRtx[e.rtx.ssrc] = e.ssrc;
+        delete this.stagedSsrcByRtx[rtxSsrc];
+        this.ssrcByRtx[rtxSsrc] = ssrc;
       }
     });
   }
@@ -562,14 +596,23 @@ export class RTCRtpReceiver {
   discardStagedReceive() {
     clearTable(this.stagedCodecs);
     clearTable(this.stagedSsrcByRtx);
+    this.stagedRidFidTable = undefined;
   }
 
   /** Internal: the transaction committed, staged payload types and RTX pairs apply. */
   commitStagedReceive() {
     Object.assign(this.codecs, this.stagedCodecs);
     Object.assign(this.ssrcByRtx, this.stagedSsrcByRtx);
+    const before = { ...this.ridFidMediaByRtx };
+    if (this.stagedRidFidTable) {
+      // (tests/media/firefoxSimulcastSsrc.test.ts "再 offer が FID の組を外して確定したら、repaired RID のない RTX はその組で復元されない")
+      clearTable(this.ridFidMediaByRtx);
+      Object.assign(this.ridFidMediaByRtx, this.stagedRidFidTable);
+    }
     clearTable(this.stagedCodecs);
     clearTable(this.stagedSsrcByRtx);
+    this.stagedRidFidTable = undefined;
+    this.unbindChangedFidRtx(before);
   }
 
   /** Internal: capture the decode tables for a negotiation rollback baseline. */
@@ -579,6 +622,10 @@ export class RTCRtpReceiver {
       ssrcByRtx: { ...this.ssrcByRtx },
       stagedCodecs: { ...this.stagedCodecs },
       stagedSsrcByRtx: { ...this.stagedSsrcByRtx },
+      ridFidMediaByRtx: { ...this.ridFidMediaByRtx },
+      stagedRidFidTable: this.stagedRidFidTable && {
+        ...this.stagedRidFidTable,
+      },
     };
   }
 
@@ -591,10 +638,15 @@ export class RTCRtpReceiver {
       [this.ssrcByRtx, snapshot.ssrcByRtx],
       [this.stagedCodecs, snapshot.stagedCodecs],
       [this.stagedSsrcByRtx, snapshot.stagedSsrcByRtx],
+      [this.ridFidMediaByRtx, snapshot.ridFidMediaByRtx],
     ] as [Record<number, unknown>, Record<number, unknown>][]) {
       clearTable(table);
       Object.assign(table, saved);
     }
+    this.stagedRidFidTable = snapshot.stagedRidFidTable && {
+      ...snapshot.stagedRidFidTable,
+    };
+    this.droppedFidRtxSsrcs.length = 0;
   }
 
   /**
@@ -724,7 +776,10 @@ export class RTCRtpReceiver {
     this.discardStagedReceive();
     clearTable(this.codecs);
     clearTable(this.ssrcByRtx);
+    const before = { ...this.ridFidMediaByRtx };
+    clearTable(this.ridFidMediaByRtx);
     this.prepareReceive(params);
+    this.unbindChangedFidRtx(before);
     const codec = primaryTrackCodec(this.kind, params.codecs);
     if (codec) {
       for (const track of this.reportedTracks) track.codec = codec;
@@ -834,10 +889,13 @@ export class RTCRtpReceiver {
     this.nack.close();
     clearTable(this.mediaSsrcByRid);
     clearTable(this.ridByRtxSsrc);
+    clearTable(this.ridFidMediaByRtx);
+    this.stagedRidFidTable = undefined;
     clearTable(this.rtxSsrcsByRid);
     clearTable(this.repairedMediaByRtx);
     clearTable(this.retiredSsrcsByRid);
     this.forgottenSsrcs.length = 0;
+    this.droppedFidRtxSsrcs.length = 0;
     this.rejectedSsrcs.length = 0;
   }
 
@@ -1143,6 +1201,21 @@ export class RTCRtpReceiver {
   };
 
   /**
+   * Internal (router): a packet of `ssrc` routed here is handled by its
+   * repaired RID `repairedRid`
+   * (tests/media/firefoxSimulcastRepairedRidRoute.test.ts "simulcast (RID) RTX routed by SSRC with a repaired RID (readsRepairedRid)").
+   */
+  readsRepairedRid(ssrc: number, repairedRid: string) {
+    if (!this.trackByRID[repairedRid]) return false;
+    if (ssrc in this.ridFidMediaByRtx) return true;
+    return (
+      !(ssrc in this.ridByRtxSsrc) &&
+      this.trackBySSRC[ssrc] === undefined &&
+      this.ssrcByRtx[ssrc] === undefined
+    );
+  }
+
+  /**
    * An RTX packet that names the RID it repairs (`repaired-rtp-stream-id`).
    * The RTX SSRC is bound to that RID; the packet is restored only when it
    * fills a hole of the RID's current media SSRC (see {@link mediaSsrcOfRtx}).
@@ -1170,7 +1243,7 @@ export class RTCRtpReceiver {
       return;
     }
     this.bindRtxSsrc(packet.header.ssrc, repairedRid);
-    this.handleRTP(packet, extensions);
+    this.handleRTP(packet, extensions, undefined, repairedRid);
   };
 
   private isRetired(rid: string, ssrc: number) {
@@ -1206,8 +1279,47 @@ export class RTCRtpReceiver {
     this.retire(rid, old);
     for (const rtxSsrc of [...(this.rtxSsrcsByRid[rid] ?? [])]) {
       if (this.repairedMediaByRtx[rtxSsrc] === old) {
-        this.unbindRtxSsrc(rtxSsrc);
-        this.retire(rid, rtxSsrc);
+        if (rtxSsrc in this.ridFidMediaByRtx) {
+          // A FID RTX SSRC stays the layer's
+          // (tests/media/firefoxSimulcastSsrc.test.ts "repaired RID がなくても、旧媒体 SSRC を修復した FID の RTX SSRC は、媒体 SSRC の切り替え後に新しい媒体の欠落を復元する").
+          delete this.repairedMediaByRtx[rtxSsrc];
+        } else {
+          this.unbindRtxSsrc(rtxSsrc);
+          this.retire(rid, rtxSsrc);
+        }
+      }
+    }
+  }
+
+  /**
+   * The RID carrying `media`, or having carried it before a media SSRC change
+   * (tests/media/firefoxSimulcastSsrc.test.ts "repaired RID がなく、切り替え前に RTX を受信していなくても、切り替え後に初めて届いた FID の RTX SSRC は新しい媒体の欠落を復元する").
+   */
+  private ridOfFidMedia(media: number) {
+    for (const [rid, current] of Object.entries(this.mediaSsrcByRid)) {
+      if (current === media) return rid;
+    }
+    for (const [rid, retired] of Object.entries(this.retiredSsrcsByRid)) {
+      if (retired.includes(media)) return rid;
+    }
+    return undefined;
+  }
+
+  /**
+   * An RTX SSRC whose FID pair the commit added, changed or removed forgets
+   * its repaired-RID binding
+   * (tests/media/firefoxSimulcastSsrc.test.ts "repaired RID で結合を学習した後に FID が加わり、さらに FID の媒体 SSRC が変わって確定しても、新しい媒体を学習するまでは旧媒体の欠落を復元しない").
+   */
+  private unbindChangedFidRtx(before: { [rtxSsrc: number]: number }) {
+    for (const rtx of new Set([
+      ...Object.keys(before),
+      ...Object.keys(this.ridFidMediaByRtx),
+    ])) {
+      const rtxSsrc = Number(rtx);
+      if (before[rtxSsrc] === this.ridFidMediaByRtx[rtxSsrc]) continue;
+      if (rtxSsrc in this.ridByRtxSsrc) this.unbindRtxSsrc(rtxSsrc);
+      if (!(rtxSsrc in this.ridFidMediaByRtx)) {
+        this.droppedFidRtxSsrcs.push(rtxSsrc);
       }
     }
   }
@@ -1263,8 +1375,10 @@ export class RTCRtpReceiver {
     const described =
       this.trackBySSRC[ssrc] !== undefined ||
       this.tracks.some((track) => track.ssrc === ssrc) ||
-      Object.entries(this.ssrcByRtx).some(
-        ([rtx, media]) => Number(rtx) === ssrc || media === ssrc,
+      [this.ssrcByRtx, this.ridFidMediaByRtx].some((table) =>
+        Object.entries(table).some(
+          ([rtx, media]) => Number(rtx) === ssrc || media === ssrc,
+        ),
       );
     if (!described) {
       for (const table of [
@@ -1284,6 +1398,22 @@ export class RTCRtpReceiver {
       }
     }
     this.forgottenSsrcs.push(ssrc);
+  }
+
+  /**
+   * Internal (router): FID RTX SSRCs a commit removed that the description
+   * no longer describes otherwise; their description routes go
+   * (tests/media/firefoxSimulcastRepairedRidRoute.test.ts "確定で FID の組が外れた RTX SSRC を BUNDLE の別 m-line が MID と repaired RID 付きで使うと、その m-line の RID のトラックへ復元される";
+   * tests/media/firefoxSimulcastRepairedRidRoute.test.ts "RID の m-line が FID の組を外して SSRC で送る記述に変わっても、a=ssrc の RTX として記述された RTX SSRC は経路を失わず復元される").
+   */
+  takeDroppedFidRtxSsrcs() {
+    if (this.droppedFidRtxSsrcs.length === 0) return [];
+    return [...new Set(this.droppedFidRtxSsrcs.splice(0))].filter(
+      (ssrc) =>
+        !(ssrc in this.ridFidMediaByRtx) &&
+        this.trackBySSRC[ssrc] === undefined &&
+        this.ssrcByRtx[ssrc] === undefined,
+    );
   }
 
   /**
@@ -1322,11 +1452,21 @@ export class RTCRtpReceiver {
   private mediaSsrcOfRtx(
     rtx: RtpPacket,
     mediaCodec: RTCRtpCodecParameters,
+    repairedRid?: string,
   ): number | undefined {
     const rtxSsrc = rtx.header.ssrc;
     const bySdp = this.ssrcByRtx[rtxSsrc];
     if (bySdp !== undefined) return bySdp;
-    const rid = this.ridByRtxSsrc[rtxSsrc];
+    // The repaired RID, else the FID media SSRC's RID, else the bound RID
+    // (tests/media/firefoxSimulcastSsrc.test.ts "FID の RTX SSRC から、すでに受信済みの番号の遅延 RTX が来ても重複して配送しない").
+    const fidMedia = this.ridFidMediaByRtx[rtxSsrc];
+    const rid =
+      repairedRid ??
+      (fidMedia !== undefined
+        ? this.ridOfFidMedia(fidMedia)
+        : this.ridByRtxSsrc[rtxSsrc]);
+    // (tests/media/router.test.ts "同じ RID の媒体 SSRC が切り替わると旧 SSRC の欠落の要求と台帳は同時に消え、遅れて届いた旧 RTX は破棄される")
+    if (rid !== undefined && this.isRetired(rid, rtxSsrc)) return undefined;
     const media = rid === undefined ? undefined : this.mediaSsrcByRid[rid];
     if (media === undefined) return undefined;
     const slack = Math.round(
@@ -1342,7 +1482,9 @@ export class RTCRtpReceiver {
     ) {
       return undefined;
     }
-    this.repairedMediaByRtx[rtxSsrc] = media;
+    if (this.ridByRtxSsrc[rtxSsrc] === rid) {
+      this.repairedMediaByRtx[rtxSsrc] = media;
+    }
     return media;
   }
 
@@ -1377,6 +1519,7 @@ export class RTCRtpReceiver {
     packet: RtpPacket,
     extensions: Extensions,
     track?: MediaStreamTrack,
+    repairedRid?: string,
   ) {
     if (this.stopped) {
       return;
@@ -1415,7 +1558,7 @@ export class RTCRtpReceiver {
       // Padding-only RTX (probe / bandwidth padding) carries no original
       // packet: TWCC above already observed it, nothing is delivered.
       if (packet.payload.length < 2) return;
-      const originalSsrc = this.mediaSsrcOfRtx(packet, mediaCodec);
+      const originalSsrc = this.mediaSsrcOfRtx(packet, mediaCodec, repairedRid);
       if (originalSsrc === undefined) {
         log("rtx media ssrc not resolved", { rtxSsrc: packet.header.ssrc });
         return;
