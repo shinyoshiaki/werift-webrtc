@@ -46,6 +46,7 @@
 - [DataSendConfirmation](classes/DataSendConfirmation.md)
 - [DePacketizerBase](classes/DePacketizerBase.md)
 - [DisabledBandwidthEstimator](classes/DisabledBandwidthEstimator.md)
+- [DomEventTarget](classes/DomEventTarget.md)
 - [DtlsAlertError](classes/DtlsAlertError.md)
 - [DtlsClient](classes/DtlsClient.md)
 - [DtlsServer](classes/DtlsServer.md)
@@ -259,7 +260,9 @@
 - [TwccPacketFeedback](interfaces/TwccPacketFeedback.md)
 - [UdpTransportOptions](interfaces/UdpTransportOptions.md)
 - [videoOrientationPayload](interfaces/videoOrientationPayload.md)
+- [WeriftAddEventListenerOptions](interfaces/WeriftAddEventListenerOptions.md)
 - [WeriftEventLike](interfaces/WeriftEventLike.md)
+- [WeriftEventListenerObject](interfaces/WeriftEventListenerObject.md)
 - [WeriftMediaTrackCapabilities](interfaces/WeriftMediaTrackCapabilities.md)
 - [WeriftMediaTrackConstraints](interfaces/WeriftMediaTrackConstraints.md)
 - [WeriftMediaTrackConstraintSet](interfaces/WeriftMediaTrackConstraintSet.md)
@@ -397,6 +400,7 @@
 - [Vp9PacketizerOptions](type-aliases/Vp9PacketizerOptions.md)
 - [WeriftConstrainDOMString](type-aliases/WeriftConstrainDOMString.md)
 - [WeriftEventHandler](type-aliases/WeriftEventHandler.md)
+- [WeriftEventListener](type-aliases/WeriftEventListener.md)
 
 ## Variables
 

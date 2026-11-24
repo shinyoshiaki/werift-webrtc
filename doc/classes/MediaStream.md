@@ -6,9 +6,12 @@
 
 # Class: MediaStream
 
+A werift media stream, assignable to the DOM `MediaStream` type; events
+follow the DOM through [DomEventTarget](DomEventTarget.md).
+
 ## Extends
 
-- `EventTarget`
+- [`DomEventTarget`](DomEventTarget.md)
 
 ## Constructors
 
@@ -28,31 +31,13 @@
 
 #### Overrides
 
-`EventTarget.constructor`
+[`DomEventTarget`](DomEventTarget.md).[`constructor`](DomEventTarget.md#constructor)
 
 ## Properties
 
 ### id
 
 > **id**: `string`
-
-***
-
-### onaddtrack
-
-> **onaddtrack**: [`WeriftEventHandler`](../type-aliases/WeriftEventHandler.md) = `null`
-
-DOM `onaddtrack`. The DOM fires `"addtrack"` only when the user agent adds
-a track; werift never does, and [addTrack](#addtrack) does not fire it either,
-so this handler is never called.
-
-***
-
-### onremovetrack
-
-> **onremovetrack**: [`WeriftEventHandler`](../type-aliases/WeriftEventHandler.md) = `null`
-
-DOM `onremovetrack`. Never called, for the same reason as [onaddtrack](#onaddtrack).
 
 ***
 
@@ -76,7 +61,7 @@ v13.4.0, v12.16.0
 
 #### Inherited from
 
-`EventTarget.captureRejections`
+[`DomEventTarget`](DomEventTarget.md).[`captureRejections`](DomEventTarget.md#capturerejections)
 
 ***
 
@@ -94,7 +79,7 @@ v13.4.0, v12.16.0
 
 #### Inherited from
 
-`EventTarget.captureRejectionSymbol`
+[`DomEventTarget`](DomEventTarget.md).[`captureRejectionSymbol`](DomEventTarget.md#capturerejectionsymbol)
 
 ***
 
@@ -144,7 +129,7 @@ v0.11.2
 
 #### Inherited from
 
-`EventTarget.defaultMaxListeners`
+[`DomEventTarget`](DomEventTarget.md).[`defaultMaxListeners`](DomEventTarget.md#defaultmaxlisteners)
 
 ***
 
@@ -163,7 +148,7 @@ v13.6.0, v12.17.0
 
 #### Inherited from
 
-`EventTarget.errorMonitor`
+[`DomEventTarget`](DomEventTarget.md).[`errorMonitor`](DomEventTarget.md#errormonitor)
 
 ## Accessors
 
@@ -176,6 +161,64 @@ v13.6.0, v12.17.0
 ##### Returns
 
 `boolean`
+
+***
+
+### onaddtrack
+
+#### Get Signature
+
+> **get** **onaddtrack**(): [`WeriftEventHandler`](../type-aliases/WeriftEventHandler.md)
+
+DOM `onaddtrack`. The DOM fires `"addtrack"` only when the user agent adds
+a track; werift never does, and [addTrack](#addtrack) does not fire it either.
+The handler runs for an `"addtrack"` event passed to `dispatchEvent`.
+
+##### Returns
+
+[`WeriftEventHandler`](../type-aliases/WeriftEventHandler.md)
+
+#### Set Signature
+
+> **set** **onaddtrack**(`handler`): `void`
+
+##### Parameters
+
+###### handler
+
+[`WeriftEventHandler`](../type-aliases/WeriftEventHandler.md)
+
+##### Returns
+
+`void`
+
+***
+
+### onremovetrack
+
+#### Get Signature
+
+> **get** **onremovetrack**(): [`WeriftEventHandler`](../type-aliases/WeriftEventHandler.md)
+
+DOM `onremovetrack`. werift never dispatches `"removetrack"`, as [onaddtrack](#onaddtrack).
+
+##### Returns
+
+[`WeriftEventHandler`](../type-aliases/WeriftEventHandler.md)
+
+#### Set Signature
+
+> **set** **onremovetrack**(`handler`): `void`
+
+##### Parameters
+
+###### handler
+
+[`WeriftEventHandler`](../type-aliases/WeriftEventHandler.md)
+
+##### Returns
+
+`void`
 
 ## Methods
 
@@ -209,13 +252,13 @@ v13.6.0, v12.17.0
 
 #### Inherited from
 
-`EventTarget.[captureRejectionSymbol]`
+[`DomEventTarget`](DomEventTarget.md).[`[captureRejectionSymbol]`](DomEventTarget.md#capturerejectionsymbol-1)
 
 ***
 
 ### addEventListener()
 
-> **addEventListener**(`type`, `listener`, `options?`): `void`
+> **addEventListener**(`type`, `callback`, `options?`): `void`
 
 #### Parameters
 
@@ -223,13 +266,13 @@ v13.6.0, v12.17.0
 
 `string`
 
-##### listener
+##### callback
 
-(...`args`) => `void`
+[`WeriftEventListener`](../type-aliases/WeriftEventListener.md) \| `null` \| `undefined`
 
 ##### options?
 
-`boolean` \| \{ `once?`: `boolean`; \}
+`boolean` \| [`WeriftAddEventListenerOptions`](../interfaces/WeriftAddEventListenerOptions.md)
 
 #### Returns
 
@@ -237,7 +280,7 @@ v13.6.0, v12.17.0
 
 #### Inherited from
 
-`EventTarget.addEventListener`
+[`DomEventTarget`](DomEventTarget.md).[`addEventListener`](DomEventTarget.md#addeventlistener)
 
 ***
 
@@ -273,7 +316,7 @@ v0.1.26
 
 #### Inherited from
 
-`EventTarget.addListener`
+[`DomEventTarget`](DomEventTarget.md).[`addListener`](DomEventTarget.md#addlistener)
 
 ***
 
@@ -307,8 +350,7 @@ v0.1.26
 
 > **dispatchEvent**(`event`): `boolean`
 
-DOM `dispatchEvent()`: `false` only when a cancelable event was canceled
-with `preventDefault()` (the base class returns whether a listener ran).
+DOM `dispatchEvent()`: `false` only when a cancelable event was canceled.
 
 #### Parameters
 
@@ -320,9 +362,9 @@ with `preventDefault()` (the base class returns whether a listener ran).
 
 `boolean`
 
-#### Overrides
+#### Inherited from
 
-`EventTarget.dispatchEvent`
+[`DomEventTarget`](DomEventTarget.md).[`dispatchEvent`](DomEventTarget.md#dispatchevent)
 
 ***
 
@@ -388,7 +430,7 @@ v0.1.26
 
 #### Inherited from
 
-`EventTarget.emit`
+[`DomEventTarget`](DomEventTarget.md).[`emit`](DomEventTarget.md#emit)
 
 ***
 
@@ -423,7 +465,7 @@ v6.0.0
 
 #### Inherited from
 
-`EventTarget.eventNames`
+[`DomEventTarget`](DomEventTarget.md).[`eventNames`](DomEventTarget.md#eventnames)
 
 ***
 
@@ -434,6 +476,34 @@ v6.0.0
 #### Returns
 
 [`MediaStreamTrack`](MediaStreamTrack.md)\<`"audio"`\>[]
+
+***
+
+### getEventHandler()
+
+> `protected` **getEventHandler**\<`H`\>(`type`): `H` \| `null`
+
+The value of the `on<type>` handler attribute.
+
+#### Type Parameters
+
+##### H
+
+`H`
+
+#### Parameters
+
+##### type
+
+`string`
+
+#### Returns
+
+`H` \| `null`
+
+#### Inherited from
+
+[`DomEventTarget`](DomEventTarget.md).[`getEventHandler`](DomEventTarget.md#geteventhandler)
 
 ***
 
@@ -454,7 +524,7 @@ v1.0.0
 
 #### Inherited from
 
-`EventTarget.getMaxListeners`
+[`DomEventTarget`](DomEventTarget.md).[`getMaxListeners`](DomEventTarget.md#getmaxlisteners)
 
 ***
 
@@ -532,7 +602,7 @@ v3.2.0
 
 #### Inherited from
 
-`EventTarget.listenerCount`
+[`DomEventTarget`](DomEventTarget.md).[`listenerCount`](DomEventTarget.md#listenercount)
 
 ***
 
@@ -572,7 +642,7 @@ v0.1.26
 
 #### Inherited from
 
-`EventTarget.listeners`
+[`DomEventTarget`](DomEventTarget.md).[`listeners`](DomEventTarget.md#listeners)
 
 ***
 
@@ -608,7 +678,7 @@ v10.0.0
 
 #### Inherited from
 
-`EventTarget.off`
+[`DomEventTarget`](DomEventTarget.md).[`off`](DomEventTarget.md#off)
 
 ***
 
@@ -673,7 +743,7 @@ v0.1.101
 
 #### Inherited from
 
-`EventTarget.on`
+[`DomEventTarget`](DomEventTarget.md).[`on`](DomEventTarget.md#on)
 
 ***
 
@@ -736,7 +806,7 @@ v0.3.0
 
 #### Inherited from
 
-`EventTarget.once`
+[`DomEventTarget`](DomEventTarget.md).[`once`](DomEventTarget.md#once)
 
 ***
 
@@ -787,7 +857,7 @@ v6.0.0
 
 #### Inherited from
 
-`EventTarget.prependListener`
+[`DomEventTarget`](DomEventTarget.md).[`prependListener`](DomEventTarget.md#prependlistener)
 
 ***
 
@@ -836,7 +906,7 @@ v6.0.0
 
 #### Inherited from
 
-`EventTarget.prependOnceListener`
+[`DomEventTarget`](DomEventTarget.md).[`prependOnceListener`](DomEventTarget.md#prependoncelistener)
 
 ***
 
@@ -894,7 +964,7 @@ v9.4.0
 
 #### Inherited from
 
-`EventTarget.rawListeners`
+[`DomEventTarget`](DomEventTarget.md).[`rawListeners`](DomEventTarget.md#rawlisteners)
 
 ***
 
@@ -926,13 +996,13 @@ v0.1.26
 
 #### Inherited from
 
-`EventTarget.removeAllListeners`
+[`DomEventTarget`](DomEventTarget.md).[`removeAllListeners`](DomEventTarget.md#removealllisteners)
 
 ***
 
 ### removeEventListener()
 
-> **removeEventListener**(`type`, `listener`): `void`
+> **removeEventListener**(`type`, `callback`, `options?`): `void`
 
 #### Parameters
 
@@ -940,9 +1010,13 @@ v0.1.26
 
 `string`
 
-##### listener
+##### callback
 
-(...`args`) => `void`
+[`WeriftEventListener`](../type-aliases/WeriftEventListener.md) \| `null` \| `undefined`
+
+##### options?
+
+`boolean` \| \{ `capture?`: `boolean`; \}
 
 #### Returns
 
@@ -950,7 +1024,7 @@ v0.1.26
 
 #### Inherited from
 
-`EventTarget.removeEventListener`
+[`DomEventTarget`](DomEventTarget.md).[`removeEventListener`](DomEventTarget.md#removeeventlistener)
 
 ***
 
@@ -1064,7 +1138,7 @@ v0.1.26
 
 #### Inherited from
 
-`EventTarget.removeListener`
+[`DomEventTarget`](DomEventTarget.md).[`removeListener`](DomEventTarget.md#removelistener)
 
 ***
 
@@ -1081,6 +1155,32 @@ v0.1.26
 #### Returns
 
 `void`
+
+***
+
+### setEventHandler()
+
+> `protected` **setEventHandler**(`type`, `handler`): `void`
+
+Set the `on<type>` handler attribute (a non-function value clears it, as the DOM does).
+
+#### Parameters
+
+##### type
+
+`string`
+
+##### handler
+
+`unknown`
+
+#### Returns
+
+`void`
+
+#### Inherited from
+
+[`DomEventTarget`](DomEventTarget.md).[`setEventHandler`](DomEventTarget.md#seteventhandler)
 
 ***
 
@@ -1111,7 +1211,7 @@ v0.3.5
 
 #### Inherited from
 
-`EventTarget.setMaxListeners`
+[`DomEventTarget`](DomEventTarget.md).[`setMaxListeners`](DomEventTarget.md#setmaxlisteners)
 
 ***
 
@@ -1171,7 +1271,7 @@ v20.5.0
 
 #### Inherited from
 
-`EventTarget.addAbortListener`
+[`DomEventTarget`](DomEventTarget.md).[`addAbortListener`](DomEventTarget.md#addabortlistener)
 
 ***
 
@@ -1224,7 +1324,7 @@ v15.2.0, v14.17.0
 
 #### Inherited from
 
-`EventTarget.getEventListeners`
+[`DomEventTarget`](DomEventTarget.md).[`getEventListeners`](DomEventTarget.md#geteventlisteners)
 
 ***
 
@@ -1274,7 +1374,7 @@ v19.9.0
 
 #### Inherited from
 
-`EventTarget.getMaxListeners`
+[`DomEventTarget`](DomEventTarget.md).[`getMaxListeners`](DomEventTarget.md#getmaxlisteners-1)
 
 ***
 
@@ -1322,7 +1422,7 @@ Since v3.2.0 - Use `listenerCount` instead.
 
 #### Inherited from
 
-`EventTarget.listenerCount`
+[`DomEventTarget`](DomEventTarget.md).[`listenerCount`](DomEventTarget.md#listenercount-1)
 
 ***
 
@@ -1435,7 +1535,7 @@ v13.6.0, v12.16.0
 
 ##### Inherited from
 
-`EventTarget.on`
+[`DomEventTarget`](DomEventTarget.md).[`on`](DomEventTarget.md#on-1)
 
 #### Call Signature
 
@@ -1544,7 +1644,7 @@ v13.6.0, v12.16.0
 
 ##### Inherited from
 
-`EventTarget.on`
+[`DomEventTarget`](DomEventTarget.md).[`on`](DomEventTarget.md#on-1)
 
 ***
 
@@ -1655,7 +1755,7 @@ v11.13.0, v10.16.0
 
 ##### Inherited from
 
-`EventTarget.once`
+[`DomEventTarget`](DomEventTarget.md).[`once`](DomEventTarget.md#once-1)
 
 #### Call Signature
 
@@ -1762,7 +1862,7 @@ v11.13.0, v10.16.0
 
 ##### Inherited from
 
-`EventTarget.once`
+[`DomEventTarget`](DomEventTarget.md).[`once`](DomEventTarget.md#once-1)
 
 ***
 
@@ -1804,4 +1904,4 @@ v15.4.0
 
 #### Inherited from
 
-`EventTarget.setMaxListeners`
+[`DomEventTarget`](DomEventTarget.md).[`setMaxListeners`](DomEventTarget.md#setmaxlisteners-1)

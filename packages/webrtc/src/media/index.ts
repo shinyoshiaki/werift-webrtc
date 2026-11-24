@@ -1,6 +1,7 @@
 export * from "../transceiverManager";
 export * from "./codec";
 export * from "./codecCompatibility";
+export * from "./domEventTarget";
 export * from "./extension/rtcpFeedback";
 export * from "./extension/rtpExtension";
 export * from "./parameters";

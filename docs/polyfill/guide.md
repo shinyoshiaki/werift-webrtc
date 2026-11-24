@@ -511,22 +511,37 @@ const producer = await sendTransport.produce({
 assignable to the DOM type and keep werift's own type (`writeRtp`, `uuid`, …).
 `werift/polyfill/dom` exports `MediaStream` the same way.
 
-What werift implements of these members:
+What werift implements of these members (the compatibility werift claims is
+the type assignment and the members such libraries use; anything else follows
+werift's own behavior):
 
 - `getSettings()` of a `getUserMedia()` track reports the `deviceId`,
   `groupId` and `mimeType` its register was selected by; another track reports
   what its codec tells (`mimeType`, and `sampleRate` / `channelCount` for
-  audio). `getCapabilities()` reports only `deviceId` / `groupId`.
+  audio). After `stop()` it reports only `deviceId` / `groupId`, as the DOM
+  does for an ended track. `getCapabilities()` reports only `deviceId` /
+  `groupId`.
 - `applyConstraints()` cannot reconfigure a source: it rejects with
   `OverconstrainedError` when a required (`exact`) `deviceId`, `groupId` or
   `mimeType` does not match the current settings, and otherwise stores the
   constraints that `getConstraints()` returns. A required (`exact` / `min` /
   `max`) constraint on any other name (for example `width`) also rejects with
-  `OverconstrainedError`; an optional one (`ideal`) is kept as given. `clone()` keeps `contentHint`, the settings and the constraints.
-- `onended` is called after the `"ended"` listeners. As before, werift also
-  emits `"ended"` when `stop()` is called. `"mute"` / `"unmute"` and
-  `"addtrack"` / `"removetrack"` are never emitted, so those handlers are not
-  called.
+  `OverconstrainedError`; an optional one (`ideal`) is kept as given. A
+  rejected call keeps the previous constraints. `clone()` keeps
+  `contentHint`, the settings and the constraints.
+- Events follow the DOM `EventTarget`: `addEventListener` accepts a function
+  or a `{ handleEvent }` object, ignores a duplicate, and honors `once`,
+  `passive` and `signal`; an `on<type>` handler is a listener at the position
+  where it was first set (setting `null` removes it), so `dispatchEvent` calls
+  it, and a handler returning `false` cancels a cancelable event;
+  `dispatchEvent` returns `false` only when a cancelable event was canceled.
+  An exception thrown by a listener or handler is logged (`DEBUG=werift*`)
+  and does not stop the other listeners, `dispatchEvent`, `stop()` or the
+  polyfill's cleanup. `event.target` is not set.
+- werift dispatches `"ended"` when `stop()` is called (once per track; the
+  DOM does not fire it for `stop()`). It never dispatches `"mute"` /
+  `"unmute"` / `"addtrack"` / `"removetrack"` itself, so those handlers run only
+  for an event the application dispatches.
 
 The reverse direction stays typed by werift: werift's own APIs
 (`new MediaStream([...])`, `addTrack()`, `RTCRtpSender.replaceTrack()`) take

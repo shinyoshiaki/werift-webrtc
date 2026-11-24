@@ -21,7 +21,7 @@ describe("MediaStreamTrack DOM-compatible members", () => {
     expect(track.onunmute).toBeNull();
   });
 
-  test("onended is called once after the ended listeners", () => {
+  test("onended is called once in its registration order", () => {
     // Arrange
     const track = arrangeOpusTrack();
     const calls: string[] = [];
@@ -39,7 +39,7 @@ describe("MediaStreamTrack DOM-compatible members", () => {
     track.stop();
     track.stop();
 
-    // Assert: listener の後に onended が 1 回だけ呼ばれ、同じ "ended" Event を受け取る。
+    // Assert: 先に登録した listener の後に onended が 1 回だけ呼ばれ、同じ "ended" Event を受け取る。
     expect(calls).toEqual(["listener", "onended(this=track)"]);
     expect(events[0]).toBe(events[1]);
     expect((events[0] as Event).type).toBe("ended");
@@ -103,6 +103,26 @@ describe("MediaStreamTrack DOM-compatible members", () => {
         deviceId: { exact: "camera-1" },
       });
       track.stop();
+    } finally {
+      uninstall();
+    }
+  });
+
+  test("getSettings of an ended track keeps only deviceId / groupId", async () => {
+    // Arrange: register の deviceId / groupId / mimeType を持つ getUserMedia の track。
+    const { uninstall } = arrangeIdentifiedVideoRegister();
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      const [track] = stream.getVideoTracks() as unknown as MediaStreamTrack[];
+
+      // Act: track を止める。
+      track.stop();
+
+      // Assert: mediacapture-main の getSettings と同じく inherent なプロパティだけが残る。
+      expect(track.getSettings()).toEqual({
+        deviceId: "camera-1",
+        groupId: "group-1",
+      });
     } finally {
       uninstall();
     }
@@ -247,8 +267,8 @@ describe("MediaStream DOM-compatible members", () => {
     // Act: source ごと停止する。
     const act = () => track.stopMediaSource();
 
-    // Assert: 例外は再送出されるが、両方 ended になり upstream も 1 回解放される。
-    expect(act).toThrow("onended failed");
+    // Assert: 例外は記録だけされて呼び出し元に伝わらず、両方 ended になり upstream も 1 回解放される。
+    expect(act).not.toThrow();
     expect(track.readyState).toBe("ended");
     expect(clone.readyState).toBe("ended");
     expect(upstreamStopped).toBe(1);

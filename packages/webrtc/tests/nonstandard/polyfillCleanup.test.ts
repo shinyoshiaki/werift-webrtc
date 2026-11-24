@@ -38,8 +38,9 @@ describe("nonstandard/polyfill cleanup", () => {
     // Act: uninstall する。
     const act = () => uninstall();
 
-    // Assert: 例外は伝わるが、両方の track が ended になり、全 register が停止される。
-    expect(act).toThrow("onended failed");
+    // Assert: onended の例外は DOM と同じく記録だけされて uninstall には伝わらず、
+    // 両方の track が ended になり、全 register が停止される。
+    expect(act).not.toThrow();
     expect(first.readyState).toBe("ended");
     expect(second.readyState).toBe("ended");
     expect(stops.sort()).toEqual(["audio", "video"]);

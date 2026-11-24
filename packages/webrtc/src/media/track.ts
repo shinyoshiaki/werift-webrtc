@@ -1,6 +1,5 @@
 import { randomUUID } from "crypto";
 import { OverconstrainedError } from "../errors";
-import { EventTarget } from "../helper";
 import { Event } from "../imports/common";
 import {
   type Extensions,
@@ -9,6 +8,7 @@ import {
   RtpPacket,
 } from "../imports/rtp";
 import type { Kind } from "../types/domain";
+import { DomEventTarget } from "./domEventTarget";
 import type { RTCRtpCodecParameters } from "./parameters";
 import {
   constraintFitnessDistance,
@@ -166,8 +166,15 @@ class TrackBroadcastSource {
  * `MediaStreamTrack<"audio">`), so that an audio track is assignable to typings
  * that specialize the DOM track by kind (such as `MediaStreamAudioTrack` of
  * `@types/dom-mediacapture-transform`).
+ *
+ * DOM compatibility covers assigning a werift track to the DOM
+ * `MediaStreamTrack` type and the members DOM-typed libraries such as
+ * `mediasoup-client` use; events follow the DOM through
+ * {@link DomEventTarget}. werift-specific behavior (RTP I/O, `"ended"` on
+ * {@link stop}, constraints that cannot reconfigure a source) is documented on
+ * each member.
  */
-export class MediaStreamTrack<K extends Kind = Kind> extends EventTarget {
+export class MediaStreamTrack<K extends Kind = Kind> extends DomEventTarget {
   readonly uuid = randomUUID().toString();
   /**MediaStream ID*/
   streamId?: string;
@@ -186,21 +193,38 @@ export class MediaStreamTrack<K extends Kind = Kind> extends EventTarget {
   /** DOM `contentHint`. Stored only; werift does not change encoding by it. */
   contentHint = "";
   /**
-   * DOM `onended`. Called right after the `"ended"` listeners of
-   * `addEventListener`, every time `"ended"` is emitted. Unlike the DOM,
-   * werift also emits `"ended"` when {@link stop} is called.
+   * DOM `onended`, a listener of `"ended"` at the position where it was first
+   * set (see {@link DomEventTarget}). Unlike the DOM, werift also dispatches
+   * `"ended"` when {@link stop} is called, once per track.
    */
-  onended: WeriftEventHandler = null;
+  get onended(): WeriftEventHandler {
+    return this.getEventHandler("ended");
+  }
+  set onended(handler: WeriftEventHandler) {
+    this.setEventHandler("ended", handler);
+  }
   /**
-   * DOM `onmute`. werift does not detect a muted source, so `"mute"` is never
-   * emitted and this handler is never called.
+   * DOM `onmute`. werift does not detect a muted source and never dispatches
+   * `"mute"` itself; the handler runs for a `"mute"` event passed to
+   * `dispatchEvent`.
    */
-  onmute: WeriftEventHandler = null;
+  get onmute(): WeriftEventHandler {
+    return this.getEventHandler("mute");
+  }
+  set onmute(handler: WeriftEventHandler) {
+    this.setEventHandler("mute", handler);
+  }
   /**
    * DOM `onunmute`. werift changes {@link muted} on the first received media
-   * packet without emitting `"unmute"`, so this handler is never called.
+   * packet without dispatching `"unmute"`; the handler runs for an `"unmute"`
+   * event passed to `dispatchEvent`.
    */
-  onunmute: WeriftEventHandler = null;
+  get onunmute(): WeriftEventHandler {
+    return this.getEventHandler("unmute");
+  }
+  set onunmute(handler: WeriftEventHandler) {
+    this.setEventHandler("unmute", handler);
+  }
 
   readonly onReceiveRtp = new Event<
     [RtpPacket, Extensions?, RtpReceiveInfo?]
@@ -270,35 +294,35 @@ export class MediaStreamTrack<K extends Kind = Kind> extends EventTarget {
     this.stopped = true;
     this.muted = true;
     this.onReceiveRtp.complete();
-    // ended の通知（onended を含む）が投げても detach / upstream 解放は必ず行う。
-    try {
-      this.emit("ended");
-    } finally {
-      this.broadcastSource.detach(this);
-    }
+    // listener / onended の例外は DomEventTarget が記録して隔離するので、detach は必ず行われる。
+    this.dispatchEvent(new globalThis.Event("ended"));
+    this.broadcastSource.detach(this);
   };
-
-  override emit(type: string | symbol, ...args: any[]): boolean {
-    if (type !== "ended") {
-      return super.emit(type, ...args);
-    }
-    // onended も addEventListener("ended") と同じ Event を受け取る。
-    const [event = new globalThis.Event("ended"), ...rest] = args;
-    const listened = super.emit(type, event, ...rest);
-    if (this.onended) {
-      this.onended.call(this, event);
-      return true;
-    }
-    return listened;
-  }
 
   /**
    * DOM `getSettings()`. A track from the polyfill's `getUserMedia` reports
    * the `deviceId` / `groupId` / `mimeType` its media register was selected
    * by; another track reports what its {@link codec} tells (`mimeType`, and
-   * `sampleRate` / `channelCount` for audio).
+   * `sampleRate` / `channelCount` for audio). An ended track reports only the
+   * inherent `deviceId` / `groupId`, as the DOM does.
    */
   getSettings(): WeriftMediaTrackSettings {
+    const settings = this.currentSettings();
+    if (!this.stopped) {
+      return settings;
+    }
+    // ended の track は inherent な deviceId / groupId だけを返す（mediacapture-main の getSettings）。
+    const inherent: WeriftMediaTrackSettings = {};
+    if (settings.deviceId != undefined) {
+      inherent.deviceId = settings.deviceId;
+    }
+    if (settings.groupId != undefined) {
+      inherent.groupId = settings.groupId;
+    }
+    return inherent;
+  }
+
+  private currentSettings(): WeriftMediaTrackSettings {
     if (this.sourceSettings) {
       return { ...this.sourceSettings };
     }
@@ -345,7 +369,8 @@ export class MediaStreamTrack<K extends Kind = Kind> extends EventTarget {
    * current settings are the only possible settings: a required (`exact`)
    * constraint they do not satisfy rejects with `OverconstrainedError` and
    * keeps the previous constraints (so does a required constraint on a name werift cannot honor, such as `width`); otherwise the constraints, including such ideal ones, are stored
-   * (see {@link getConstraints}) and the settings stay the same.
+   * (see {@link getConstraints}) and the settings stay the same. An ended
+   * track is checked against its ended settings ({@link getSettings}).
    */
   async applyConstraints(
     constraints: WeriftMediaTrackConstraints = {},
@@ -453,26 +478,31 @@ export class MediaStreamTrack<K extends Kind = Kind> extends EventTarget {
   }
 }
 
-export class MediaStream extends EventTarget {
+/**
+ * A werift media stream, assignable to the DOM `MediaStream` type; events
+ * follow the DOM through {@link DomEventTarget}.
+ */
+export class MediaStream extends DomEventTarget {
   id!: string;
   tracks: MediaStreamTrack[] = [];
   /**
    * DOM `onaddtrack`. The DOM fires `"addtrack"` only when the user agent adds
-   * a track; werift never does, and {@link addTrack} does not fire it either,
-   * so this handler is never called.
+   * a track; werift never does, and {@link addTrack} does not fire it either.
+   * The handler runs for an `"addtrack"` event passed to `dispatchEvent`.
    */
-  onaddtrack: WeriftEventHandler = null;
-  /** DOM `onremovetrack`. Never called, for the same reason as {@link onaddtrack}. */
-  onremovetrack: WeriftEventHandler = null;
-
-  /**
-   * DOM `dispatchEvent()`: `false` only when a cancelable event was canceled
-   * with `preventDefault()` (the base class returns whether a listener ran).
-   */
-  override dispatchEvent = (event: globalThis.Event) => {
-    this.emit(event.type, event);
-    return !event.defaultPrevented;
-  };
+  get onaddtrack(): WeriftEventHandler {
+    return this.getEventHandler("addtrack");
+  }
+  set onaddtrack(handler: WeriftEventHandler) {
+    this.setEventHandler("addtrack", handler);
+  }
+  /** DOM `onremovetrack`. werift never dispatches `"removetrack"`, as {@link onaddtrack}. */
+  get onremovetrack(): WeriftEventHandler {
+    return this.getEventHandler("removetrack");
+  }
+  set onremovetrack(handler: WeriftEventHandler) {
+    this.setEventHandler("removetrack", handler);
+  }
 
   constructor(props: Partial<MediaStream> | MediaStreamTrack[] = {}) {
     super();
