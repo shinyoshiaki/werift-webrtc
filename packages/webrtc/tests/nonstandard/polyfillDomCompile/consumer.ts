@@ -7,6 +7,14 @@ import {
   createRtpRtcpRegister,
   installPolyfill,
 } from "../../../src/polyfill/dom";
+import {
+  MediaStream as WeriftMediaStream,
+  MediaStreamTrack as WeriftMediaStreamTrack,
+} from "../../../src";
+import {
+  MediaStream as DomMediaStream,
+  MediaStreamTrack as DomMediaStreamTrack,
+} from "../../../src/polyfill/dom";
 
 const uninstall = installPolyfill({
   peerConnectionConfig: { codecs: { video: [useH264()] } },
@@ -39,15 +47,6 @@ track.writeRtp;
 track.onReceiveRtp;
 
 // --- werift の track / stream を DOM 型の API へキャストなしで渡せる ---
-
-import {
-  MediaStream as WeriftMediaStream,
-  MediaStreamTrack as WeriftMediaStreamTrack,
-} from "../../../src";
-import {
-  MediaStream as DomMediaStream,
-  MediaStreamTrack as DomMediaStreamTrack,
-} from "../../../src/polyfill/dom";
 
 // mediasoup-client の ProducerOptions / Producer を模した DOM 型の API。
 declare function produce(options: {
