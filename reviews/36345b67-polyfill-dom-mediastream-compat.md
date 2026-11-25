@@ -4,7 +4,7 @@ ide:
   version: 1
   title: "polyfill の DOM 型互換（キャスト不要化）のレビュー"
   dock: right
-  baseCommit: c63d90b5102e5fc270fd39ddbe5833e2bb1566ad
+  baseCommit: 1c70e82b7572ad54d45d95c6f2e39956c7bd2183
 ---
 # polyfill 使用時の `as unknown as ProducerOptions["track"]` を不要にする変更のレビュー
 
@@ -13,6 +13,17 @@ ide:
 werift の `MediaStreamTrack` / `MediaStream` を、DOM の同名型に**構造的に代入できる**ようにしました。`mediasoup-client` の `sendTransport.produce({ track })` に werift の track をキャストなしで渡せます。実行時は元から動いていたので、問題は型だけでした。そのため「嘘の型を返すヘルパー」ではなく、DOM 型が要求するメンバーを実際に実装して型を合わせています。
 
 差分の基準は develop マージ後の `42b7594d4` から HEAD（`c63d90b51`）までです。生成ドキュメントと website を除くと、ソースは `packages/webrtc` に集中しています。
+
+### 受け入れテスト（ここだけ見れば目的の達成を確認できます）
+
+[packages/webrtc/tests/nonstandard/acceptance.test.ts](review-file:packages/webrtc/tests/nonstandard/acceptance.test.ts) の 2 件で、チケットの目的（キャストなしで DOM 型の `produce({ track })` に渡せ、実際に送られる）を確認します。型検査の対象は [packages/webrtc/tests/nonstandard/acceptanceDomCompile/consumer.ts](review-file:packages/webrtc/tests/nonstandard/acceptanceDomCompile/consumer.ts) です。
+
+| テスト | 確認すること |
+|---|---|
+| 1章・5章: チケットのコードがキャストなしで lib.dom の型検査を通る | チケット冒頭のコードからキャストを外したものが `lib.dom` + `skipLibCheck: false` で通り、`producer.track?.nonexistent` は型エラーのまま（any にならない） |
+| 1章・2章: キャストせず渡した track が送られ ended が届く | polyfill の `RTCPeerConnection` 2 つを loopback で接続し、渡した track の RTP が受信側に届き、`stop()` でライブラリの `"ended"` listener が 1 回呼ばれる |
+
+実行: `cd packages/webrtc && npx vitest run tests/nonstandard/acceptance.test.ts`（約 10 秒。大半は tsc）。実装を 6 か所壊すとどれかの件が落ち、チケット作成前のリビジョンでは型検査がチケット記載の TS2740 で落ちます（詳細はチケット 8 章）。
 
 ## 2. 修正前と修正後
 
