@@ -115,6 +115,24 @@ same event object is passed here, to `onicecandidateerror` and to the
 
 ***
 
+### onIceGatheringError
+
+> `readonly` **onIceGatheringError**: [`Event`](Event.md)\<\[[`RTCIceGatheringErrorEvent`](../type-aliases/RTCIceGatheringErrorEvent.md)\]\>
+
+The gathering of one ICE transport reported an error (werift extension,
+not W3C, so there is no `on<event>` property or `addEventListener` type;
+see [RTCIceGatheringErrorEvent](../type-aliases/RTCIceGatheringErrorEvent.md)). New reasons may be added.
+
+#### See
+
+ - packages/webrtc/tests/transport/iceGatheringError.test.ts「without STUN / TURN: gathering completes with end-of-candidates and both reasons are reported」
+ - packages/webrtc/tests/transport/iceGatheringError.test.ts「an unreachable STUN server still gives only its 701 as icecandidateerror」
+ - packages/webrtc/tests/transport/iceGatheringError.test.ts「without BUNDLE each transport reports its own errors」
+ - packages/webrtc/tests/transport/iceGatheringError.test.ts「nothing is reported after close」
+ - packages/webrtc/tests/transport/iceGatheringError.test.ts「a transport a rollback discards (pending only) reports nothing」
+
+***
+
 ### onNegotiationneeded
 
 > `readonly` **onNegotiationneeded**: [`Event`](Event.md)\<\[\]\>
