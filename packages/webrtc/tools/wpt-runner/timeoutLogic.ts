@@ -91,6 +91,7 @@ function resolveBaseTimeoutProfile(
       "getstats",
       "transport-stats",
       "track-stats",
+      "ondatachannel",
     ])
   ) {
     return HEAVY_TIMEOUT_PROFILE;
