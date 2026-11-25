@@ -38,6 +38,13 @@ export function isLinkLocalAddress(info: os.NetworkInterfaceInfo) {
   );
 }
 
+/**
+ * The candidate host addresses of the local interfaces of `family` (4 or 6).
+ *
+ * @throws the `SystemError` of `os.networkInterfaces()` when the interfaces
+ * cannot be enumerated.
+ * @see packages/ice/tests/ice/interface-enumeration.test.ts「the public nodeIpAddress / getHostAddresses keep throwing (documented @throws)」
+ */
 export function nodeIpAddress(
   family: number,
   {
@@ -57,6 +64,12 @@ export function nodeIpAddress(
   );
 }
 
+/**
+ * {@link nodeIpAddress} of IPv4 then IPv6, as enabled.
+ *
+ * @throws the `SystemError` of `os.networkInterfaces()`, like {@link nodeIpAddress}.
+ * @see packages/ice/tests/ice/interface-enumeration.test.ts「the public nodeIpAddress / getHostAddresses keep throwing (documented @throws)」
+ */
 export function getHostAddresses(
   useIpv4: boolean,
   useIpv6: boolean,

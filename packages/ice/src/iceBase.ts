@@ -6,6 +6,7 @@ import {
   MissingMappedAddressError,
 } from "./candidateError";
 import type { MdnsLookup } from "./dns/lookup";
+import type { IceGatheringErrorInfo } from "./gatheringError";
 import type { Cancelable } from "./helper";
 import {
   type Address,
@@ -88,6 +89,12 @@ export interface IceConnection {
    * (see {@link IceServerReachedInfo}). Optional like onIceCandidateError.
    */
   readonly onIceServerReached?: Event<[IceServerReachedInfo]>;
+  /**
+   * The current generation's gathering reported an error (see
+   * {@link IceGatheringErrorInfo}). Optional like onIceCandidateError.
+   * @see packages/webrtc/tests/transport/iceGatheringError.test.ts「of an ICE agent without onGatheringError: gathering-failed is reported and the gathering completes」
+   */
+  readonly onGatheringError?: Event<[IceGatheringErrorInfo]>;
 
   restart(): void;
   /** Record the remote `a=ice-options` tokens (see remoteIceOptions). */
