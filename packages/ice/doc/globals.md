@@ -9,6 +9,7 @@
 - [CandidatePairState](enumerations/CandidatePairState.md)
 - [classes](enumerations/classes.md)
 - [IceCandidateErrorCode](enumerations/IceCandidateErrorCode.md)
+- [IceGatheringErrorReason](enumerations/IceGatheringErrorReason.md)
 - [methods](enumerations/methods.md)
 
 ## Classes
@@ -43,6 +44,7 @@
 
 - [GatherErrorContext](type-aliases/GatherErrorContext.md)
 - [IceCandidateErrorInfo](type-aliases/IceCandidateErrorInfo.md)
+- [IceGatheringErrorInfo](type-aliases/IceGatheringErrorInfo.md)
 - [IceServerFields](type-aliases/IceServerFields.md)
 - [IceServerReachedInfo](type-aliases/IceServerReachedInfo.md)
 - [IceServerRef](type-aliases/IceServerRef.md)

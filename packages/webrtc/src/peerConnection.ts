@@ -10,6 +10,7 @@ import {
 import {
   type PeerConnectionEventHandlers,
   type RTCDataChannelEvent,
+  type RTCIceGatheringErrorEvent,
   RTCPeerConnectionIceErrorEvent,
   type RTCPeerConnectionIceEvent,
   RTCTrackEvent,
@@ -104,6 +105,7 @@ export {
 } from "./api/peerConfig";
 export {
   type RTCDataChannelEvent,
+  type RTCIceGatheringErrorEvent,
   RTCPeerConnectionIceErrorEvent,
   type RTCPeerConnectionIceErrorEventInit,
   type RTCPeerConnectionIceEvent,
@@ -256,6 +258,20 @@ export class RTCPeerConnection extends EventTarget {
   readonly onIceCandidateError = new Event<[RTCPeerConnectionIceErrorEvent]>({
     onListenerError: (error) =>
       log("onIceCandidateError subscriber threw", error),
+  });
+  /**
+   * The gathering of one ICE transport reported an error (werift extension,
+   * not W3C, so there is no `on<event>` property or `addEventListener` type;
+   * see {@link RTCIceGatheringErrorEvent}). New reasons may be added.
+   * @see packages/webrtc/tests/transport/iceGatheringError.test.ts「without STUN / TURN: gathering completes with end-of-candidates and both reasons are reported」
+   * @see packages/webrtc/tests/transport/iceGatheringError.test.ts「an unreachable STUN server still gives only its 701 as icecandidateerror」
+   * @see packages/webrtc/tests/transport/iceGatheringError.test.ts「without BUNDLE each transport reports its own errors」
+   * @see packages/webrtc/tests/transport/iceGatheringError.test.ts「nothing is reported after close」
+   * @see packages/webrtc/tests/transport/iceGatheringError.test.ts「a transport a rollback discards (pending only) reports nothing」
+   */
+  readonly onIceGatheringError = new Event<[RTCIceGatheringErrorEvent]>({
+    onListenerError: (error) =>
+      log("onIceGatheringError subscriber threw", error),
   });
   readonly onNegotiationneeded = new Event<[]>();
   readonly onTrack = new Event<[MediaStreamTrack]>();
@@ -1165,6 +1181,16 @@ export class RTCPeerConnection extends EventTarget {
         });
       }
     });
+    iceTransport.onGatheringError.subscribe((details) => {
+      // テスト: iceGatheringError.test.ts「nothing is reported after close」「a transport a rollback discards」「without BUNDLE each transport」
+      if (
+        this.isClosed ||
+        this.negotiation.isPendingOnlyTransport(iceTransport.id)
+      ) {
+        return;
+      }
+      this.onIceGatheringError.execute({ ...details, iceTransport });
+    });
     iceTransport.onIceCandidateError.subscribe((details) => {
       // A closed connection fires nothing; a transport a rollback discards
       // (pending only) is not announced, as for its candidates.
@@ -1774,6 +1800,7 @@ export class RTCPeerConnection extends EventTarget {
       // The description is in place: a queued addIceCandidate need not wait
       // for the gathering below.
       this.markDescriptionApplied();
+      // テスト: iceGatheringError.test.ts「of a mocked agent: setLocalDescription succeeds」
       await this.gatherCandidates().catch((e) => {
         log("gatherCandidates failed", e);
       });
@@ -2463,6 +2490,7 @@ export class RTCPeerConnection extends EventTarget {
       this.onRemoteTransceiverAdded,
       this.onIceCandidate,
       this.onIceCandidateError,
+      this.onIceGatheringError,
       this.onNegotiationneeded,
     ] as const;
     for (const event of events) {

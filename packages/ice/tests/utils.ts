@@ -2801,6 +2801,8 @@ export function createFakeMdns() {
     get listenerCount() {
       return emitter.listenerCount("response");
     },
+    /** Emit `error` as multicast-dns does for a socket's EACCES / EADDRINUSE. */
+    emitError: (error: Error) => emitter.emit("error", error),
     /** Answer `name` with an A record `address`. */
     respond: (name: string, address = "127.0.0.1") => {
       emitter.emit("response", {
