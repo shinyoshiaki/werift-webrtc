@@ -3,7 +3,7 @@ import { createWebRtcTypeError } from "./errors";
 import { EventTarget, notifySafely } from "./helper";
 import { debug, Event } from "./imports/common";
 import type { RTCSctpTransport } from "./transport/sctp";
-import type { Callback, CallbackWithValue } from "./types/util";
+import type { CallbackWithValue, EventHandler } from "./types/util";
 
 /**
  * Label / Protocol Length are 16-bit byte counts of the UTF-8 fields
@@ -54,14 +54,18 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
    * @see tests/datachannel/bufferedAmount.test.ts "pc.close() keeps bufferedAmount and fires no bufferedamountlow"
    */
   readonly bufferedAmountLow = new Event();
-  onopen?: Callback;
-  onclose?: Callback;
-  onclosing?: Callback;
+  /** @see tests/datachannel/bufferedAmount.test.ts "every event handler receives the same Event object as the listeners" */
+  onopen?: EventHandler<globalThis.Event>;
+  /** @see tests/datachannel/bufferedAmount.test.ts "every event handler receives the same Event object as the listeners" */
+  onclose?: EventHandler<globalThis.Event>;
+  /** @see tests/datachannel/bufferedAmount.test.ts "every event handler receives the same Event object as the listeners" */
+  onclosing?: EventHandler<globalThis.Event>;
   /**
    * W3C `onbufferedamountlow`.
    * @see tests/datachannel/bufferedAmount.test.ts "bufferedamountlow fires once per downward crossing, through every notification"
+   * @see tests/datachannel/bufferedAmount.test.ts "onbufferedamountlow receives the same Event object as the bufferedamountlow listeners"
    */
-  onbufferedamountlow?: Callback;
+  onbufferedamountlow?: EventHandler<globalThis.Event>;
   onmessage?: CallbackWithValue<MessageEvent>;
   // todo impl
   onerror?: CallbackWithValue<RTCErrorEvent>;
@@ -190,8 +194,7 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
     this.emitIsolated((e) => log("error listener failed", e), "error", {
       error,
     });
-    notifySafely(log, "onclose", () => this.onclose?.());
-    this.emitIsolated((e) => log("close listener failed", e), "close");
+    this.fireEvent("close", (e) => log("close listener failed", e));
     log("failed", error.message);
   }
 
@@ -213,18 +216,15 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
 
       switch (state) {
         case "open":
-          notifySafely(log, "onopen", () => this.onopen?.());
-          this.emitIsolated(onError, "open");
+          this.fireEvent("open", onError);
           break;
         case "closed":
-          notifySafely(log, "onclose", () => this.onclose?.());
-          this.emitIsolated(onError, "close");
+          this.fireEvent("close", onError);
           break;
         case "closing":
           // Test: tests/datachannel/closeDelivery.test.ts "closing fires on the end the peer closed, not on the end calling close()"
           if (!notifyClosing) break;
-          notifySafely(log, "onclosing", () => this.onclosing?.());
-          this.emitIsolated(onError, "closing");
+          this.fireEvent("closing", onError);
           break;
       }
       log("change state", state);
@@ -256,11 +256,19 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
       const onError = (e: unknown) =>
         log("bufferedamountlow listener failed", e);
       this.bufferedAmountLow.executeIsolated(onError);
-      notifySafely(log, "onbufferedamountlow", () =>
-        this.onbufferedamountlow?.(),
-      );
-      this.emitIsolated(onError, "bufferedamountlow");
+      this.fireEvent("bufferedamountlow", onError);
     }
+  }
+
+  /** @see tests/datachannel/bufferedAmount.test.ts "every event handler receives the same Event object as the listeners" */
+  private fireEvent(
+    type: "open" | "close" | "closing" | "bufferedamountlow",
+    onError: (error: unknown) => void,
+  ) {
+    const event = new globalThis.Event(type);
+    const name = `on${type}` as const;
+    notifySafely(log, name, () => this[name]?.(event));
+    this.emitIsolated(onError, type, event);
   }
 
   /**

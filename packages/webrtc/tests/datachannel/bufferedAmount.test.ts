@@ -4,6 +4,7 @@ import { WEBRTC_BINARY_EMPTY, WEBRTC_STRING_EMPTY } from "../../src/const";
 import { captureSctpSendOptions, collectChannelMessages } from "../utils";
 import {
   closed,
+  holdLowerSends,
   injectDataLoss,
   negotiatedChannelsBeforeConnect,
   nextBufferedAmountLow,
@@ -109,6 +110,114 @@ describe.each([{}, { negotiated: true, id: 0 }])(
         expect(record.listener).toBe(2);
       } finally {
         await pair.close();
+      }
+    });
+
+    test("a message handed to SCTP is subtracted even while a later message's lower transport send is held", async () => {
+      // Arrange: 1 通目を送った直後から、下位 transport の送信を保留させる
+      const pair = await openChannelPair(options);
+      pair.local.send(hello);
+      const hold = holdLowerSends(pair.pc1);
+      try {
+        const record = recordBufferedAmountLow(pair.local);
+
+        // Act: 2 通目を送り、保留中の送信を残したまま処理を進める
+        pair.local.send(hello);
+        await settleSctpDeliveries(50);
+
+        // Assert: 2 通目の下位送信が終わっていなくても、両方とも SCTP に渡った分が減算され通知される
+        expect(hold.held.packets).toBeGreaterThan(0);
+        expect(pair.local.bufferedAmount).toBe(0);
+        expect(record.event).toBe(1);
+      } finally {
+        hold.release();
+        await pair.close();
+      }
+    });
+
+    test("onbufferedamountlow receives the same Event object as the bufferedamountlow listeners", async () => {
+      // Arrange: ハンドラとリスナーの両方で受け取ったイベントを記録する
+      const pair = await openChannelPair(options);
+      try {
+        const received: { handler?: Event; listener?: Event } = {};
+        pair.local.onbufferedamountlow = (event) => {
+          received.handler = event;
+        };
+        pair.local.addEventListener("bufferedamountlow", (event: Event) => {
+          received.listener = event;
+        });
+
+        // Act: 送って bufferedAmount を閾値 0 まで下げる
+        pair.local.send(hello);
+        await nextBufferedAmountLow(pair.local);
+
+        // Assert: ハンドラは type が bufferedamountlow の Event を受け取り、リスナーと同じオブジェクトである
+        expect(received.handler).toBeInstanceOf(globalThis.Event);
+        expect(received.handler?.type).toBe("bufferedamountlow");
+        expect(received.handler).toBe(received.listener);
+      } finally {
+        await pair.close();
+      }
+    });
+
+    test("every event handler receives the same Event object as the listeners", async () => {
+      // Arrange: open 前のチャネルで、各イベントのハンドラとリスナーの受け取ったイベントを記録する
+      const peers = negotiatedChannelsBeforeConnect(options.id ?? 1);
+      const channel = peers.local;
+      const types = ["open", "bufferedamountlow", "close"] as const;
+      const received = Object.fromEntries(
+        types.map((type) => [
+          type,
+          { handler: [] as Event[], listener: [] as Event[] },
+        ]),
+      ) as Record<
+        (typeof types)[number],
+        { handler: Event[]; listener: Event[] }
+      >;
+      for (const type of types) {
+        channel[`on${type}`] = (event) => {
+          received[type].handler.push(event);
+        };
+        channel.addEventListener(type, (event: Event) => {
+          received[type].listener.push(event);
+        });
+      }
+      const remoteClosing: { handler: Event[]; listener: Event[] } = {
+        handler: [],
+        listener: [],
+      };
+      peers.remote.onclosing = (event) => {
+        remoteClosing.handler.push(event);
+      };
+      peers.remote.addEventListener("closing", (event: Event) => {
+        remoteClosing.listener.push(event);
+      });
+      try {
+        // Act: 接続して open、送信して bufferedamountlow、close して両端の close / closing を起こす
+        await peers.connect();
+        if (channel.readyState !== "open") {
+          await new Promise((resolve) =>
+            channel.addEventListener("open", resolve, { once: true }),
+          );
+        }
+        channel.send(hello);
+        await nextBufferedAmountLow(channel);
+        channel.close();
+        await closed(channel);
+        await closed(peers.remote);
+
+        // Assert: どのハンドラも type 付きの Event を 1 回受け取り、リスナーと同じオブジェクトである
+        for (const [type, record] of [
+          ...Object.entries(received),
+          ["closing", remoteClosing] as const,
+        ]) {
+          expect(record.handler).toHaveLength(1);
+          expect(record.handler[0]).toBeInstanceOf(globalThis.Event);
+          expect(record.handler[0]!.type).toBe(type);
+          expect(record.handler[0]).toBe(record.listener[0]);
+        }
+      } finally {
+        await peers.close();
       }
     });
 

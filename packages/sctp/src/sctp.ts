@@ -1356,8 +1356,8 @@ export class SCTP {
       this.sendWaiters.push({ chunk: lastChunk, resolve });
     });
 
-    await this.transmit();
-    return sent;
+    // Test: tests/sendResult.test.ts "a send() resolves when its own message is handed over, not when a later message's transport send completes"
+    return Promise.race([sent, this.transmit().then(() => sent)]);
   };
 
   private resolveSendWaiters(sentChunk: DataChunk, result: SctpSendResult) {

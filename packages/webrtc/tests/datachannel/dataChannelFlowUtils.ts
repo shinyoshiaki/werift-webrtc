@@ -74,6 +74,30 @@ export function injectDataLoss(
   return loss;
 }
 
+export function holdLowerSends(pc: RTCPeerConnection) {
+  const lower = pc.sctpTransport!.sctp.transport;
+  const send = lower.send.bind(lower);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const held = { packets: 0 };
+  (lower as { send: (packet: Buffer) => Promise<void> }).send = async (
+    packet,
+  ) => {
+    held.packets++;
+    await gate;
+    await send(packet);
+  };
+  return {
+    held,
+    release: () => {
+      (lower as { send: (packet: Buffer) => Promise<void> }).send = send;
+      release();
+    },
+  };
+}
+
 export function peersBeforeConnect() {
   const pc1 = new RTCPeerConnection();
   const pc2 = new RTCPeerConnection();

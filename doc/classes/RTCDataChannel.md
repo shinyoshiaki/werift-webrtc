@@ -117,25 +117,34 @@ W3C `bufferedamountlow`.
 
 ### onbufferedamountlow?
 
-> `optional` **onbufferedamountlow?**: `Callback`
+> `optional` **onbufferedamountlow?**: `EventHandler`\<`Event`\>
 
 W3C `onbufferedamountlow`.
 
 #### See
 
-tests/datachannel/bufferedAmount.test.ts "bufferedamountlow fires once per downward crossing, through every notification"
+ - tests/datachannel/bufferedAmount.test.ts "bufferedamountlow fires once per downward crossing, through every notification"
+ - tests/datachannel/bufferedAmount.test.ts "onbufferedamountlow receives the same Event object as the bufferedamountlow listeners"
 
 ***
 
 ### onclose?
 
-> `optional` **onclose?**: `Callback`
+> `optional` **onclose?**: `EventHandler`\<`Event`\>
+
+#### See
+
+tests/datachannel/bufferedAmount.test.ts "every event handler receives the same Event object as the listeners"
 
 ***
 
 ### onclosing?
 
-> `optional` **onclosing?**: `Callback`
+> `optional` **onclosing?**: `EventHandler`\<`Event`\>
+
+#### See
+
+tests/datachannel/bufferedAmount.test.ts "every event handler receives the same Event object as the listeners"
 
 ***
 
@@ -159,7 +168,11 @@ tests/datachannel/bufferedAmount.test.ts "bufferedamountlow fires once per downw
 
 ### onopen?
 
-> `optional` **onopen?**: `Callback`
+> `optional` **onopen?**: `EventHandler`\<`Event`\>
+
+#### See
+
+tests/datachannel/bufferedAmount.test.ts "every event handler receives the same Event object as the listeners"
 
 ***
 

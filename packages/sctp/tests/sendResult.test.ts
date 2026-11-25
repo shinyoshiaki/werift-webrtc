@@ -4,11 +4,14 @@ import { SctpSendResult, WEBRTC_PPID } from "../src";
 import { DataChunk } from "../src/chunk";
 import {
   createConnectedSctpPair,
+  createMockSctp,
   createZeroWindowMockSctp,
   disposeMockSctp,
   flushImmediates,
+  holdTransport,
   outboundQueueOf,
   sentChunks,
+  settle,
 } from "./utils";
 
 describe("SCTP.send() resolves with SctpSendResult", () => {
@@ -27,6 +30,28 @@ describe("SCTP.send() resolves with SctpSendResult", () => {
       expect(result).toBe(SctpSendResult.sent);
     } finally {
       await pair.stop();
+    }
+  });
+
+  test("a send() resolves when its own message is handed over, not when a later message's transport send completes", async () => {
+    // Arrange: 確立済みの association で 1 件目を送り、2 件目以降の transport.send を保留させる
+    const { sctp, transport } = createMockSctp({ established: true });
+    const settled: string[] = [];
+    const first = sctp.send(0, WEBRTC_PPID.BINARY, Buffer.from("A"));
+    void first.then((result) => settled.push(`A:${result}`));
+    const hold = holdTransport(transport);
+    try {
+      // Act: 2 件目を送り、保留中の transport.send を残したまま処理を進める
+      const second = sctp.send(0, WEBRTC_PPID.BINARY, Buffer.from("B"));
+      void second.then((result) => settled.push(`B:${result}`));
+      await settle();
+
+      // Assert: 2 件目の transport.send が保留中でも、両方の send() が sent で解決している
+      expect(transport.send).toHaveBeenCalledTimes(2);
+      expect([...settled].sort()).toEqual(["A:sent", "B:sent"]);
+    } finally {
+      hold.release();
+      await disposeMockSctp(sctp);
     }
   });
 
