@@ -492,12 +492,11 @@ export class ConsentFreshness {
               }
 
               const rtt = (performance.now() - requestStartedAt) / 1000; // seconds
-              if (requestStartedAt > rttSampleSentAt) {
-                rttSampleSentAt = requestStartedAt;
-                nominated.rtt = rtt;
-              }
-              nominated.totalRoundTripTime += rtt;
-              nominated.roundTripTimeMeasurements++;
+              // Test: tests/ice/consent-network.test.ts "応答の順序が入れ替わっても受理し、古い request の RTT で新しい推定を上書きしない"
+              // Test: tests/ice/selection-controller.test.ts "a response to an older check (latest: false) counts for the totals and the smoothed RTT, not the current RTT"
+              const latest = requestStartedAt > rttSampleSentAt;
+              if (latest) rttSampleSentAt = requestStartedAt;
+              nominated.recordRoundTrip(rtt, { latest });
 
               nominated.responsesReceived++;
               this.fresh = true;
