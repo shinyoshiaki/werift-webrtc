@@ -187,3 +187,25 @@
 - [ ] WPT `RTCDataChannel-bufferedAmount.html` が allowlist に入り、安定して通る subtest が baseline に入っている。
 - [ ] #730（性能）とは別のものとして changelog と本チケットに書いてある。
 - [ ] 検証: `cd packages/sctp && npm test`、`cd packages/webrtc && npm test && npm run type`、`npm run type`、`npm run test:small`、`npm run wpt` と `npm run wpt:coverage`（allowlist / baseline を変えるため）、`npm run format`、`npm run doc`。
+
+## 7. 受け入れテスト
+
+`packages/webrtc/tests/datachannel/acceptance.test.ts`（6 件、約 4 秒）。共通の準備処理は `tests/datachannel/dataChannelFlowUtils.ts` に `channelsToCloseWhileSending()` を足しただけである。対象ファイルを 10 回続けて実行し、毎回 6 件とも通った。
+
+### 検出力（実装を 1 か所ずつ壊して実行し、元に戻した）
+
+| 壊した箇所 | 落ちた件 |
+| --- | --- |
+| M1 接続前の `close()` でキューを捨てる（①の旧挙動） | (before-connect) 4.2章 ① |
+| M2 flush が `closing` の channel のメッセージを捨てる | (before-connect) 4.2章 ① |
+| M3 DCEP ACK を `ondatachannel` の後に積む（②の旧挙動） | 4.2章 ② |
+| M4 空メッセージを送らない（③の旧挙動） | 4.1章 ③ |
+| M5 空メッセージで `bufferedAmount` を 1 増やす | 4.1章 ③ |
+| M6 `bufferedamountlow` を発火しない | 4.3章 |
+| M7 `bufferedAmount` に setter を足す | 4.3章 |
+| M8 `discarded` でも `bufferedAmount` を減らす（close / stop 後に 0 に落ちる旧挙動） | 2.2章 |
+| M9 `ondatachannel` 内で閉じた channel も `open` にする（develop の挙動） | 4.2章 ② |
+
+- 修正前の develop（`4d8b2c00a`、一時 worktree）では 6 件中 5 件が落ちる。通るのは (open) 4.2章 ① だけで、確立後の close で届くのは 0.27.0 の deferred reset による既存の保証だからである（このチケットでは回帰の確認として残した）。
+- 判断: 最初の版は M8 を検出できなかったので、2.2 の決定（送れなかった分を減算しない）を確かめる「2.2章」の件を足した。develop の ② は例外こそ出ない（#870）が、受信側が閉じた後に `open` を発火していた。これを捉えるため、② に受信側のイベントの Assert を足した（M9）。
+

@@ -14,6 +14,22 @@ ide:
 
 性能の話（#730、キューの計算量）は含みません。変更の対象は API と意味論だけです。範囲は `packages/sctp` と `packages/webrtc` で、比較の基準は `0a03984d9`（チケット実装前の develop マージ）です。この版は headCommit `86a227705`（再レビュー 4 回目の修正後）に合わせています。
 
+### 受け入れテスト（ここだけ見れば目的の達成を確認できます）
+
+[packages/webrtc/tests/datachannel/acceptance.test.ts:1](review-file:packages/webrtc/tests/datachannel/acceptance.test.ts:1) は、実際の `RTCPeerConnection` の組と、README に書いた公開 API（`send()` / `close()` / `bufferedAmount` / `bufferedamountlow`）だけで、下流が内部に触らずに済むことを確かめます。
+
+| テスト | 確認すること | develop |
+| --- | --- | --- |
+| (before-connect) 4.2章 ① | 接続前に `send()` → `close()` しても捨てられず `closing` で待ち、接続後に全メッセージが順番どおり届いてから両側が `closed` になる | 落ちる |
+| (open) 4.2章 ① | 送信が詰まっている間に `close()` しても `bufferedAmount` は減らず、受信側の `close` までに全部届く | 通る（0.27.0 からの既存保証） |
+| 4.2章 ② | `ondatachannel` の中で `close()` すると受信側は `open` せずに閉じ、開いた側は `open` → `close` を受け、例外が出ない | 落ちる |
+| 4.1章 ③ | `send("")` / `send(Buffer.alloc(0))` が `""` / 空 Buffer として順番どおり届き、`bufferedAmount` は増えない | 落ちる |
+| 4.3章 | README の high / low water mark だけで全メッセージを送り切れ、`bufferedAmount` に代入すると `TypeError` | 落ちる |
+| 2.2章 | `pc.close()` で送れなかった分は `bufferedAmount` に残り、`bufferedamountlow` は来ない | 落ちる |
+
+- 実行: `cd packages/webrtc && npx vitest run tests/datachannel/acceptance.test.ts`（約 4 秒、10 回連続で成功）
+- 実装を 9 か所、1 か所ずつ壊し、毎回対応する 1 件だけが落ちることを確かめました（チケットの「受け入れテスト」の章）。
+
 ## 2. 変更前後の流れ
 
 <div style="display:flex;gap:12px;flex-wrap:wrap;font-family:sans-serif;font-size:12px">

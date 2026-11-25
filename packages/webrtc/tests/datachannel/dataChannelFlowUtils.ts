@@ -131,3 +131,11 @@ export function negotiatedChannelsBeforeConnect(id = 0) {
 
 export const settleSctpDeliveries = (ms = 200) =>
   new Promise((resolve) => setTimeout(resolve, ms));
+
+export async function channelsToCloseWhileSending(
+  mode: "before-connect" | "open",
+) {
+  if (mode === "before-connect") return negotiatedChannelsBeforeConnect();
+  const pair = await openChannelPair();
+  return { ...pair, connect: async () => {} };
+}
