@@ -160,6 +160,36 @@ describe.each([{}, { negotiated: true, id: 0 }])(
       }
     });
 
+    test("onmessage receives the same message event object as the message listeners", async () => {
+      // Arrange: 受信側でハンドラとリスナーの受け取ったイベントを記録する
+      const pair = await openChannelPair(options);
+      try {
+        const received: { handler: unknown[]; listener: unknown[] } = {
+          handler: [],
+          listener: [],
+        };
+        pair.remote.onmessage = (event) => {
+          received.handler.push(event);
+        };
+        pair.remote.addEventListener("message", (event: unknown) => {
+          received.listener.push(event);
+        });
+
+        // Act: 1 通送って受信させる
+        pair.local.send(hello);
+        await vi.waitFor(() => expect(received.handler).toHaveLength(1));
+
+        // Assert: ハンドラは type が message のイベントを受け取り、リスナーと同じオブジェクトである
+        expect(received.handler[0]).toMatchObject({
+          type: "message",
+          data: hello,
+        });
+        expect(received.handler[0]).toBe(received.listener[0]);
+      } finally {
+        await pair.close();
+      }
+    });
+
     test("every event handler receives the same Event object as the listeners", async () => {
       // Arrange: open 前のチャネルで、各イベントのハンドラとリスナーの受け取ったイベントを記録する
       const peers = negotiatedChannelsBeforeConnect(options.id ?? 1);

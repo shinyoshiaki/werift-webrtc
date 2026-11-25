@@ -320,6 +320,8 @@ export class RTCDataChannelParameters {
 }
 
 export interface MessageEvent {
+  /** `"message"` on received messages. */
+  readonly type?: string;
   data: string | Buffer;
 }
 

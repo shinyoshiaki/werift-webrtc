@@ -25,6 +25,7 @@ import {
 import {
   type DCState,
   getDataChannelMessageSize,
+  type MessageEvent,
   RTCDataChannel,
   RTCDataChannelParameters,
 } from "../dataChannel";
@@ -773,10 +774,10 @@ export class RTCSctpTransport {
         const onError = (error: unknown) =>
           log("message listener failed", error);
         channel.onMessage.executeIsolated(onError, msg);
-        channel.emitIsolated(onError, "message", { data: msg });
-        notifySafely(log, "onmessage", () =>
-          channel.onmessage?.({ data: msg }),
-        );
+        // Test: tests/datachannel/bufferedAmount.test.ts "onmessage receives the same message event object as the message listeners"
+        const event: MessageEvent = { type: "message", data: msg };
+        channel.emitIsolated(onError, "message", event);
+        notifySafely(log, "onmessage", () => channel.onmessage?.(event));
       }
     }
   };
