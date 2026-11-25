@@ -150,6 +150,44 @@ gathering reached the server.
 
 `npm run wpt -- --update-baseline` records the PASS subtests of a single run.
 
+## Where network interfaces cannot be enumerated
+
+`os.networkInterfaces()` throws where enumerating the network interfaces is
+not allowed (for example a systemd service with `RestrictAddressFamilies=`
+that denies `AF_NETLINK`). werift keeps working there:
+
+- Gathering goes on without enumerated host addresses. The explicit
+  `iceInterfaceAddresses`, `iceAdditionalHostAddresses` (bound to the wildcard
+  address, since none is known to be assigned locally), STUN and TURN can
+  still give candidates; `iceGatheringState` still reaches `"complete"` and
+  end-of-candidates still comes. `setLocalDescription()` is not rejected.
+- Remote `.local` (mDNS) candidates are dropped instead of crashing the
+  process: the mDNS socket is not opened, so the lookup fails at once.
+- The failure is reported by `onIceGatheringError` (a werift extension, not
+  W3C: there is no `on<event>` property or `addEventListener` type), once per
+  ICE transport and reason. `icecandidateerror` stays for STUN / TURN server
+  failures only.
+
+```ts
+import { IceGatheringErrorReason } from "werift";
+
+pc.onIceGatheringError.subscribe(({ reason, errorText, cause, iceTransport }) => {
+  // reason: "interface-enumeration-failed" | "no-candidates" | "gathering-failed"
+  // (new reasons may be added: handle unknown values)
+  if (reason === IceGatheringErrorReason.noCandidates) {
+    console.warn("no local ICE candidate", iceTransport.id);
+  }
+  console.warn(reason, errorText, cause);
+});
+```
+
+`no-candidates` is reported whenever a gathering ends without any local
+candidate, whatever the cause. The ICE layer gives the same errors with their
+generation (`Connection.onGatheringError` in `werift-ice`) and
+`RTCIceTransport.onGatheringError` gives them per transport. The exported
+helpers `nodeIpAddress()` / `getHostAddresses()` still throw the
+`SystemError`; catch it if you call them.
+
 ## Rejected, stopped and reused m-lines
 
 A remote offer can contain audio/video sections that the local `codecs` cannot handle. `setRemoteDescription()` still succeeds and the answer rejects only those sections with port 0 at the same position (Issue #705). For example, an audio-only peer can answer a browser offer that bundles video without adding VP8:
