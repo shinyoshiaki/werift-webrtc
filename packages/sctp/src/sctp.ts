@@ -169,6 +169,7 @@ const EMPTY_PAYLOAD = Buffer.alloc(0);
  * @see tests/sendResult.test.ts "abandoned: a message that expired before it was handed to the network"
  * @see tests/sendResult.test.ts "discarded: the association closed before the message was handed to the network"
  * @see tests/sendResult.test.ts "discarded: a send() on a stopped association"
+ * @see tests/sendResult.test.ts "discarded: an empty send() on a stopped association"
  * @enum
  */
 export const SctpSendResult = {
@@ -1305,9 +1306,10 @@ export class SCTP {
       ordered?: boolean;
     } = { expiry: undefined, maxRetransmits: undefined, ordered: true },
   ): Promise<SctpSendResult> => {
-    if (userData.length === 0) return SctpSendResult.sent;
     // Test: tests/sendResult.test.ts "discarded: a send() on a stopped association"
+    // Test: tests/sendResult.test.ts "discarded: an empty send() on a stopped association"
     if (this.isStopped) return SctpSendResult.discarded;
+    if (userData.length === 0) return SctpSendResult.sent;
     const streamSeqNum = ordered ? this.outboundStreamSeq[streamId] || 0 : 0;
 
     const fragments = Math.ceil(userData.length / this.maxPayloadSize);

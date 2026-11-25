@@ -165,4 +165,18 @@ describe("SCTP.send() resolves with SctpSendResult", () => {
     expect(internals.localTsn).toBe(tsnBefore);
     expect({ ...internals.outboundStreamSeq }).toEqual(seqBefore);
   });
+
+  test("discarded: an empty send() on a stopped association", async () => {
+    // Arrange: 停止済みの association
+    const { sctp } = createZeroWindowMockSctp();
+    await disposeMockSctp(sctp);
+    const queueBefore = outboundQueueOf(sctp).length;
+
+    // Act: 停止後に空メッセージを送る
+    const result = await sctp.send(0, WEBRTC_PPID.BINARY, Buffer.alloc(0));
+
+    // Assert: 空でも sent ではなく discarded で解決し、キューは変化しない
+    expect(result).toBe(SctpSendResult.discarded);
+    expect(outboundQueueOf(sctp).length).toBe(queueBefore);
+  });
 });
