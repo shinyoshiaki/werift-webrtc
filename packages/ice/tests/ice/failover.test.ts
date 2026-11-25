@@ -32,7 +32,7 @@ describe("failover of the selected pair", () => {
     { mode: "semi-aggressive", renomination: false },
     { mode: "renomination", renomination: true },
   ])("controlling ($mode)", ({ renomination }) => {
-    test("the selected pair stops answering and receiving: once nothing arrived for 2.5 s + 1 s and a check went unanswered, the agent moves to the backup that receives, before the pair is unwritable (§15 A)", async () => {
+    test("the selected pair stops answering and receiving: once it has not been receiving for 1 s (from the later of 2.5 s of silence and an unanswered check), the agent moves to the backup that receives, before the pair is unwritable (§15 A)", async () => {
       const h = await createFailoverHarness({ renomination });
       const host = h.selection;
       const relay = h.pairOf(1);
@@ -56,7 +56,7 @@ describe("failover of the selected pair", () => {
           .requestsTo(host)
           .filter((request) => request.at >= cutAt && !request.answered);
 
-        // Assert: 最後に受信してから 2.5 s + 1 s 以上たち、遮断から 5 s 未満 (書き込み不可の 5 回・5 s を待たない) で relay へ移る。
+        // Assert: 最後に受信してから 2.5 s + 1 s 以上 (無通信と未応答の遅い方から 1 s の保留) たち、遮断から 5 s 未満 (書き込み不可の 5 回・5 s を待たない) で relay へ移る。
         expect(h.connection.nominated).toBe(relay);
         expect(Date.now() - lastAnswered).toBeGreaterThanOrEqual(3500);
         expect(took).toBeLessThan(5000);

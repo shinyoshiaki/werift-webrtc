@@ -104,6 +104,11 @@ export type PairLiveness = {
   lastReceived: number;
   /** Consecutive checks that went unanswered. */
   unanswered: number;
+  /**
+   * When the first of the `unanswered` checks was counted (ms); undefined
+   * while the last check was answered (see `notReceivingSince`).
+   */
+  missedSince?: number;
   /** Responses since monitoring began (stabilizing below MIN_PINGS_AT_WEAK_PING_INTERVAL). */
   responses: number;
   /** Consecutive responses (reset by an unanswered check). */
@@ -152,19 +157,44 @@ export const isWeak = (
   now - liveness.lastReceived >= thresholds.receivingTimeout;
 
 /**
- * Stopped receiving, as libwebrtc switches on (`receiving`, then
- * `receiving_switching_delay`): nothing was received for `receivingTimeout`
- * plus `receivingSwitchingDelay`, and a check went unanswered meanwhile (an
- * idle peer still answers the checks, so silence alone is not a break).
+ * Since when (ms) `pair` has not been receiving, undefined while it is: the
+ * later of `receivingTimeout` of silence (libwebrtc's `Connection::receiving`)
+ * and its first unanswered check. libwebrtc needs no unanswered check, as it
+ * pings a weak selection every 48 ms; werift checks it far less often.
+ * @see tests/ice/selection-controller.test.ts "silence alone (no unanswered check) is not 'not receiving'; a receiving selection beats a pair that is not"
+ * @see tests/ice/selection-controller.test.ts "a late unanswered check starts the hold at the check, and a recovery in the hold keeps the selection"
+ * @see tests/pbt/failoverRules/failoverRulesProperty.test.ts "a pair is not receiving exactly from the later of the silence and the unanswered check, plus the hold"
+ */
+export const notReceivingSince = <
+  T extends { lastReceived: number; missedSince?: number },
+>(
+  pair: T,
+  now: number,
+  receivingTimeout = WEAK_CONNECTION_RECEIVE_TIMEOUT,
+) => {
+  const silentSince = pair.lastReceived + receivingTimeout;
+  if (now < silentSince || pair.missedSince === undefined) return undefined;
+  return Math.max(silentSince, pair.missedSince);
+};
+
+/**
+ * Stopped receiving (libwebrtc's `receiving`, then
+ * `receiving_switching_delay`): `notReceivingSince` is
+ * `receivingSwitchingDelay` ago, the same time `SelectionController` switches
+ * at.
+ * @see tests/pbt/failoverRules/failoverRulesProperty.test.ts "a pair is not receiving exactly from the later of the silence and the unanswered check, plus the hold"
+ * @see tests/ice/selection-controller.test.ts "an RTT switch within the hold is not a failover: the old pair is not demoted"
  */
 export const isNotReceiving = (
   liveness: PairLiveness,
   now: number,
   thresholds: FailoverThresholds = DEFAULT_FAILOVER_THRESHOLDS,
-) =>
-  liveness.unanswered > 0 &&
-  now - liveness.lastReceived >=
-    thresholds.receivingTimeout + thresholds.receivingSwitchingDelay;
+) => {
+  const since = notReceivingSince(liveness, now, thresholds.receivingTimeout);
+  return (
+    since !== undefined && now - since >= thresholds.receivingSwitchingDelay
+  );
+};
 
 /**
  * Interval (ms) to the next check of a backup pair: the weak / stabilizing
@@ -365,16 +395,11 @@ export class FailoverMonitor {
   }
 
   /**
-   * The backup to fail over to: the highest-priority writable one that is
-   * not weak, else the highest-priority writable one. With `receiving`
-   * (the selected pair only stopped receiving, it is not unwritable yet)
-   * only a backup that is not weak: writable, its last check answered and
-   * received within `receivingTimeout`.
+   * The backup to fail over to from an unwritable selection: the
+   * highest-priority writable one that is not weak, else the
+   * highest-priority writable one.
    */
-  target(
-    now = Date.now(),
-    { receiving = false }: { receiving?: boolean } = {},
-  ): CandidatePair | undefined {
+  target(now = Date.now()): CandidatePair | undefined {
     const writable = this.backupPairs.filter((pair) =>
       this.writable(pair, now),
     );
@@ -389,7 +414,7 @@ export class FailoverMonitor {
           !isWeak(this.liveness.get(pair)!, now, this.host.thresholds()),
       ),
     );
-    return receiving ? strong : (strong ?? best(writable));
+    return strong ?? best(writable);
   }
 
   /**
@@ -447,15 +472,17 @@ export class FailoverMonitor {
     liveness.lastResponse = now;
     liveness.lastReceived = now;
     liveness.unanswered = 0;
+    liveness.missedSince = undefined;
     liveness.broken = false;
     liveness.responses++;
     liveness.consecutive++;
   }
 
   /** A check of monitored `pair` went unanswered. */
-  unanswered(pair: CandidatePair) {
+  unanswered(pair: CandidatePair, now = Date.now()) {
     const liveness = this.liveness.get(pair);
     if (!liveness) return;
+    if (liveness.unanswered === 0) liveness.missedSince = now;
     liveness.unanswered++;
     liveness.consecutive = 0;
   }
