@@ -44,7 +44,7 @@ describe(
      * rule can hold (no check went unanswered, or the silence stays below
      * receiving + delay and the unwritable rule lacks its time or its checks),
      * so the selection must not move. `live`: the cut outlasts the receiving
-     * rule's decision, so the selection moves within `liveBound`.
+     * rule's decision, so the selection moves within `liveBound` (the hold counts from the unanswered check).
      */
     const classifyBurst = (
       {
@@ -62,7 +62,10 @@ describe(
         unansweredMax === 0 ||
         (silenceMax < rt + delay &&
           (silenceMax < unwritableTimeout || unansweredMax < minChecks));
-      const liveBound = rt + Math.max(DEADLINE, delay + 900) + SLACK;
+      // 受信なしの保留は「無通信 rt」と「未応答の確定」が揃った時点から数える。
+      // 最初の check は無通信が rt を超えてから最大 1 周期 (900 ms) 後に出て、
+      // DEADLINE 後に未応答と確定し、そこから delay 後に移る。
+      const liveBound = rt + 900 + DEADLINE + delay + SLACK;
       return { safe, live: burstMs >= liveBound, liveBound };
     };
 

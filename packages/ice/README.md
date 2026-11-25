@@ -160,6 +160,8 @@ a path broken in one direction).
   checks in a row went unanswered and 5 s passed since its last response
   (libwebrtc's `CONNECTION_WRITE_CONNECT_FAILURES` /
   `CONNECTION_WRITE_CONNECT_TIMEOUT`), about 5–10 s after the path broke.
+  A controlling agent with a receiving backup usually moves before that, by
+  the receiving state (see "Choosing the selected pair" below).
 - Controlling agent: it then nominates the best writable backup (one that is
   not weak first) with `USE-CANDIDATE` (semi-aggressive) or the next
   `NOMINATION` value (renomination); the selection, consent and application
@@ -170,15 +172,15 @@ a path broken in one direction).
   peer may already have taken it), and when it succeeds the selection moves
   and the old socket waits for its 3 responses.
 - Stopped receiving (libwebrtc's `receiving` and `receiving_switching_delay`):
-  the controlling agent does not wait for the unwritable rule when nothing
-  was received on the selected pair for 2.5 s + 1 s and one of its checks
-  went unanswered meanwhile; it fails over to the best backup that receives
-  (its last check answered, something received within 2.5 s), about 4 s
-  after a path broke both ways. An idle pair whose checks are answered, a
+  the controlling agent does not wait for the unwritable rule once the
+  selected pair has not been receiving for 1 s (from the later of 2.5 s of
+  silence and one of its checks going unanswered); it moves to a backup that
+  is receiving, about 4 s after a path broke both ways. The switch, its hold
+  and the backup it picks (receiving state, priority, RTT) are described in
+  "Choosing the selected pair". An idle pair whose checks are answered, a
   slow path whose checks are answered before their deadline, a shorter loss
   burst and a break of one direction only (the peer's data still arrives)
-  keep the unwritable rule. Only writability and receiving switch pairs (no
-  RTT or network-cost switching).
+  keep the unwritable rule.
 - A path reported gone fails over at once (as libwebrtc drops the
   connections of a port that is gone): the protocol's `onPathBroken` makes
   the monitored pairs on it unwritable until one of their checks is
@@ -242,6 +244,46 @@ a path broken in one direction).
   ```
 
   Lower values fail over sooner, and also on a shorter loss burst.
+
+## Choosing the selected pair (receiving state, priority, RTT)
+
+Within the failover scope above, a controlling agent compares its selection
+with each backup in the order of libwebrtc's ICE controller
+(`BasicIceController::ShouldSwitchConnection`), each time a check, consent
+check or backup check is answered or goes unanswered:
+
+1. A backup that is not writable is never switched to; a writable one wins
+   over a selection that is not (the failover above).
+2. Receiving state: a pair is not receiving once nothing was received on it
+   for 2.5 s (`receivingTimeout`, `WEAK_CONNECTION_RECEIVE_TIMEOUT`) and a
+   check sent to it went unanswered. A receiving backup wins over a selection that is not
+   receiving only once the selection has not been receiving for 1 s
+   (`receivingSwitchingDelay`, `RECEIVING_SWITCHING_DELAY`, libwebrtc's `receiving_switching_delay`):
+   the decision is checked again then, and a selection that answered or
+   received data meanwhile stays. After such a move the old pair waits for
+   its 3 responses, as after a failover. A pair counts as not receiving from
+   the later of the two conditions (2.5 s of silence, the unanswered check),
+   so a selected path that breaks is left about 3.5 s after its last received
+   packet when the check goes unanswered in time (2.5 s, then 1 s), and 1 s
+   after the unanswered check when that is confirmed later (the hold is never
+   shorter than 1 s). A switch made within the hold (for example by RTT) is
+   not a failover: the old pair is not demoted.
+3. Priority: a higher-priority pair wins (the moves up of semi-aggressive
+   nomination and renomination, as before).
+4. RTT: between pairs of equal priority (for example relays on two TURN
+   servers) the selection moves only to a pair whose smoothed RTT is at least
+   10 ms lower (`RTT_SWITCH_MIN_IMPROVEMENT`, libwebrtc's `kMinImprovement`).
+   The smoothed RTT (`CandidatePair.smoothedRtt`) is the median of the last 5
+   samples (`RTT_SMOOTHING_SAMPLES`) and needs 3 of them
+   (`RTT_SMOOTHING_MIN_SAMPLES`), so one outlier never causes a switch.
+   `getStats()`'s `currentRoundTripTime` stays the last sample.
+
+Each move nominates the new pair (`USE-CANDIDATE` with semi-aggressive
+nomination, the next `NOMINATION` value with renomination). A controlled
+agent never switches by itself: it follows the peer's nominations and, between
+equal ones, the pair the peer sends data on. The network cost libwebrtc also
+compares (Wi-Fi / cellular) is not known in Node.js and is not used, and the
+RTT values are constants (not options).
 
 ## pion TURN interop (opt-in)
 

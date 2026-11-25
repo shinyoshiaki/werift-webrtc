@@ -25,7 +25,7 @@ import {
   type IceGatheringErrorInfo,
   IceGatheringErrorReason,
 } from "./gatheringError";
-import { cancelable, PQueue, randomString } from "./helper";
+import { type Cancelable, cancelable, PQueue, randomString } from "./helper";
 import {
   BACKUP_UNKNOWN_RTT_RESPONSE_TIMEOUT,
   CandidatePair,
@@ -89,6 +89,7 @@ import {
   pairKey,
   RegularNomination,
 } from "./nomination/regularNomination";
+import { SelectionController } from "./nomination/selectionController";
 import { SelectionReplacement } from "./nomination/selectionReplacement";
 import { ProvisionalChecklist } from "./provisional";
 import { type SpedRuntime, sameCandidatePair } from "./sped/runtime";
@@ -263,10 +264,12 @@ export class Connection implements IceConnection {
     roleConflict: () => this.switchRole(false),
     allows: (pair) => this.failoverAllows(pair),
     failoverReplaces: (pair) =>
-      this.failoverNomination === pair ||
+      this.switchNomination?.pair === pair ||
       (this.selectionFailing() && this.failover.writable(pair)),
     nominationEnded: (pair) => {
-      if (this.failoverNomination === pair) this.failoverNomination = undefined;
+      if (this.switchNomination?.pair === pair) {
+        this.switchNomination = undefined;
+      }
     },
     retriesForever: () => this.failoverEnabled(),
     selectionDown: () => this.selectionFailing(),
@@ -363,6 +366,7 @@ export class Connection implements IceConnection {
         // it is used again only if selected anew.
         if (!this.failover.hasWritableBackup()) {
           this.failover.reset();
+          this.switching.stop();
           return false;
         }
         this.startConsentExpiredGrace();
@@ -379,12 +383,51 @@ export class Connection implements IceConnection {
    */
   private readonly failover = new FailoverMonitor(this.failoverHost());
   /**
-   * The pair a failover nomination (`evaluateFailover`) is sent for, until
-   * its outcome. When it succeeds the selection moves to it even if the old
-   * pair answered again meanwhile (the peer may already have taken the
-   * nomination), and the old pair's socket is demoted (D4).
+   * The pair a nomination that moves the selection off a pair that still
+   * outranks (or equals) it is sent for, until its outcome, and why
+   * (`failover`: `evaluateFailover`; `receiving`, `rtt`:
+   * `SelectionController`). When it succeeds the selection moves to it even
+   * if the old pair answered again meanwhile (the peer may already have taken
+   * the nomination). After `failover` and `receiving` the old pair's socket
+   * is demoted (D4).
+   * @see tests/ice/selection-controller.test.ts "receiving: a selection that recovers within RECEIVING_SWITCHING_DELAY stays; one that does not moves after it"
+   * @see tests/ice/selection-controller.test.ts "an RTT switch within the hold is not a failover: the old pair is not demoted"
    */
-  private failoverNomination?: CandidatePair;
+  private switchNomination?: {
+    pair: CandidatePair;
+    reason: "failover" | "receiving" | "rtt";
+  };
+  /**
+   * The controlling agent's choice among the selection and the monitored
+   * backups by receiving state and RTT (libwebrtc's ICE controller).
+   */
+  private readonly switching = new SelectionController({
+    active: () =>
+      this.iceControlling &&
+      this.replacesSelection() &&
+      this.failoverEnabled() &&
+      !this.selection.nominating &&
+      (this.state === "connected" || this.state === "completed") &&
+      !this.selectionDown(),
+    selected: () => this.nominated,
+    candidates: () => this.failover.backupPairs,
+    liveness: (pair) => this.failover.livenessOf(pair),
+    thresholds: () => this.failoverThresholds,
+    writable: (pair, now) => this.failover.writable(pair, now),
+    allows: (pair) => this.replacesWith(pair) && this.failoverAllows(pair),
+    comparePriority: (pair, other) =>
+      compareCandidatePairPriority(
+        pair.localCandidate,
+        pair.remoteCandidate,
+        other.localCandidate,
+        other.remoteCandidate,
+        this.iceControlling,
+      ),
+    switchTo: (pair, reason) => {
+      this.switchNomination = { pair, reason };
+      this.selection.nominate(pair);
+    },
+  });
   /** See `failoverThresholds`. */
   private failoverThresholdsCache?: {
     source: IceOptions["failover"];
@@ -856,6 +899,7 @@ export class Connection implements IceConnection {
     for (const pair of this.checkList) pair.handle?.resolve?.();
     this.selection.clearRetries();
     this.failover.reset();
+    this.switching.stop();
     this.clearConsentExpiredGrace();
   }
 
@@ -946,6 +990,7 @@ export class Connection implements IceConnection {
     this.selection.abort();
     this.nominationHint = undefined;
     this.failover.reset();
+    this.switching.stop();
     this.clearConsentExpiredGrace();
     // Drop old pair's consent timers/transactions; restarted when a new pair is nominated.
     this.consent.stop();
@@ -2564,6 +2609,7 @@ export class Connection implements IceConnection {
       // pair's consent requests (not counted as unanswered; the next one
       // carries the new role).
       this.failover.halt();
+      this.switching.stop();
       this.consent.cancelRequests();
       // USE-CANDIDATE received while controlled came from a peer that was
       // controlling then; as the controlling agent this one nominates itself.
@@ -2707,15 +2753,19 @@ export class Connection implements IceConnection {
         (this.nominated == undefined || this.selection.replaces(pair))
       ) {
         const previous = this.nominated;
+        const switching =
+          this.switchNomination?.pair === pair
+            ? this.switchNomination.reason
+            : undefined;
+        if (switching) this.switchNomination = undefined;
         // Failover: the selection moves off a pair that stopped answering
-        // (or receiving), or a failover nomination sent while it did not
-        // answer succeeded.
+        // (or stopped receiving), or a failover nomination sent while it did
+        // not answer succeeded.
         const failingOver =
           !!previous &&
-          (this.selectionFailing() || this.failoverNomination === pair);
-        if (this.failoverNomination === pair) {
-          this.failoverNomination = undefined;
-        }
+          (this.selectionFailing() ||
+            switching === "failover" ||
+            switching === "receiving");
         log(
           failingOver
             ? "selected pair failed over"
@@ -2723,7 +2773,7 @@ export class Connection implements IceConnection {
               ? "selected pair replaced"
               : "nominated",
           pair.toJSON(),
-          { previous: previous?.toJSON() },
+          { previous: previous?.toJSON(), reason: switching },
         );
         this.nominated = pair;
         this.liteNominating = false;
@@ -2734,6 +2784,9 @@ export class Connection implements IceConnection {
           // with a new nomination.
           previous.nominated = false;
           this.failover.demote(previous);
+        } else if (previous && switching === "rtt") {
+          // Test: tests/ice/selection-controller.test.ts "equal priority: the selection moves to the pair whose RTT is 11 ms lower, nominating it"
+          previous.nominated = false;
         }
         // RFC 7675 section 5.1: the successful connectivity check that
         // selected the pair is its initial consent, so data may flow at once
@@ -2805,6 +2858,8 @@ export class Connection implements IceConnection {
           this.selection.evaluate();
           void this.selection.checkOutrankingPairs();
           this.selection.scheduleRetries();
+          // Test: tests/ice/selection-controller.test.ts "equal priority: the selection moves to the pair whose RTT is 11 ms lower, nominating it"
+          this.switching.evaluate();
         }
         return;
       }
@@ -2960,9 +3015,7 @@ export class Connection implements IceConnection {
         // Calculate RTT
         const endTime = performance.now();
         const rtt = (endTime - startTime) / 1000;
-        pair.rtt = rtt;
-        pair.totalRoundTripTime += rtt;
-        pair.roundTripTimeMeasurements++;
+        pair.recordRoundTrip(rtt);
 
         log("response received", request.toJSON(), response.toJSON(), addr, {
           localUsername,
@@ -3735,10 +3788,11 @@ export class Connection implements IceConnection {
   }
 
   /**
-   * Failover: the selected pair stopped receiving (`isNotReceiving`: nothing
-   * received for `receivingTimeout` + `receivingSwitchingDelay` and a check
-   * unanswered) while its consent is still fresh and it is not unwritable
-   * yet. libwebrtc switches on it (`CompareConnectionStates`: receiving).
+   * Failover: the selected pair stopped receiving (`isNotReceiving`) while
+   * its consent is still fresh and it is not unwritable yet.
+   * `SelectionController` makes that switch; this lets its nomination
+   * replace the selection.
+   * @see tests/ice/failover.test.ts "the selected pair stops answering and receiving: once it has not been receiving for 1 s (from the later of 2.5 s of silence and an unanswered check), the agent moves to the backup that receives, before the pair is unwritable (§15 A)"
    */
   private selectionNotReceiving() {
     const selected = this.nominated;
@@ -3799,6 +3853,8 @@ export class Connection implements IceConnection {
   private onLinkChanged() {
     this.evaluateFailover();
     this.updateLinkState();
+    // Test: tests/ice/selection-controller.test.ts "receiving: a selection that recovers within RECEIVING_SWITCHING_DELAY stays; one that does not moves after it"
+    this.switching.evaluate();
   }
 
   /**
@@ -3808,9 +3864,8 @@ export class Connection implements IceConnection {
    * success moves the selection (`replacesSelectedPair`). A controlled agent
    * only follows the peer's nominations.
    *
-   * Before the selected pair is unwritable, a selected pair that stopped
-   * receiving (`selectionNotReceiving`) moves to a backup that receives (not
-   * weak), as libwebrtc compares the receiving state after the writable one.
+   * A selected pair that only stopped receiving is `SelectionController`'s.
+   * @see tests/ice/failover.test.ts "the selected pair stops answering and receiving: once it has not been receiving for 1 s (from the later of 2.5 s of silence and an unanswered check), the agent moves to the backup that receives, before the pair is unwritable (§15 A)"
    */
   private evaluateFailover() {
     if (
@@ -3822,20 +3877,19 @@ export class Connection implements IceConnection {
     ) {
       return;
     }
-    const down = this.selectionDown();
-    if (!down && !this.selectionNotReceiving()) return;
-    const target = this.failover.target(undefined, { receiving: !down });
+    if (!this.selectionDown()) return;
+    const target = this.failover.target();
     if (!target) {
       // Nothing to fail over to: check the failed pairs that outrank the
       // selection now (a path that came back may be one of them).
-      if (down) this.selection.checkFailedOutranking();
+      this.selection.checkFailedOutranking();
       return;
     }
     log("failover", target.toJSON(), {
       selected: this.nominated?.toJSON(),
-      reason: down ? "unwritable" : "not receiving",
+      reason: "unwritable",
     });
-    this.failoverNomination = target;
+    this.switchNomination = { pair: target, reason: "failover" };
     this.selection.nominate(target);
   }
 
@@ -3921,6 +3975,7 @@ export class Connection implements IceConnection {
     this.clearConsentExpiredGrace();
     this.consent.stop();
     this.failover.reset();
+    this.switching.stop();
     this.setState("failed");
   }
 
@@ -4002,9 +4057,7 @@ export class Connection implements IceConnection {
       }
       pair.responsesReceived++;
       const rtt = (performance.now() - startedAt) / 1000;
-      pair.rtt = rtt;
-      pair.totalRoundTripTime += rtt;
-      pair.roundTripTimeMeasurements++;
+      pair.recordRoundTrip(rtt);
       return true;
     } catch (error) {
       // 487: repair the role conflict as a check does (RFC 8445 §7.2.5.1).
