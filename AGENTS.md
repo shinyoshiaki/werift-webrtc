@@ -72,7 +72,7 @@ Start with the narrowest package command, and widen to workspace commands only w
 * Docs-only edits: no code validation needed. Public API / Typedoc surface changes: `npm run doc:check` so committed `doc/` and `packages/*/doc` match sources (also part of `npm run ci`).
 * Single-package logic: that package's test and/or type-check command.
 * Cross-package, public API, or protocol changes: `npm run type` and `npm run test:small`; `npm run ci` when the change spans the full stack.
-* Property tests or `packages/pbt`: the package's `npm test`, then `npm run pbt:deep` in the affected packages (`-- --dry-run` checks the shard plan).
+* Property tests or `packages/pbt`: the package's `npm test`, then `npm run pbt:deep` in the affected packages (`-- --dry-run` checks the shard plan; `-- --baseline <develop worktree>` leaves failures develop repeats out of the exit code).
 * WPT runner, dummy media, or allowlist changes: `npm run wpt`; also `npm run wpt:coverage` when coverage or baseline wiring changes.
 * Browser interop or signaling changes: run `npm run install:browsers` once from the repo root (covers `e2e`, `packages/ice-server/chrome-e2e`, and `examples/turn-loopback/chrome-e2e`), then the relevant example and/or `npm run e2e`. A Firefox E2E run goes through `npm run firefox:record` so its record (commit hash and per-test results, `e2e/firefox-runs/`) is committed with the change. For a failing E2E, reproduce with only the affected test file first, then run the full suite as final validation. Root `examples/` demos in the `examples/e2e` catalog also need `npm run examples:e2e`.
 * Infrastructure-backed E2E: run the targeted scenario with its opt-in environment flag, so the real dependency path is exercised.

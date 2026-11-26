@@ -1,5 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
-import { propertyOptions } from "../../../../pbt/src";
+import {
+  propertyOptions,
+  STATISTICAL_FAILURE_MARKER,
+} from "../../../../pbt/src";
 import { detectLeak } from "../../memleak/heapUtils";
 import { NegotiationCase } from "../../negotiation/harness/negotiationCase";
 import { CLOSE_TIMING_OPERATIONS } from "../../negotiation/harness/negotiationTransactionUtils";
@@ -37,7 +40,11 @@ import { CLOSED_SCENES, LEAK_CYCLES } from "./scenes";
  *   growth the cycle declares); bounded metrics stay within their bound.
  * - P3 (heap slope, statistical): `WERIFT_NEGOTIATION_LEAK_HEAP=1` repeats a
  *   P2 cycle `WERIFT_NEGOTIATION_LEAK_HEAP_CYCLES` (default 200) times and
- *   judges heapUsed with `detectLeak` of tests/memleak. Not run in CI.
+ *   judges heapUsed with `detectLeak` of tests/memleak. Not run in CI. The
+ *   threshold is not loosened for noise: `npm run pbt:deep` marks P3 as
+ *   statistical and counts a failure of this verdict only against a
+ *   `--baseline` revision (tests/pbt/suites.ts). Its other failures count
+ *   as usual.
  *
  * Fixed scenes and cycles are in `leak/scenes.ts`. Random scenes: CI runs
  * `WERIFT_NEGOTIATION_LEAK_SEEDS` (default 2) seeds from
@@ -324,7 +331,7 @@ describeLeak("negotiation leak property", () => {
           });
           expect(
             verdict.leaked,
-            `${JSON.stringify(cycle.templates)}: ${verdict.reason}`,
+            `${STATISTICAL_FAILURE_MARKER} ${JSON.stringify(cycle.templates)}: ${verdict.reason}`,
           ).toBe(false);
         },
       );
