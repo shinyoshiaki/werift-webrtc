@@ -227,7 +227,7 @@ RTX SSRCs of [ridByRtxSsrc](#ridbyrtxssrc) per RID, oldest bound first.
 
 #### Index Signature
 
-\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)
+\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>
 
 ***
 
@@ -237,13 +237,13 @@ RTX SSRCs of [ridByRtxSsrc](#ridbyrtxssrc) per RID, oldest bound first.
 
 #### Index Signature
 
-\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)
+\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>
 
 ***
 
 ### tracks
 
-> `readonly` **tracks**: [`MediaStreamTrack`](MediaStreamTrack.md)[] = `[]`
+> `readonly` **tracks**: [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>[] = `[]`
 
 ***
 
@@ -335,11 +335,11 @@ Internal (router): every learned fallback SSRC, oldest first.
 
 #### Get Signature
 
-> **get** **track**(): [`MediaStreamTrack`](MediaStreamTrack.md)
+> **get** **track**(): [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>
 
 ##### Returns
 
-[`MediaStreamTrack`](MediaStreamTrack.md)
+[`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>
 
 ***
 
@@ -413,7 +413,7 @@ highest sequence number and, with `ownMid`, the last MID update.
 
 ### adoptDefaultTrack()
 
-> **adoptDefaultTrack**(`ssrc`, `codec?`): [`MediaStreamTrack`](MediaStreamTrack.md)
+> **adoptDefaultTrack**(`ssrc`, `codec?`): [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>
 
 Internal (router): the track a description's first SSRC binds when this
 m-line had neither an SSRC nor a RID and `ontrack` already announced the
@@ -432,7 +432,7 @@ and `ontrack` does not fire again for it.
 
 #### Returns
 
-[`MediaStreamTrack`](MediaStreamTrack.md)
+[`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>
 
 ***
 
@@ -574,7 +574,7 @@ Internal: RID → newest fallback SSRC that carried it.
 
 ##### selector?
 
-[`MediaStreamTrack`](MediaStreamTrack.md)
+[`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>
 
 #### Returns
 
@@ -699,7 +699,7 @@ tracks; the SSRCs the replacing offer gives take them over.
 
 ##### tracks
 
-[`MediaStreamTrack`](MediaStreamTrack.md)[]
+[`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>[]
 
 #### Returns
 
@@ -1037,19 +1037,19 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 
 ###### trackByRID
 
-\{\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \} = `...`
+\{\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>; \} = `...`
 
 ###### trackBySSRC
 
-\{\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \} = `...`
+\{\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>; \} = `...`
 
 ###### tracks
 
-[`MediaStreamTrack`](MediaStreamTrack.md)[] = `...`
+[`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>[] = `...`
 
 ###### unboundTracks
 
-[`MediaStreamTrack`](MediaStreamTrack.md)[] = `...`
+[`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>[] = `...`
 
 #### Returns
 
@@ -1277,7 +1277,7 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 
 ###### Index Signature
 
-\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)
+\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>
 
 ##### trackBySSRC
 
@@ -1285,15 +1285,15 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 
 ###### Index Signature
 
-\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)
+\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>
 
 ##### tracks
 
-> **tracks**: [`MediaStreamTrack`](MediaStreamTrack.md)[]
+> **tracks**: [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>[]
 
 ##### unboundTracks
 
-> **unboundTracks**: [`MediaStreamTrack`](MediaStreamTrack.md)[]
+> **unboundTracks**: [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>[]
 
 ***
 

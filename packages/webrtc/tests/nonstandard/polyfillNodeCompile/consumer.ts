@@ -20,3 +20,16 @@ const json: { type: string; sdp: string } = description.toJSON();
 declare const channel: InstanceType<typeof RTCDataChannel>;
 channel.binaryType = "arraybuffer";
 void json;
+
+// lib.dom がなくても MediaStreamTrack / MediaStream を型として使える。
+declare function produce(options: {
+  track?: MediaStreamTrack;
+}): Promise<{ track: MediaStreamTrack | null }>;
+const track: MediaStreamTrack = new MediaStreamTrack({ kind: "audio" });
+const typedStream: MediaStream = new MediaStream([track]);
+void produce({ track });
+void typedStream.getAudioTracks()[0]?.writeRtp;
+void produce({ track }).then((producer) => {
+  // @ts-expect-error 型情報が残っているので存在しないメンバーはエラーになる。
+  void producer.track?.nonexistent;
+});
