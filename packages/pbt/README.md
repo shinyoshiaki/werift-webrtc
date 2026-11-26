@@ -85,10 +85,13 @@ that threw (also an `Error` with the marker's text), a marked assertion that is
 not the verdict, a timeout, a hook, an unhandled error, a crash. Thresholds are
 not loosened instead.
 
-With `--baseline`, the signature of a statistical assertion has every number
-replaced by `<n>`, and how far it went past each threshold is compared apart:
-the shard's `statisticalExcess` reads one number per check from the message
-(larger is worse; default: every number in order). The baseline's failure is
+With `--baseline`, the signature of a statistical assertion has every measured
+value replaced by `<n>` together with its unit (B, KiB, MiB, GiB, kB, MB, GB,
+ns, µs, ms, s), so 900.00 KiB/cycle and 1.00 MiB/cycle are one form, and how
+far it went past each threshold is compared apart, in one unit: the shard's
+`statisticalExcess` reads one number per check from the message (larger is
+worse; webrtc's `heapVerdictExcess` in bytes; default: every value in order,
+converted to bytes or milliseconds). The baseline's failure is
 the same only when, check by check, its largest excess over the replays is at
 least this revision's largest, so a heap slope of 400 KiB/cycle is not hidden
 by a baseline's 16.01. An excess that cannot be read (`NaN`) is never the

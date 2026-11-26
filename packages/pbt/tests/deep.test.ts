@@ -8,6 +8,7 @@ import {
   baselinePackageDir,
   type DeepSearchConfig,
   failureSignature,
+  messageNumbers,
   planDeepSearch,
   SEED_TITLE_PATTERN,
   STATISTICAL_FAILURE_MARKER,
@@ -221,12 +222,13 @@ describe("deep search run", () => {
 });
 
 /** The webrtc heap slope verdict (P3): a statistical assertion on a measured value. */
-const slopeAssertion = (slope: number) =>
-  `expect(true, ${JSON.stringify(`${STATISTICAL_FAILURE_MARKER} slope ${slope} KiB/cycle`)}).toBe(false);`;
-const slopeSource = (slope: number) => testSource(slopeAssertion(slope));
+const slopeAssertion = (slope: number, unit = "KiB") =>
+  `expect(true, ${JSON.stringify(`${STATISTICAL_FAILURE_MARKER} slope ${slope} ${unit}/cycle`)}).toBe(false);`;
+const slopeSource = (slope: number, unit?: string) =>
+  testSource(slopeAssertion(slope, unit));
 /** The whole message of `slopeAssertion` without the marker: the shard's `statisticalVerdict`. */
 const slopeVerdict =
-  /^slope \d+(?:\.\d+)? KiB\/cycle: expected true to be false \/\/ Object\.is equality$/;
+  /^slope \d+(?:\.\d+)? (?:B|KiB|MiB)\/cycle: expected true to be false \/\/ Object\.is equality$/;
 
 /**
  * A fixture whose test `title` fails on the first run and is skipped on later
@@ -476,6 +478,53 @@ describe("deep search against a baseline", () => {
     expect(exit).toBe(1);
     expect(lines).toContain("  FAILED a failing fixture");
   }, 60_000);
+
+  test.each([
+    {
+      name: "a larger MiB slope",
+      current: [900, "KiB"],
+      baseline: [1, "MiB"],
+      same: true,
+    },
+    {
+      name: "a larger KiB slope",
+      current: [900, "B"],
+      baseline: [1.5, "KiB"],
+      same: true,
+    },
+    {
+      name: "a smaller KiB slope",
+      current: [1, "MiB"],
+      baseline: [900, "KiB"],
+      same: false,
+    },
+    {
+      name: "a smaller B slope",
+      current: [1.5, "KiB"],
+      baseline: [900, "B"],
+      same: false,
+    },
+  ] as const)(
+    "a statistical failure is compared across units with $name on the baseline",
+    async ({ current, baseline, same }) => {
+      // Act: 現行と比較元が同じ判定を別の単位の測定値で失敗する (既定の超過量で比べる)。
+      const { exit, lines } = await runFixtureDeepSearch(["failing"], {
+        current: { failing: slopeSource(current[0], current[1]) },
+        statistical: ["failing"],
+        statisticalVerdict: slopeVerdict,
+        baseline: { failing: slopeSource(baseline[0], baseline[1]) },
+      });
+
+      // Assert: 単位ごと置き換えて同じ形とし、bytes に換算した超過量が比較元以下のときだけ以前からの失敗。
+      expect(exit).toBe(same ? 0 : 1);
+      expect(lines).toContain(
+        same
+          ? "  pre-existing a failing fixture"
+          : "  FAILED a failing fixture",
+      );
+    },
+    60_000,
+  );
 
   test("a statistical failure whose excess cannot be read stays confirmed", async () => {
     // Act: 比較元も同じ判定で失敗するが、超過量を読めない statisticalExcess を使う。
@@ -837,6 +886,35 @@ describe("deep search against a baseline", () => {
     // Act / Assert: メッセージのないエラー (cause を含む) は比較できる形がない。
     expect(failureSignature({}, "/a/b")).toBeUndefined();
     expect(failureSignature({ ...error, cause: {} }, "/a/b")).toBeUndefined();
+  });
+
+  test("a statistical form replaces a measured value with its unit and its excess is in one unit", () => {
+    // Arrange: 同じ判定の、単位の違う 2 つの失敗。
+    const verdict = /^slope .+\/cycle$/;
+    const error = (slope: string) => ({
+      name: "AssertionError",
+      message: `${STATISTICAL_FAILURE_MARKER} slope ${slope}/cycle`,
+    });
+
+    // Act / Assert: 測定値は単位ごと <n> になり、KiB と MiB、B と KiB、ms と s で同じ形。
+    expect(failureSignature(error("900.00 KiB"), "/r", verdict)).toBe(
+      "AssertionError: slope <n>/cycle",
+    );
+    expect(failureSignature(error("1.00 MiB"), "/r", verdict)).toBe(
+      failureSignature(error("900.00 KiB"), "/r", verdict),
+    );
+    expect(failureSignature(error("900 B"), "/r", verdict)).toBe(
+      failureSignature(error("1.5 KiB"), "/r", verdict),
+    );
+    expect(failureSignature(error("1000 ms"), "/r", verdict)).toBe(
+      failureSignature(error("1 s"), "/r", verdict),
+    );
+    // Act / Assert: 既定の超過量は単位を基本単位 (bytes, ms) に換算し、単位のない数はそのまま。
+    expect(messageNumbers("slope 1.00 MiB, 900 KiB, 3 B, 2 s, R²=0.5")).toEqual(
+      [1024 ** 2, 900 * 1024, 3, 2000, 0.5],
+    );
+    // Act / Assert: 単位の後に文字が続く語 (2 sockets) は単位として読まない。
+    expect(messageNumbers("2 sockets")).toEqual([2]);
   });
 
   test("the same form needs the same test and every observed cause", () => {

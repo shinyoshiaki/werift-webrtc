@@ -70,9 +70,48 @@ export const isStatisticalError = (
   (error.message?.startsWith(STATISTICAL_FAILURE_MARKER) ?? false) &&
   statisticalMessage(error, verdict) !== undefined;
 
-/** Every number of a statistical message in order: the default `excess` of `statisticalExcess`. */
+/**
+ * Units a measured value of a statistical message may carry, as a factor to
+ * the base unit (bytes, milliseconds). The form (`failureSignature`) replaces
+ * a value together with its unit, so 900.00 KiB and 1.00 MiB give one form,
+ * and `messageNumbers` converts by these factors, so the excess compares one
+ * quantity across units.
+ */
+const MEASURE_UNITS: Readonly<Record<string, number>> = {
+  B: 1,
+  KiB: 1024,
+  MiB: 1024 ** 2,
+  GiB: 1024 ** 3,
+  kB: 1e3,
+  KB: 1e3,
+  MB: 1e6,
+  GB: 1e9,
+  ns: 1e-6,
+  µs: 1e-3,
+  us: 1e-3,
+  ms: 1,
+  s: 1e3,
+};
+
+/** A number and, when one follows (a space allowed, no letter after it), its unit of `MEASURE_UNITS`. */
+const measuredValue = () =>
+  new RegExp(
+    String.raw`-?\d+(?:\.\d+)?(?: ?(${Object.keys(MEASURE_UNITS)
+      .sort((a, b) => b.length - a.length)
+      .join("|")})(?![\p{L}]))?`,
+    "gu",
+  );
+
+/**
+ * Every measured value of a statistical message in order, in the base unit of
+ * its `MEASURE_UNITS` unit (a bare number as it is): the default `excess` of
+ * `statisticalExcess`.
+ */
 export const messageNumbers = (message: string) =>
-  (message.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
+  [...message.matchAll(measuredValue())].map(
+    ([value, unit]) =>
+      Number.parseFloat(value) * (unit ? MEASURE_UNITS[unit] : 1),
+  );
 
 /**
  * How far the statistical assertions among the errors of a failed test went
@@ -108,8 +147,9 @@ export function statisticalExcess(
  * cause is removed: ANSI colors, the worktree root (`<root>`), line and column
  * numbers and durations in milliseconds. A statistical error
  * (`statisticalMessage` with the shard's `verdict`, also for a revision from
- * before the marker) loses the marker and has every number replaced by `<n>`
- * (a heap slope of 16.01 and of 16.20 KiB/cycle are the same check failing),
+ * before the marker) loses the marker and has every measured value (a number
+ * with its sign and its `MEASURE_UNITS` unit) replaced by `<n>` (a heap slope
+ * of 16.01 KiB/cycle and of 1.00 MiB/cycle are the same check failing),
  * so both revisions give one form; how far it failed is compared apart
  * (`statisticalExcess`). Undefined when the error, or one of its causes, has
  * no message: such a cause cannot be compared.
@@ -132,7 +172,8 @@ function signatureOf(
   if (!error.message?.trim()) return undefined;
   const statistical = top ? statisticalMessage(error, verdict) : undefined;
   const lines = [
-    `${error.type ? `${error.type}: ` : ""}${error.name ?? "Error"}: ${statistical ?? error.message}`,
+    // 測定値は単位ごと置き換える (ms の時間の置換より先に。1000 ms と 1 s も同じ形)。
+    `${error.type ? `${error.type}: ` : ""}${error.name ?? "Error"}: ${statistical?.replace(measuredValue(), "<n>") ?? error.message}`,
     ...(error.expected === undefined ? [] : [`expected: ${error.expected}`]),
     ...(error.actual === undefined ? [] : [`actual: ${error.actual}`]),
     ...(error.at
@@ -157,7 +198,7 @@ function signatureOf(
     .replace(/\d+(?:\.\d+)?(?= ?ms\b)/g, "<n>");
   return statistical === undefined
     ? signature
-    : signature.replace(/\d+(?:\.\d+)?/g, "<n>");
+    : signature.replace(measuredValue(), "<n>");
 }
 
 /** The signature of all errors of a failed test; undefined when one cannot be compared or there is none. */

@@ -4,6 +4,7 @@ import {
   failureSignature,
   isStatisticalError,
   STATISTICAL_FAILURE_MARKER,
+  sameFailure,
   statisticalExcess,
 } from "../../../pbt/src";
 import { detectLeak, type MemorySample } from "../memleak/heapUtils";
@@ -118,4 +119,100 @@ describe("pbt:deep P3 heap verdict", () => {
     // Act / Assert: 判定の理由のない文言は読めない。
     expect(heapVerdictExcess("the session ended")).toBeUndefined();
   });
+
+  /** A P3 verdict failure (an AssertionError) with `reason` as `detectLeak` writes it; `marked` adds the marker. */
+  const reasonError = (reason: string, marked = true) => ({
+    name: "AssertionError",
+    message: `${marked ? `${STATISTICAL_FAILURE_MARKER} ` : ""}["re-offer"]: ${reason}: expected true to be false // Object.is equality`,
+  });
+  /** Whether a baseline failing with `baseline` is the same failure as `current` here (as `pbt:deep --baseline` compares them). */
+  const sameAsBaseline = (
+    current: ReturnType<typeof reasonError>,
+    baseline: ReturnType<typeof reasonError>,
+  ) => {
+    const form = failureSignature(current, "/root", HEAP_VERDICT) as string;
+    const here = statisticalExcess([current], HEAP_VERDICT, heapVerdictExcess);
+    return sameFailure(
+      {
+        id: "heap seed 4",
+        kind: "test",
+        forms: [form],
+        excess: here ? { [form]: here } : undefined,
+      },
+      [
+        {
+          failed: [
+            {
+              id: "heap seed 4",
+              title: "heap seed 4",
+              signature: failureSignature(baseline, "/root", HEAP_VERDICT),
+              statistical: true,
+              excess: statisticalExcess(
+                [baseline],
+                HEAP_VERDICT,
+                heapVerdictExcess,
+              ),
+            },
+          ],
+          outside: [],
+          signal: null,
+          reported: true,
+        },
+      ],
+    );
+  };
+  const slopeReason = (slope: string) =>
+    `slope ${slope}/cycle (R²=0.98) exceeds 16.00 KiB/cycle`;
+  const marginReason = (median: string) =>
+    `final median ${median} exceeds baseline 512.00 B + margin 200.00 B`;
+
+  test.each([
+    {
+      name: "a KiB slope here and a larger MiB slope on the baseline",
+      current: reasonError(slopeReason("900.00 KiB")),
+      baseline: reasonError(slopeReason("1.00 MiB"), false),
+    },
+    {
+      name: "a B median here and a larger KiB median on the baseline",
+      current: reasonError(marginReason("900.00 B")),
+      baseline: reasonError(marginReason("1.50 KiB"), false),
+    },
+  ])(
+    "the same verdict in other units is the same failure: $name",
+    ({ current, baseline }) => {
+      // Act: 単位をまたいで比較元の方が閾値を大きく超えた同じ判定を比べる。
+      const same = sameAsBaseline(current, baseline);
+
+      // Assert: 測定値と単位をまとめて置き換えるので同じ形になり、bytes の超過量も比較元以下なので以前からの失敗。
+      expect(failureSignature(current, "/root", HEAP_VERDICT)).toEqual(
+        failureSignature(baseline, "/root", HEAP_VERDICT),
+      );
+      expect(same).toBe(true);
+    },
+  );
+
+  test.each([
+    {
+      name: "a MiB slope here and a smaller KiB slope on the baseline",
+      current: reasonError(slopeReason("1.00 MiB")),
+      baseline: reasonError(slopeReason("900.00 KiB")),
+    },
+    {
+      name: "a KiB median here and a smaller B median on the baseline",
+      current: reasonError(marginReason("1.50 KiB")),
+      baseline: reasonError(marginReason("900.00 B")),
+    },
+  ])(
+    "a verdict past the baseline's in other units stays confirmed: $name",
+    ({ current, baseline }) => {
+      // Act: 単位をまたいで現行の方が閾値を大きく超えた同じ判定を比べる。
+      const same = sameAsBaseline(current, baseline);
+
+      // Assert: 形は同じでも、bytes に換算した超過量が比較元より大きいので同じ失敗ではない。
+      expect(failureSignature(current, "/root", HEAP_VERDICT)).toEqual(
+        failureSignature(baseline, "/root", HEAP_VERDICT),
+      );
+      expect(same).toBe(false);
+    },
+  );
 });
