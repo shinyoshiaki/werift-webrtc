@@ -62,6 +62,12 @@ and millisecond durations are removed, so a flake whose message carries other
 run-to-run values stays confirmed. The runner reads these from its own
 reporter (`src/deepReporter.mjs`).
 
+A failure is **flaky** (left out of the exit code, listed) only when its
+replay alone passes that very test (by full name; another test the pattern
+selects while it is skipped does not count) and ends normally; for errors
+outside the tests, when the replay of the whole shard passes every test its
+first run ran.
+
 A failure the baseline passes, or fails in another form, stays confirmed
 (exit 1). There is no known-flake list: a list outlives its evidence, while
 the baseline replay re-checks it in every run.
@@ -72,7 +78,8 @@ against a baseline (`isStatisticalError`): a failed `expect` (an
 `AssertionError` reported for the test, without a cause or aggregated errors)
 whose message starts with `STATISTICAL_FAILURE_MARKER` and whose rest matches
 the shard's `statisticalVerdict`, a pattern anchored to that assertion's whole
-message. Without `--baseline` it is reported as statistical and left out of
+message (a shard without a `statisticalVerdict` has no statistical failure).
+Without `--baseline` it is reported as statistical and left out of
 the exit code. Any other failure of that shard counts as usual: an operation
 that threw (also an `Error` with the marker's text), a marked assertion that is
 not the verdict, a timeout, a hook, an unhandled error, a crash. Thresholds are

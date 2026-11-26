@@ -171,6 +171,35 @@ describe("deep search run", () => {
     );
   }, 60_000);
 
+  test("a failed test skipped on the replay alone is not flaky, even when another selected test passes", async () => {
+    // Act: 初回だけ失敗し、単独の再実行では skip される (題名を含む隣のテストは通る) フィクスチャを動かす。
+    const { exit, lines, output } = await runFixtureDeepSearch(["failing"], {
+      current: { failing: skippedOnReplaySource("a failing fixture") },
+    });
+
+    // Assert: 失敗したテスト自身が通っていないので flaky にせず、終了コード 1。
+    expect(exit).toBe(1);
+    expect(lines).toContain("  FAILED a failing fixture");
+    expect(output).toContain("0 flaky");
+  }, 60_000);
+
+  test("an abnormal shard whose replay skips a test of the first run is not flaky", async () => {
+    // Act: 初回は未処理の rejection とテストの通過、分割の再実行ではそのテストが skip され隣だけが通る。
+    const { exit, output } = await runFixtureDeepSearch(["failing"], {
+      current: {
+        failing: skippedOnReplaySource(
+          "a failing fixture",
+          rejection("unhandled on the first run"),
+        ),
+      },
+    });
+
+    // Assert: 初回に実行したテストが再実行で通っていないので flaky にせず、終了コード 1。
+    expect(exit).toBe(1);
+    expect(output).toContain("  FAILED failing shard: vitest exited");
+    expect(output).toContain("0 flaky");
+  }, 60_000);
+
   test("an exit by a signal, an exit code or a missing report is abnormal; exit code 0 with a report is not", () => {
     // Act / Assert: シグナルで終わったプロセスは異常終了。
     expect(
@@ -195,6 +224,30 @@ describe("deep search run", () => {
 const slopeAssertion = (slope: number) =>
   `expect(true, ${JSON.stringify(`${STATISTICAL_FAILURE_MARKER} slope ${slope} KiB/cycle`)}).toBe(false);`;
 const slopeSource = (slope: number) => testSource(slopeAssertion(slope));
+/** The whole message of `slopeAssertion` without the marker: the shard's `statisticalVerdict`. */
+const slopeVerdict =
+  /^slope \d+(?:\.\d+)? KiB\/cycle: expected true to be false \/\/ Object\.is equality$/;
+
+/**
+ * A fixture whose test `title` fails on the first run and is skipped on later
+ * runs, beside a passing test whose title contains `title` (so the replay's
+ * pattern selects it too). `setup` is module-level code of the first run only.
+ */
+const skippedOnReplaySource = (title: string, setup = "") =>
+  `import { existsSync, writeFileSync } from "node:fs";
+import { expect, test } from "vitest";
+
+const marker = new URL("./ran", import.meta.url);
+const first = !existsSync(marker);
+if (first) {
+  writeFileSync(marker, "");
+  ${setup}
+}
+test.skipIf(!first)(${JSON.stringify(title)}, () => {
+  expect(${setup ? "1" : "2"}).toBe(1);
+});
+test(${JSON.stringify(`${title} neighbour`)}, () => {});
+`;
 
 /** A failing test whose first run executes `first` and whose later runs (the replay alone) `later`. */
 const onceThen = (first: string, later: string) =>
@@ -360,6 +413,7 @@ describe("deep search against a baseline", () => {
     const alone = await runFixtureDeepSearch(["failing"], {
       current,
       statistical: ["failing"],
+      statisticalVerdict: slopeVerdict,
     });
 
     // Assert: statistical として示し、終了コードに含めない。
@@ -375,6 +429,7 @@ describe("deep search against a baseline", () => {
     const compared = await runFixtureDeepSearch(["failing"], {
       current,
       statistical: ["failing"],
+      statisticalVerdict: slopeVerdict,
       baseline: { failing: passingSource("a failing fixture") },
     });
 
@@ -386,6 +441,7 @@ describe("deep search against a baseline", () => {
     const repeated = await runFixtureDeepSearch(["failing"], {
       current,
       statistical: ["failing"],
+      statisticalVerdict: slopeVerdict,
       baseline: { failing: slopeSource(17.5) },
     });
 
@@ -394,11 +450,25 @@ describe("deep search against a baseline", () => {
     expect(repeated.lines).toContain("  pre-existing a failing fixture");
   }, 90_000);
 
+  test("a statistical shard without a verdict pattern makes no failure statistical", async () => {
+    // Act: statisticalVerdict を指定しない統計的な分割で、マーカー付きの assertion が失敗する。
+    const { exit, lines, output } = await runFixtureDeepSearch(["failing"], {
+      current: { failing: slopeSource(16.01) },
+      statistical: ["failing"],
+    });
+
+    // Assert: どの assertion が判定か分からないので statistical にせず、終了コード 1。
+    expect(exit).toBe(1);
+    expect(lines).toContain("  FAILED a failing fixture");
+    expect(output).toContain("0 statistical (not judged without --baseline)");
+  }, 60_000);
+
   test("a statistical failure further past the threshold than the baseline's stays confirmed", async () => {
     // Act: 現行は閾値を大きく超え、比較元は同じ判定がわずかに超えるだけで失敗する。
     const { exit, lines } = await runFixtureDeepSearch(["failing"], {
       current: { failing: slopeSource(400) },
       statistical: ["failing"],
+      statisticalVerdict: slopeVerdict,
       baseline: { failing: slopeSource(16.01) },
     });
 
@@ -412,6 +482,7 @@ describe("deep search against a baseline", () => {
     const { exit, lines } = await runFixtureDeepSearch(["failing"], {
       current: { failing: slopeSource(16.01) },
       statistical: ["failing"],
+      statisticalVerdict: slopeVerdict,
       statisticalExcess: () => undefined,
       baseline: { failing: slopeSource(17.5) },
     });

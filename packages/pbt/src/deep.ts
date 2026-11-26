@@ -7,7 +7,9 @@
  * ends abnormally (an exit code other than 0, e.g. an unhandled rejection
  * after the tests passed; a signal; no report) fails its shard even when every
  * test in its report passed; that shard is replayed alone too. A failure that
- * fails again alone is confirmed.
+ * fails again alone is confirmed. Flaky needs the replay to pass the failed
+ * test itself (by full name) or, for a shard replayed whole, every test its
+ * first run ran: a test skipped on the replay is not a pass.
  *
  * A package lists its suites in `tests/pbt/suites.ts` (a `DeepSearchConfig`
  * as default export) and runs them with `npm run pbt:deep`:
@@ -101,6 +103,7 @@ export type DeepShard = {
    * (`isStatisticalError`: a failed `expect`, not an `Error` with the marker's
    * text) is judged only against `--baseline`; without it, it is reported as
    * statistical and left out of the exit code. Other failures count as usual.
+   * It needs `statisticalVerdict`: without one, no failure is statistical.
    */
   statistical?: boolean;
   /**
@@ -304,6 +307,8 @@ type TestFailure = {
 /** One vitest process: its tests by status and how it ended. */
 type ShardRun = {
   passed: number;
+  /** The full names of the passed tests. */
+  passedIds: string[];
   failed: TestFailure[];
   /** `failureSignature` of each error outside the test results (undefined: not comparable). */
   outside: (string | undefined)[];
@@ -481,10 +486,15 @@ const describeRun = (result: ShardRun, id?: string) => {
   return result.passed > 0 ? "passed" : "ran no test";
 };
 
-/** A replay that ran a test, failed none and ended normally. */
-const passedCleanly = (result: ShardRun) =>
+/**
+ * A replay that ran a test, failed none, ended normally and passed every test
+ * of `ids` (full names): the failed test itself, not only another test the
+ * pattern also selects while it is skipped.
+ */
+const passedCleanly = (result: ShardRun, ids: readonly string[]) =>
   result.passed > 0 &&
   result.failed.length === 0 &&
+  ids.every((id) => result.passedIds.includes(id)) &&
   !abnormalExit(result) &&
   !outsideProblem(result);
 
@@ -691,8 +701,10 @@ export async function runDeepSearch(
             }[];
             outside: ReportedError[];
           } = JSON.parse(readFileSync(output, "utf8"));
+          const passed = report.tests.filter((t) => t.state === "passed");
           resolve({
-            passed: report.tests.filter((t) => t.state === "passed").length,
+            passed: passed.length,
+            passedIds: passed.map((t) => t.fullName),
             failed: report.tests
               .filter((t) => t.state === "failed")
               .map((t) => ({
@@ -724,6 +736,7 @@ export async function runDeepSearch(
         } catch {
           resolve({
             passed: 0,
+            passedIds: [],
             failed: [],
             outside: [],
             exitCode,
@@ -803,7 +816,7 @@ export async function runDeepSearch(
         `${suite}-retry-${retries++}`,
         escapeRegExp(failure.title),
       );
-      if (passedCleanly(again)) {
+      if (passedCleanly(again, [failure.id])) {
         flaky.push(failure);
         continue;
       }
@@ -859,7 +872,9 @@ export async function runDeepSearch(
       for (const seen of fromReplays) addForms(failure, seen);
       if (problem) {
         const again = await run(shard, `${suite}-retry-${retries++}`);
-        if (passedCleanly(again) && fromReplays.length === 0) {
+        // 分割を丸ごと再実行して通ったと言えるのは、初回に実行したテストがすべて通ったときだけ。
+        const ranFirst = [...first.passedIds, ...first.failed.map((t) => t.id)];
+        if (passedCleanly(again, ranFirst) && fromReplays.length === 0) {
           flaky.push(failure);
           continue;
         }
@@ -884,7 +899,11 @@ export async function runDeepSearch(
       if (failure.kind === "ranNoTest") continue;
       if (!baseline) {
         // 統計的な判定 (heap slope など) の失敗だけは、比較元との比較でだけ判定する。
-        if (failure.shard.statistical && failure.statistical) {
+        if (
+          failure.shard.statistical &&
+          failure.shard.statisticalVerdict &&
+          failure.statistical
+        ) {
           confirmed.splice(confirmed.indexOf(failure), 1);
           statistical.push(failure);
         }

@@ -29,31 +29,44 @@ export type ReportedError = {
  * `AssertionError` reported for a test (no `type`, which vitest sets on an
  * error outside the tests) without a cause or aggregated errors, so an
  * operation that throws an `Error` with the marker's text, or an assertion
- * failing because something else failed, stays a normal failure. When the
- * shard gives `verdict` (the whole message of its one statistical assertion
- * without the marker), the rest of the message must match it whole. A
- * revision from before the marker writes the same assertion without it: an
- * unmarked message counts when it matches `verdict` whole, for the form
- * compared with a baseline only (`isStatisticalError` needs the marker).
+ * failing because something else failed, stays a normal failure. The rest of
+ * the message (without the marker) must match the shard's `verdict` (the whole
+ * message of its one statistical assertion) whole; without a `verdict` no
+ * error is statistical, so a shard marked statistical but not saying which
+ * assertion is its verdict hides nothing. A revision from before the marker
+ * writes the same assertion without it: an unmarked message counts when it
+ * matches `verdict` whole, for the form compared with a baseline only
+ * (`isStatisticalError` needs the marker).
  */
-export function statisticalMessage(error: ReportedError, verdict?: RegExp) {
+export function statisticalMessage(
+  error: ReportedError,
+  verdict: RegExp | undefined,
+) {
   const { name, type, cause, errors, message } = error;
-  if (name !== "AssertionError" || type || cause || errors || !message) {
+  if (
+    !verdict ||
+    name !== "AssertionError" ||
+    type ||
+    cause ||
+    errors ||
+    !message
+  ) {
     return undefined;
   }
-  const marked = message.startsWith(STATISTICAL_FAILURE_MARKER);
-  const rest = marked
+  const rest = message.startsWith(STATISTICAL_FAILURE_MARKER)
     ? message.slice(STATISTICAL_FAILURE_MARKER.length).trimStart()
     : message;
-  if (verdict ? !verdict.test(rest) : !marked) return undefined;
-  return rest;
+  return verdict.test(rest) ? rest : undefined;
 }
 
 /**
  * Whether `error` is a statistical assertion of this revision: one with the
  * marker that `statisticalMessage` accepts (with the shard's `verdict`).
  */
-export const isStatisticalError = (error: ReportedError, verdict?: RegExp) =>
+export const isStatisticalError = (
+  error: ReportedError,
+  verdict: RegExp | undefined,
+) =>
   (error.message?.startsWith(STATISTICAL_FAILURE_MARKER) ?? false) &&
   statisticalMessage(error, verdict) !== undefined;
 
