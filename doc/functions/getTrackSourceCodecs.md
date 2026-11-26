@@ -12,7 +12,7 @@
 
 ### track
 
-[`MediaStreamTrack`](../classes/MediaStreamTrack.md) \| `null` \| `undefined`
+[`MediaStreamTrack`](../classes/MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\> \| `null` \| `undefined`
 
 ## Returns
 

@@ -1,0 +1,726 @@
+import type { CandidatePair } from "../iceBase";
+import type { Address } from "../imports/common";
+import { isAuthenticatedHandshakePair } from "../internal/datagram";
+import type { Message } from "../stun/message";
+import { getRawAttributeValue } from "../stun/rawAttributeValue";
+import { StunOverTurnProtocol } from "../turn/protocol";
+import type { Protocol } from "../types/model";
+
+import { decodeSpedData, encodeSpedAck } from "./draft00";
+import { DTLS_IN_STUN_DATA, SPED_OUTER_MTU } from "./draft00/constants";
+import {
+  defaultSpedDtlsMtu,
+  maxPayloadFitting,
+  remainingDataValueBudget,
+  spedDtlsMtuForIceCredentials,
+} from "./draft00/mtu";
+import type { SpedSession } from "./draft00/session";
+
+export type SpedRetransmissionMode = "internal" | "external";
+export interface SpedDiagnosticsSnapshot {
+  state: "disabled" | "probing" | "active" | "fallback";
+  carrier: "direct" | "sped";
+  retransmissions: number;
+  generation: number;
+}
+
+/**
+ * Generation-bound handshake-only direct send. Independent of non-SPED
+ * `fallback` / `directCarrierSelected`.
+ */
+export interface SpedDirectHandshakeReadiness {
+  generation: number;
+  pair?: CandidatePair;
+  ready: boolean;
+}
+
+export interface SpedHooks {
+  inject: (bytes: Buffer, peer: Address, generation: number) => Promise<void>;
+  /**
+   * The peer has no SPED (or the path cannot carry it): ICE then sends the
+   * original L1 flight directly. Resolving `false` means the DTLS layer
+   * restarts with standard DTLS instead (draft §3.3.4), so ICE must not put
+   * the L1 flight on the wire.
+   */
+  onFallbackFlight: (packets: Buffer[]) => Promise<boolean | void>;
+  onHandshakeComplete?: () => void;
+  /** ICE restart / new generation: drop in-flight handshake injects. */
+  onSessionReset?: () => void;
+  /**
+   * ICE failed / DTLS error / close: cancel carrier timers. Must not reseed L1.
+   */
+  onSessionAbort?: () => void;
+  /**
+   * Hybrid SPED: authenticated pair may carry raw DTLS handshake.
+   * Not a public ICE API.
+   */
+  onDirectHandshakeReady?: (readiness: SpedDirectHandshakeReadiness) => void;
+  setRetransmissionMode: (mode: SpedRetransmissionMode) => void;
+  updateRtt: (rttMs: number) => void;
+  /** ICE restart: drop the previous generation's path RTT. */
+  resetRtt: () => void;
+  setMtu: (mtu: number) => void;
+  /**
+   * Path MTU shrank under an already-built flight (SPED is external RTO).
+   * Rebuild pending datagrams and replace L1.
+   */
+  refragmentPendingFlight?: () => void;
+}
+
+export function sameCandidatePair(a: CandidatePair, b: CandidatePair): boolean {
+  return (
+    a === b ||
+    (a.protocol === b.protocol &&
+      a.remoteAddr[0] === b.remoteAddr[0] &&
+      a.remoteAddr[1] === b.remoteAddr[1])
+  );
+}
+
+export function isSpedEligibleProtocol(protocol: Protocol): boolean {
+  if (protocol.type === StunOverTurnProtocol.type || protocol.type === "turn") {
+    return false;
+  }
+  if (protocol instanceof StunOverTurnProtocol) {
+    return false;
+  }
+  const local = protocol.localCandidate;
+  if (!local || local.type === "relay") {
+    return false;
+  }
+  const transport = local.transport.toLowerCase();
+  return transport === "udp" || transport === "tcp";
+}
+
+export function isSpedEligiblePair(pair: CandidatePair): boolean {
+  if (pair.localCandidate.type === "relay") {
+    return false;
+  }
+  if (pair.remoteCandidate.type === "relay") {
+    return false;
+  }
+  if (!isSpedEligibleProtocol(pair.protocol)) {
+    return false;
+  }
+  const transport = pair.localCandidate.transport.toLowerCase();
+  const remoteType = pair.remoteCandidate.type;
+  if (transport === "tcp") {
+    return (
+      remoteType === "host" || remoteType === "srflx" || remoteType === "prflx"
+    );
+  }
+  return remoteType === "host" || remoteType === "srflx";
+}
+
+/**
+ * Non-relay path: every Binding sent while SPED is active carries at least
+ * an empty DTLS-IN-STUN-DATA (draft-hancke-webrtc-sped-00 §3.3.2.1).
+ * Relay pairs stay outside SPED.
+ */
+export function isSpedAdvertisablePair(pair: CandidatePair): boolean {
+  return (
+    pair.localCandidate.type !== "relay" &&
+    pair.remoteCandidate.type !== "relay" &&
+    isSpedEligibleProtocol(pair.protocol)
+  );
+}
+
+/** UDP prflx is unconfirmed: it may later prove to be relay (trickle). */
+function isUnconfirmedUdpPrflx(pair: CandidatePair): boolean {
+  return (
+    isSpedEligibleProtocol(pair.protocol) &&
+    pair.localCandidate.transport.toLowerCase() === "udp" &&
+    pair.remoteCandidate.type === "prflx"
+  );
+}
+
+function unconfirmedPairKey(pair: CandidatePair): string {
+  return `${pair.remoteAddr[0]}:${pair.remoteAddr[1]}:${pair.localCandidate.transport.toLowerCase()}`;
+}
+
+type SpedBindingRole = "full" | "capability" | "none";
+
+/**
+ * ICE-facing SPED controller. Package-private; not exported from `src/index.ts`.
+ */
+export class SpedRuntime {
+  private sessionEpoch = 0;
+  private carrierInjectEpoch?: number;
+  fallbackStarted = false;
+  /** True once the shared DTLS association selected the direct carrier. */
+  private directCarrierSelected = false;
+  /**
+   * SPED-capable hybrid path: raw DTLS handshake on an authenticated pair.
+   * Distinct from {@link fallbackStarted} / {@link directCarrierSelected}.
+   */
+  private handshakeDirectReady = false;
+  private handshakeDirectPair?: CandidatePair;
+  private handshakeDirectGeneration?: number;
+  /**
+   * Pair that received the first non-empty DTLS DATA (or carried direct
+   * fallback). Empty capability ads must not pin.
+   */
+  lastPath?: CandidatePair;
+  /**
+   * UDP prflx 5-tuples that saw a current-generation authenticated Binding
+   * without C070. Capability stays unknown until trickle proves host/srflx
+   * (unsupported) / relay (ineligible) or end-of-candidates settles the
+   * pair as a lasting peer-reflexive path.
+   */
+  private pendingUnconfirmedMissingData = new Set<string>();
+  private pendingInjectGeneration?: number;
+  /** Last DTLS datagram MTU pushed to the carrier. */
+  private lastMtu: number;
+
+  readonly session: SpedSession;
+  readonly hooks: SpedHooks;
+
+  constructor(session: SpedSession, hooks: SpedHooks) {
+    this.session = session;
+    this.hooks = hooks;
+    this.hooks.setRetransmissionMode("external");
+    this.lastMtu = defaultSpedDtlsMtu();
+    this.hooks.setMtu(this.lastMtu);
+  }
+
+  diagnosticsSnapshot(): SpedDiagnosticsSnapshot {
+    // A direct DTLS fallback may finish the shared association after SPED has
+    // already been abandoned. Keep the selected carrier authoritative instead
+    // of turning the terminal `complete` session state back into `active/sped`.
+    const directFallback =
+      this.session.state !== "disabled" &&
+      (this.directCarrierSelected ||
+        this.fallbackStarted ||
+        this.session.state === "fallback" ||
+        this.session.peerSupport === "unsupported");
+    const hybridDirect =
+      this.isHandshakeDirectReady() &&
+      !directFallback &&
+      this.session.peerSupport !== "unsupported";
+    const state =
+      this.session.state === "disabled"
+        ? "disabled"
+        : directFallback
+          ? "fallback"
+          : this.session.state === "complete"
+            ? "active"
+            : this.session.state;
+    const publicState =
+      state === "disabled" ||
+      state === "probing" ||
+      state === "active" ||
+      state === "fallback"
+        ? state
+        : "disabled";
+    return {
+      state: publicState,
+      carrier:
+        hybridDirect ||
+        directFallback ||
+        !(publicState === "probing" || publicState === "active")
+          ? "direct"
+          : "sped",
+      retransmissions: this.session.retransmissions,
+      generation: this.session.generation,
+    };
+  }
+
+  isHandshakeDirectReady(): boolean {
+    return (
+      this.handshakeDirectReady &&
+      this.handshakeDirectGeneration === this.session.generation
+    );
+  }
+
+  /**
+   * Enable handshake-only raw DTLS on an authenticated current-generation pair.
+   * Idempotent per generation; does not enter `fallback`.
+   */
+  tryMarkDirectHandshakeReady(
+    pair: CandidatePair,
+    generation: number,
+  ): boolean {
+    if (
+      this.session.state === "disabled" ||
+      this.session.state === "fallback"
+    ) {
+      return false;
+    }
+    if (!this.isLiveGeneration(generation)) {
+      return false;
+    }
+    if (this.isHandshakeDirectReady()) {
+      return true;
+    }
+    if (!this.canMarkDirectHandshakePair(pair)) {
+      return false;
+    }
+    const association = this.associationPath();
+    if (association && !sameCandidatePair(association, pair)) {
+      // A successful outgoing check can use a different pair from the first
+      // authenticated incoming SPED flight. Keep the association pinned, but
+      // allow its authenticated request path to carry handshake retransmits.
+      if (pair.responsesReceived === 0 || association.requestsReceived === 0) {
+        return false;
+      }
+      if (!this.canMarkDirectHandshakePair(association)) {
+        return false;
+      }
+      pair = association;
+    }
+    this.pinHandshakePath(pair);
+    this.handshakeDirectReady = true;
+    this.handshakeDirectPair = pair;
+    this.handshakeDirectGeneration = generation;
+    this.hooks.setRetransmissionMode("internal");
+    this.hooks.onDirectHandshakeReady?.({
+      generation,
+      pair,
+      ready: true,
+    });
+    return true;
+  }
+
+  private canMarkDirectHandshakePair(pair: CandidatePair): boolean {
+    if (
+      pair.localCandidate.type === "relay" ||
+      pair.remoteCandidate.type === "relay"
+    ) {
+      return false;
+    }
+    if (!isSpedEligibleProtocol(pair.protocol)) {
+      return false;
+    }
+    return isAuthenticatedHandshakePair(pair);
+  }
+
+  private clearHandshakeDirectReadiness(notify: boolean): void {
+    const generation = this.session.generation;
+    const wasReady = this.handshakeDirectReady;
+    this.handshakeDirectReady = false;
+    this.handshakeDirectPair = undefined;
+    this.handshakeDirectGeneration = undefined;
+    if (notify && wasReady) {
+      this.hooks.onDirectHandshakeReady?.({
+        generation,
+        ready: false,
+      });
+    }
+  }
+
+  shouldDecorate(pair: CandidatePair): boolean {
+    return this.bindingRole(pair) === "full";
+  }
+
+  /**
+   * full: L1 DATA + ACK on the association path.
+   * capability: empty C070 only (other eligible pairs after pin, or
+   *   unconfirmed UDP prflx that may later prove to be relay).
+   * none: relay / TURN. Every other pair must advertise C070
+   *   (draft §3.3.2.1); a missing C070 makes the peer fall back.
+   *
+   * A UDP prflx that already received non-empty DATA is the association
+   * path until signaling upgrades it (host/srflx) or marks it relay.
+   */
+  private bindingRole(pair: CandidatePair): SpedBindingRole {
+    if (!this.session.embedding) {
+      return "none";
+    }
+    const association = this.associationPath();
+    if (association && sameCandidatePair(association, pair)) {
+      return "full";
+    }
+    if (isSpedEligiblePair(pair)) {
+      return association ? "capability" : "full";
+    }
+    if (isUnconfirmedUdpPrflx(pair)) {
+      // Before peer support is known, advertise only the capability. Once the
+      // peer has confirmed SPED, the nominated path can carry the association.
+      return this.session.peerSupport === "supported" && pair.nominated
+        ? "full"
+        : "capability";
+    }
+    return isSpedAdvertisablePair(pair) ? "capability" : "none";
+  }
+
+  /**
+   * Drop lastPath when trickle proves the pinned address is relay.
+   */
+  private associationPath(): CandidatePair | undefined {
+    if (!this.lastPath) {
+      return undefined;
+    }
+    if (
+      isSpedEligiblePair(this.lastPath) ||
+      isUnconfirmedUdpPrflx(this.lastPath)
+    ) {
+      return this.lastPath;
+    }
+    this.lastPath = undefined;
+    return undefined;
+  }
+
+  decorateOutgoing(message: Message, pair: CandidatePair): boolean {
+    const role = this.bindingRole(pair);
+    if (role === "none") {
+      return true;
+    }
+    if (role === "capability") {
+      return this.session.decorateCapabilityAdvertisement(message);
+    }
+    this.syncMtuFromBinding(message);
+    return this.session.decorate(message);
+  }
+
+  isLiveGeneration(generation: number): boolean {
+    return this.session.generation === generation;
+  }
+
+  /**
+   * Remember the association pair for this generation.
+   * Later candidates must not replace it.
+   */
+  pinHandshakePath(pair: CandidatePair): void {
+    if (!this.lastPath) {
+      this.lastPath = pair;
+    }
+  }
+
+  /**
+   * Resolve a previously pending C070-less UDP prflx Binding.
+   * host/srflx trickle → unsupported; relay → drop pending; lasting prflx
+   * after end-of-candidates or nomination → unsupported.
+   * @returns true when this call locked peerSupport to unsupported.
+   */
+  settleUnconfirmedPair(
+    pair: CandidatePair,
+    options: {
+      endOfCandidates: boolean;
+      authenticated: boolean;
+      nominated: boolean;
+    },
+  ): boolean {
+    if (!this.session.embedding || this.session.peerSupport !== "unknown") {
+      return false;
+    }
+    const key = unconfirmedPairKey(pair);
+    if (!this.pendingUnconfirmedMissingData.has(key)) {
+      return false;
+    }
+    if (pair.remoteCandidate.type === "relay") {
+      this.pendingUnconfirmedMissingData.delete(key);
+      return false;
+    }
+    if (isSpedEligiblePair(pair) && options.authenticated) {
+      this.pendingUnconfirmedMissingData.delete(key);
+      this.session.noteAuthenticatedBindingHasData(false);
+      return true;
+    }
+    if (
+      options.authenticated &&
+      isUnconfirmedUdpPrflx(pair) &&
+      (options.endOfCandidates || options.nominated)
+    ) {
+      this.pendingUnconfirmedMissingData.delete(key);
+      this.session.noteAuthenticatedBindingHasData(false);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * ICE selected `pair`. A relay / TURN pair never carries SPED (and its
+   * Bindings do not decide support), so with support still undecided the
+   * handshake would never be sent: fall back to direct DTLS on that pair.
+   * @returns true when this call started the fallback state.
+   */
+  settleIneligibleSelectedPair(pair: CandidatePair): boolean {
+    if (isSpedEligiblePair(pair) || !this.session.fallBackUndecided()) {
+      return false;
+    }
+    // A probe path pinned earlier no longer carries the handshake.
+    this.lastPath = undefined;
+    return true;
+  }
+
+  syncRtt(pair: CandidatePair): void {
+    const association = this.associationPath();
+    if (association) {
+      if (!sameCandidatePair(association, pair)) {
+        return;
+      }
+    } else if (!isSpedEligiblePair(pair)) {
+      // Relay / TURN / unconfirmed UDP prflx must not seed the carrier
+      // before the association is pinned.
+      return;
+    }
+    if (pair.rtt == null || !(pair.rtt > 0)) {
+      return;
+    }
+    this.hooks.updateRtt(pair.rtt * 1000);
+  }
+
+  syncMtu(messageSkeletonLength?: number): void {
+    const overhead = messageSkeletonLength ?? 0;
+    const mtu = Math.max(1, SPED_OUTER_MTU - overhead);
+    this.applyMtu(mtu, { allowRaise: true });
+  }
+
+  /**
+   * Set DTLS MTU from actual ICE ufrags before the first flight
+   * (min of Request and Response Binding budgets).
+   */
+  syncPathMtuFromConnection(connection: {
+    localUsername: string;
+    remoteUsername: string;
+    options: { useIpv6: boolean };
+  }): void {
+    this.applyMtu(
+      spedDtlsMtuForIceCredentials({
+        localUsername: connection.localUsername,
+        remoteUsername: connection.remoteUsername,
+        useIpv6: connection.options.useIpv6,
+      }),
+      { allowRaise: true },
+    );
+  }
+
+  /** DTLS datagram MTU from this Binding's current attributes (before SPED/MI/FP). */
+  syncMtuFromBinding(message: Message): void {
+    const ackValue = encodeSpedAck(this.session.peekAcksForBinding()).value;
+    const mtu = Math.max(
+      1,
+      maxPayloadFitting(remainingDataValueBudget(message, ackValue)),
+    );
+    // A spacious Response must not raise MTU above the Request-side path limit.
+    this.applyMtu(mtu, { allowRaise: false });
+  }
+
+  private applyMtu(mtu: number, options: { allowRaise: boolean }): void {
+    if (!options.allowRaise && mtu >= this.lastMtu) {
+      return;
+    }
+    if (mtu === this.lastMtu) {
+      return;
+    }
+    const shrink = mtu < this.lastMtu;
+    this.lastMtu = mtu;
+    this.hooks.setMtu(mtu);
+    if (shrink) {
+      this.hooks.refragmentPendingFlight?.();
+    }
+  }
+
+  markInjectGeneration(generation: number): void {
+    this.pendingInjectGeneration = generation;
+  }
+
+  isInjectGenerationCurrent(generation: number): boolean {
+    return this.pendingInjectGeneration === generation;
+  }
+
+  async handleAuthenticatedStun(
+    message: Message,
+    addr: Address,
+    generation: number,
+    pair?: CandidatePair,
+  ): Promise<{ fallback: boolean; inject?: Buffer }> {
+    if (!this.session.embedding || !this.isLiveGeneration(generation)) {
+      return { fallback: false };
+    }
+    if (!pair) {
+      return { fallback: false };
+    }
+    if (isUnconfirmedUdpPrflx(pair)) {
+      const association = this.associationPath();
+      if (association && !sameCandidatePair(association, pair)) {
+        this.session.receiveCapabilityAdvertisement(message);
+        return { fallback: false };
+      }
+      const dataValue = getRawAttributeValue(message, DTLS_IN_STUN_DATA);
+      if (dataValue === undefined) {
+        this.pendingUnconfirmedMissingData.add(unconfirmedPairKey(pair));
+        return { fallback: false };
+      }
+      this.pendingUnconfirmedMissingData.delete(unconfirmedPairKey(pair));
+      if (decodeSpedData(dataValue).kind !== "datagram") {
+        this.session.receiveCapabilityAdvertisement(message);
+        return { fallback: false };
+      }
+    } else {
+      const role = this.bindingRole(pair);
+      if (role === "none") {
+        return { fallback: false };
+      }
+      if (role === "capability") {
+        this.session.receiveCapabilityAdvertisement(message);
+        return { fallback: false };
+      }
+    }
+    this.markInjectGeneration(generation);
+    const result = this.session.receiveAuthenticated(message);
+    if (result.inject) {
+      this.pinHandshakePath(pair);
+    }
+    if (
+      !this.isLiveGeneration(generation) ||
+      !this.isInjectGenerationCurrent(generation)
+    ) {
+      return { fallback: false };
+    }
+    if (result.inject) {
+      await this.hooks.inject(result.inject, addr, generation);
+    }
+    if (
+      !this.isLiveGeneration(generation) ||
+      !this.isInjectGenerationCurrent(generation)
+    ) {
+      return { fallback: false };
+    }
+    return result;
+  }
+
+  beginFallback(): Buffer[] {
+    if (this.fallbackStarted || this.session.state === "disabled") {
+      return [];
+    }
+    this.fallbackStarted = true;
+    this.hooks.setRetransmissionMode("internal");
+    return this.session.fallbackFlightBytes();
+  }
+
+  completeHandshake(): void {
+    this.directCarrierSelected = false;
+    this.session.completeHandshake();
+    this.hooks.setRetransmissionMode("internal");
+    this.hooks.onHandshakeComplete?.();
+  }
+
+  commitDirectFallback(): void {
+    this.directCarrierSelected = true;
+    this.fallbackStarted = true;
+    this.session.commitDirectFallback();
+    this.hooks.setRetransmissionMode("internal");
+  }
+
+  isDirectCarrierSelected(): boolean {
+    return this.directCarrierSelected;
+  }
+
+  reset(generation: number): void {
+    const preserveDirectCarrier = this.directCarrierSelected;
+    const preserveHybridComplete =
+      this.handshakeDirectReady &&
+      this.session.state === "complete" &&
+      !this.fallbackStarted &&
+      this.session.peerSupport !== "unsupported";
+    const preserveCompleteState =
+      (preserveDirectCarrier || preserveHybridComplete) &&
+      this.session.state === "complete";
+    const notifyClearHandshake =
+      this.handshakeDirectReady && !preserveHybridComplete;
+    this.sessionEpoch++;
+    this.session.reset(generation);
+    this.fallbackStarted = false;
+    this.directCarrierSelected = preserveDirectCarrier;
+    this.clearHandshakeDirectReadiness(false);
+    if (preserveHybridComplete) {
+      this.handshakeDirectReady = true;
+      this.handshakeDirectGeneration = generation;
+    }
+    if (preserveDirectCarrier) {
+      // A completed direct fallback must remain direct across an ICE restart.
+      // DTLS 1.3 keeps the association's complete state while DTLS 1.2 uses
+      // the legacy fallback state.
+      if (preserveCompleteState) {
+        this.session.completeHandshake();
+      } else {
+        this.session.commitDirectFallback();
+      }
+    } else if (preserveHybridComplete) {
+      this.session.completeHandshake();
+    } else {
+      this.hooks.setRetransmissionMode("external");
+    }
+    this.pendingInjectGeneration = undefined;
+    this.lastPath = undefined;
+    this.pendingUnconfirmedMissingData.clear();
+    this.lastMtu = defaultSpedDtlsMtu();
+    this.hooks.setMtu(this.lastMtu);
+    this.hooks.resetRtt();
+    this.hooks.onSessionReset?.();
+    if (notifyClearHandshake) {
+      this.hooks.onDirectHandshakeReady?.({
+        generation,
+        ready: false,
+      });
+    }
+  }
+
+  completeDirectFallback(): void {
+    this.directCarrierSelected = true;
+    this.fallbackStarted = true;
+    this.session.completeHandshake();
+    this.hooks.setRetransmissionMode("internal");
+    this.hooks.onHandshakeComplete?.();
+  }
+
+  /**
+   * Stop embedding and drop pending L1/L2 / injects / last path.
+   * ICE restart still uses {@link reset} to return to probing.
+   */
+  abort(): void {
+    this.sessionEpoch++;
+    const notifyClearHandshake = this.handshakeDirectReady;
+    this.clearHandshakeDirectReadiness(false);
+    if (this.session.state === "disabled") {
+      this.directCarrierSelected = false;
+      this.pendingInjectGeneration = undefined;
+      this.lastPath = undefined;
+      this.pendingUnconfirmedMissingData.clear();
+      if (notifyClearHandshake) {
+        this.hooks.onDirectHandshakeReady?.({
+          generation: this.session.generation,
+          ready: false,
+        });
+      }
+      return;
+    }
+    this.session.abort();
+    this.fallbackStarted = true;
+    this.directCarrierSelected = false;
+    this.pendingInjectGeneration = undefined;
+    this.lastPath = undefined;
+    this.pendingUnconfirmedMissingData.clear();
+    this.hooks.setRetransmissionMode("internal");
+    this.hooks.onSessionAbort?.();
+    if (notifyClearHandshake) {
+      this.hooks.onDirectHandshakeReady?.({
+        generation: this.session.generation,
+        ready: false,
+      });
+    }
+  }
+
+  markCarrierInject(): void {
+    this.carrierInjectEpoch = this.sessionEpoch;
+  }
+
+  clearCarrierInject(): void {
+    this.carrierInjectEpoch = undefined;
+  }
+
+  /**
+   * True while a DTLS inject started before the latest reset/abort is still
+   * running. Carrier onFlightCreated must not replace the new generation L1.
+   */
+  isStaleCarrierFlight(): boolean {
+    return (
+      this.carrierInjectEpoch !== undefined &&
+      this.carrierInjectEpoch !== this.sessionEpoch
+    );
+  }
+
+  close(): void {
+    this.abort();
+  }
+}

@@ -531,8 +531,8 @@ export class RTCRtpSender {
   private canSendRtp() {
     return (
       !this.stopped &&
-      !this.sendSuppressed &&
-      this.dtlsTransport?.state === "connected" &&
+      (this.dtlsTransport?.state === "connected" ||
+        this.dtlsTransport?.isEarlyServerWriteAllowed() === true) &&
       !!this.codec
     );
   }
@@ -969,7 +969,8 @@ export class RTCRtpSender {
     // Not sending in the negotiated direction: drop media and padding.
     // NACK retransmissions keep develop's behavior.
     if (this.sendSuppressed && !opts.isRetransmission) return;
-    if (this.dtlsTransport.state !== "connected" || !this.codec) {
+    // Same gate as sendRtp: connected, or an early server write WARP allows.
+    if (!this.canSendRtp() || !this.codec) {
       return;
     }
     const sendClockRate = (this.sendPrimaryCodec ?? this.codec).clockRate;

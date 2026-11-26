@@ -1,0 +1,476 @@
+# WARP 対応 DTLS 1.3（RFC 9147）・DTLS-SRTP・DTLS 1.2 フォールバックの実装
+
+- 関連 Issue: [shinyoshiaki/werift-webrtc#659](https://github.com/shinyoshiaki/werift-webrtc/issues/659)
+- 調査対象: `develop` ベース、`e651fd12891e262515ac8999d6fb105a1c0fa9ab`
+- 主な対象パッケージ: `packages/dtls`、`packages/ice`、`packages/ice-server`、`packages/webrtc`
+
+## 1. タスクの目的と背景
+
+現在の werift は DTLS 1.2 のみを実装しており、`RTCPeerConnection` の接続処理も ICE の完了後に DTLS を開始する直列構成になっている。これに対し WARP（WebRTC Abridged Roundtrip Protocol）は、次の独立した最適化を組み合わせて WebRTC の初期接続遅延を短縮する。
+
+- DTLS 1.3: 証明書認証付きフルハンドシェイクを 2 RTT から 1 RTT に短縮する。
+- SPED: DTLS ハンドシェイクの UDP ペイロードを、認証済み STUN Binding Request/Response に載せ、ICE と DTLS を並行させる。
+- SNAP: SCTP association の準備を前倒しする。
+
+本タスクの目的は、DTLS 1.3 を単独で追加するだけでなく、SPED を介して ICE と並行実行できるトランスポート非依存の DTLS エンジンへ再構成し、DTLS-SRTP、既存の DTLS 1.2 フォールバック、WebRTC の fingerprint 認証を維持したまま WARP の 1-RTT 経路を成立させることである。
+
+WARP draft-00 が対象とするのは、TLS 1.3 PSK によるクライアント 0-RTT ではない。初期実装では、DTLS 1.3 サーバーが自身の `Finished` 送信後、クライアントの `Finished` 受信前に epoch 3 の保護済み application data を送信できることをサポートする。このデータは受信側でサーバー証明書、`CertificateVerify`、`Finished`、SDP fingerprint の検証が完了するまで配送してはならない。
+
+初期リリースでは既存利用者への影響を避けるため、デフォルトは DTLS 1.2、SPED 無効のままとする。DTLS 1.3、SPED、早期サーバー送信は明示的な実験オプションで有効化する。
+
+## 2. 実装すべき具体的な機能・変更内容
+
+### 2.1 プロトコルバージョンと実験オプション
+
+`packages/dtls/src/socket.ts` の `Options` と WebRTC の `PeerConfig` / `RTCPeerConnectionConfig` に、以下と同等の設定を追加する。名称は既存 API の命名規則に合わせてよいが、挙動は固定する。
+
+```ts
+export enum DtlsVersion {
+  V1_2 = "1.2",
+  V1_3 = "1.3",
+}
+
+export interface DtlsOptions {
+  protocolVersions?: readonly DtlsVersion[];
+  addressValidation?: "dtls-cookie" | "ice-authenticated" | "none";
+}
+
+export interface WarpOptions {
+  sped?: boolean;
+  syncRtoWithIce?: boolean;
+  allowEarlyServerData?: boolean;
+}
+```
+
+- バージョン配列の順序を優先順位として扱い、DTLS 1.3 only、DTLS 1.3 優先 + 1.2 fallback、DTLS 1.2 only を選択可能にする。
+- デフォルト値は DTLS 1.2 only、WARP/SPED 無効とし、本タスク内で暗黙に既定値を変更しない。
+- 1.3 only と 1.2 only の組み合わせは、タイムアウトではなく明確な protocol-version エラーとして失敗させる。
+- DTLS 1.3 確立後は DTLS 1.2 の renegotiation を拒否する。
+- SPED draft-00 の暫定 codepoint や内部キューを安定 Public API として公開しない。
+
+### 2.2 DTLS の共通層とバージョン別エンジンの分離
+
+現行の `DtlsClient` / `DtlsServer` の外側に、証明書、SRTP profile、datagram carrier、ライフサイクル、共通イベント、バージョンネゴシエーションを担当する共通 association 層を設ける。既存 flight 実装は DTLS 1.2 エンジンとして adapter 化し、DTLS 1.3 は独立したエンジンとして追加する。
+
+最低限、次の責務を分離する。
+
+- DTLS 1.2 handshake / record layer / TLS 1.2 PRF
+- DTLS 1.3 handshake / record layer / TLS 1.3 HKDF key schedule
+- バージョン非依存の証明書処理、extension registry、fragment/reassembly、datagram carrier、イベント
+- WebRTC 固有の SDP fingerprint 検証と SRTP/SCTP/RTP 連携
+
+DTLS 1.2 と 1.3 の間で、epoch、record sequence、handshake transcript、read/write key、replay window、flight timer の可変状態を共有しない。
+
+### 2.3 DTLS 1.3 handshake とネゴシエーション
+
+[RFC 9147](https://www.rfc-editor.org/rfc/rfc9147.html)、[RFC 8446](https://www.rfc-editor.org/rfc/rfc8446.html)、および [RFC 9147 の Verified Errata](https://errata.rfc-editor.org/search/?rfc_number=9147) に従い、クライアント・サーバー両方の証明書認証付き full handshake を実装する。
+
+- wire version `0xfefc`、`ClientHello.legacy_version = 0xfefd`、`supported_versions` による 1.3 選択
+- `supported_versions`、`supported_groups`、`key_share`、`signature_algorithms`、必要に応じて `signature_algorithms_cert`、既存 `use_srtp` extension
+- 初期必須 cipher suite `TLS_AES_128_GCM_SHA256 (0x1301)`
+- X25519 と P-256 の key share
+- `ecdsa_secp256r1_sha256` と TLS 1.3 用 RSA-PSS。既存の TLS 1.2 RSA PKCS#1 `CertificateVerify` を流用しない。
+- 必要に応じた key-share 用 `HelloRetryRequest` と第 2 `ClientHello`
+- 任意の client certificate request と相互証明書認証
+
+full handshake の処理順序は次のとおりとする。
+
+1. `ClientHello`
+2. 任意の `HelloRetryRequest` と第 2 `ClientHello`
+3. `ServerHello`
+4. `EncryptedExtensions`
+5. 任意の `CertificateRequest`
+6. `Certificate`
+7. `CertificateVerify`
+8. server `Finished`
+9. 任意の client `Certificate` / `CertificateVerify`
+10. client `Finished`
+11. final DTLS ACK
+
+DTLS 1.3 経路では `HelloVerifyRequest`、`ServerKeyExchange`、`ClientKeyExchange`、`ServerHelloDone`、`ChangeCipherSpec` を送らない。transcript は再構成済みの完全な handshake message から計算し、record header、DTLS fragment metadata、再送、DTLS ACK、SPED ACK を含めない。
+
+### 2.4 TLS 1.3 key schedule、record、epoch、ACK
+
+既存 `packages/dtls/src/cipher/prf.ts` の TLS 1.2 master-secret モデルとは別に、DTLS 1.3 用の HKDF key schedule を実装する。
+
+- `HKDF-Extract`、DTLS 1.3 の `HKDF-Expand-Label`（label prefix は `dtls13`）
+- early / handshake / master secret
+- client/server handshake traffic secret と application traffic secret
+- Finished key / verify data、exporter master secret、traffic secret update
+- DTLS 1.3 `EXTRACTOR-dtls_srtp` exporter
+
+record layer には次を実装する。
+
+- epoch 0 の `DTLSPlaintext`
+- DTLS 1.3 unified ciphertext header と `DTLSInnerPlaintext`
+- truncated record sequence の復元、16-bit sequence、明示 length
+- DTLS 1.3 固有の nonce / AAD
+- coalesced record の順次パースと厳格な長さ検証
+- epoch ごとに独立した read/write key、sequence、replay window
+- ACK content type 26、partial ACK、implicit ACK、final-flight ACK、必要な empty ACK、loss/reorder 時の再送
+- `KeyUpdate`、ACK 後の epoch 遷移、旧 key の有界保持と破棄
+
+初期実装は CID なし（unified header の C=0）とし、CID 付き形式は誤解釈せず明示的に拒否する。epoch は、0=plaintext、1=client 0-RTT 予約・未使用、2=handshake、3=初期 application、4 以降=KeyUpdate とする。
+
+### 2.5 トランスポート非依存の handshake datagram carrier
+
+DTLS エンジンが、選択済み ICE pair への直接送信と STUN 内埋め込みを区別せず、完全な DTLS datagram を生成・注入できる内部 interface を追加する。
+
+```ts
+interface DtlsHandshakeDatagram {
+  readonly bytes: Buffer;
+  readonly flightId: number;
+  readonly packetIndex: number;
+  readonly retransmittable: boolean;
+}
+
+interface DtlsHandshakeCarrier {
+  send(packet: DtlsHandshakeDatagram): Promise<void>;
+  inject(bytes: Buffer): void;
+  getMtu(): number;
+  updateRtt(rttMs: number): void;
+  setRetransmissionMode(mode: "internal" | "external"): void;
+}
+```
+
+- flight 作成イベントと handshake 完了イベントを公開する。
+- flight 内の packet bytes は生成後に変更せず、防御的 copy と不変 metadata でキャッシュ・再送する。
+- handshake datagram と通常の application datagram を別経路にする。
+- external mode では SPED の送信機会を使い、internal timer を停止できるようにする。direct fallback 時は同じ flight state を保ったまま internal timer を再開する。
+- close、error、handshake 完了、fallback、ICE restart の全経路で timer と pending task を cancel する。
+
+DTLS 層は STUN attribute を解釈せず、ICE 層は DTLS record の内部を変更しない。
+
+### 2.6 SPED draft-00 の STUN/ICE 実装
+
+[draft-hancke-webrtc-sped-00](https://datatracker.ietf.org/doc/html/draft-hancke-webrtc-sped-00) に対応する draft-versioned module を `packages/ice` 内に追加する。
+
+- `DTLS-IN-STUN-DATA`: 1 個の完全な DTLS handshake datagram、またはサポート通知用の空 value
+- `DTLS-IN-STUN-ACK`: 受信した埋め込み datagram の CRC-32（padding を除く）の配列
+- L1: 現 flight の未 ACK handshake datagram
+- L2: 送信待ち CRC-32 ACK
+
+送受信規則は次のとおりとする。
+
+- SPED 有効中は、認証付き Binding Request/Response のすべてに `DTLS-IN-STUN-DATA` を付加する。
+- L1 が複数ある場合は round-robin で 1 個だけ選ぶ。1 attribute に複数 datagram を coalesce しない。
+- ACK は最大 4 個（16 bytes）に制限し、L1 の対応 packet のみを除去する。
+- 新 flight または handshake 完了時に L1 を clear する。
+- 最初の認証済み Binding message に DATA attribute がなければ非 SPED peer と判断し、ClientHello を作り直さず同じ serialized flight を direct DTLS へ fallback する。
+- candidate pair / STUN transaction をまたぐ同一 datagram の重複配送は DTLS replay protection で安全に破棄する。
+- SPED CRC ACK は UDP payload の受信通知、DTLS 1.3 ACK は record number の通知として別 state で管理し、どちらも transcript に含めない。
+
+#### SPED STUN attribute codepoint（確定方針）
+
+`draft-hancke-webrtc-sped-00` 本文は TBD1/TBD2 のままだが、相互接続実装と IANA は次の値に収束している。実装はこの値を採用する。
+
+| draft 名称 | IANA 名称 | Type | 根拠 |
+| --- | --- | --- | --- |
+| DTLS-IN-STUN-DATA | META-DTLS-IN-STUN | `0xC070` | IANA STUN Attributes（Expert Review、comprehension-optional）。登録者 Philipp Hancke（Meta） |
+| DTLS-IN-STUN-ACK | META-DTLS-IN-STUN-ACKNOWLEDGEMENT | `0xC071` | 同上 |
+
+調査結果:
+
+- **IANA**: `0xC070` / `0xC071` が comprehension-optional 範囲に登録済み（2024-12-20 更新）。
+- **pion**: `pion/stun` が `AttrDtlsInStun = 0xC070`、`AttrDtlsInStunAck = 0xC071` を採用（[pion/stun#260](https://github.com/pion/stun/pull/260)、IANA 準拠。名称から `META-` を落としている）。
+- **libwebrtc / Chromium**: DTLS-in-STUN piggybacking の実験実装・field trial が存在する。wire 上の相互接続は IANA/Meta 登録値に合わせる前提で進め、CI では pion fixture と byte 一致を優先する。
+- **OpenAI Realtime WebRTC**: 公開資料上は host candidate + 標準 DTLS-SRTP 中心で、SPED codepoint の公開仕様は見当たらない。相互接続の一次ソースには使わない。
+
+実装規則:
+
+- 数値は `packages/ice`（または STUN 共有層）の `sped/draft00` 相当の **単一 constants module** に隔離する。例: `DTLS_IN_STUN_DATA = 0xc070`、`DTLS_IN_STUN_ACK = 0xc071`。
+- Public API には codepoint を露出せず、内部定数と draft version メタデータ（`sped-draft-00` / IANA names）だけを持つ。
+- unit/fixture の STUN バイナリは上記 2 値で固定し、pion 互換 vector があればそれをゴールデンにする。
+- 後続 draft や IANA 改名で値が変わった場合は constants module と fixture のみ更新する。
+
+### 2.7 STUN attribute 順序と認証境界の修正
+
+現行 `packages/ice-server/src/stun/message.ts` は未知 attribute を `rawAttributes` として保持できる一方、serialize 時に既知 attribute の後へまとめて出力する。このまま `appendRawAttribute()` を使うと、SPED attribute が `MESSAGE-INTEGRITY` / `FINGERPRINT` より後ろになり、整合性検証の対象外になる。
+
+そのため、次のいずれかの方法で wire order を保持できるようにする。
+
+- 既知・未知を含む ordered attribute list へ内部表現を統一する。
+- または draft attribute を `MESSAGE-INTEGRITY` より前へ明示挿入できる API と、認証対象範囲 metadata を追加する。
+
+さらに、`packages/ice/src/ice.ts` の Binding Request 受信経路は、現状 `parseMessage(data)` で `USERNAME` を得た後、対応する local password で request 全体を再検証していない。SPED 処理より前に次の二段階処理へ変更する。
+
+1. unauthenticated parse は username と credential 選択のみに使う。
+2. `parseMessage(data, localPassword)` で `MESSAGE-INTEGRITY` を再検証し、成功した `Message` のみ role conflict、filter callback、SPED ACK/Data、response、candidate-pair 更新へ渡す。
+
+SPED Data の注入は、DATA attribute が `MESSAGE-INTEGRITY` の認証範囲内にあり、username が現在の ICE generation に対応し、送信元がその generation の pair と関連付けられた場合だけ許可する。空 value は注入せず、非空 value の先頭 byte が RFC 9443 の DTLS demux 範囲 20〜63 外なら黙って破棄する。
+
+### 2.8 ICE と DTLS の並行起動、role、restart
+
+WARP/SPED 有効時のみ、`packages/webrtc/src/peerConnection.ts` の次の直列起動を coordinated startup に置き換える。
+
+```ts
+await iceTransport.start();
+await dtlsTransport.start();
+```
+
+- SDP answer、remote fingerprint、certificate、remote ICE credentials、DTLS role が揃った時点で、DTLS client が nomination 前に flight 1 を生成できるようにする。
+- `a=setup:passive` answer では offerer が DTLS client、`a=setup:active` answer では answerer が DTLS client となる現在の JSEP role mapping を維持する。
+- offerer が常に ClientHello を出すという前提を置かず、Full ICE / ICE Lite の両方を扱う。
+- WARP 無効時と既存 DTLS 1.2 経路は現在の起動順・動作を維持する。
+
+現行 `Protocol.onDataReceived` と `IceConnection.onData` は送信元 address / protocol / generation を失うため、pre-nomination の direct DTLS を安全に routing できない。Public `onData(Buffer)` との互換 adapter は残しつつ、内部 datagram event に `bytes`、source address、protocol/candidate pair、ICE generation、認証済み source かどうかを含める。raw source address だけで association を選ばず、その generation で認証済み STUN check と関連付けられた経路だけを DTLS へ渡す。
+
+ICE restart では SPED negotiation、L1/L2、round-robin index、RTT、MTU/path、carrier mode、early-data buffer、DTLS association/timer を atomically reset し、`Connection.generation` をまたいだ packet を受理しない。
+
+### 2.9 Dynamic MTU と RTT/RTO 同期
+
+現行 `FragmentedHandshake.chunk()` は 1280 bytes を基準にした固定計算で、STUN/TURN/DTLS record overhead や実際の path を反映しない。carrier から取得した最大 DTLS datagram size に基づき、handshake message を record 単位に分割する。
+
+MTU 計算には少なくとも以下を含める。
+
+- path MTU、IP/UDP または TCP framing
+- STUN header、USERNAME、PRIORITY、ICE role、任意の `USE-CANDIDATE`
+- `MESSAGE-INTEGRITY` / `MESSAGE-INTEGRITY-SHA256`、FINGERPRINT
+- SPED DATA/ACK header と 4-byte padding
+- TURN `XOR-PEER-ADDRESS`、ChannelData/Data Indication の経路差
+- application が追加する custom STUN attribute
+
+candidate path、direct/TURN、MTU、STUN attribute 構成が変わるたび再計算し、すべての serialized DTLS datagram が制限内であることを送信直前にも検証する。large certificate と multi-record flight を必須テストに含める。
+
+`CandidatePair.rtt` は秒単位で既に測定されるが、DTLS への通知イベントがないため、successful connectivity check / consent response と selected pair 変更時に DTLS carrier へ伝播する。API 上は単位を `rttMs` 等で明示し、秒/ミリ秒の取り違えを防ぐ。ICE の 500 ms RTO floor は ICE transaction にのみ適用し、DTLS RTO にはそのまま流用しない。
+
+### 2.10 早期サーバー application data と DTLS-SRTP
+
+単一の `connected` boolean に依存せず、内部 state/event を少なくとも次に分ける。
+
+- `writeReady`: local application traffic key が利用可能で、local endpoint が送信可能
+- `peerAuthenticated`: peer の証明書、`CertificateVerify`、`Finished` を検証済み。WebRTC 層では SDP fingerprint 検証も含む。
+- `handshakeComplete`: 必要な peer final flight を処理済み
+
+- server は自身の `Finished` 送信後、設定で許可されていれば client `Finished` 前に保護済み application data を送れる。
+- client は server flight を検証できれば送信可能だが、最終 server ACK を待つ必要はない。
+- epoch 3 以降の record が対応する peer `Finished` より先に到着した場合、件数・bytes・保持時間を制限した queue に保持する。認証成功後のみ順序を保って配送し、失敗・timeout・close・restart 時は破棄する。
+- Public `RTCDtlsTransport.state` は必要な peer 認証前に `connected` にしない。
+
+DTLS-SRTP は既存 `use_srtp` negotiation を維持し、DTLS 1.3 exporter から `EXTRACTOR-dtls_srtp` を導出する。現行 `updateSrtpSession()` の一括 key install を送受信方向の readiness に分け、server outbound key は許可された早期状態で install 可能にする。client inbound key と、early RTP/RTCP の配送は server certificate / signature / Finished / fingerprint の検証完了後に限る。認証前 media は有界 buffer または明示 drop とし、RTP/RTCP/DTLS/STUN demux を迂回させない。
+
+### 2.11 Stats、ドキュメント
+
+`RTCTransportStats` と DTLS/ICE 内部 stats に以下を追加する。
+
+- negotiated DTLS version / cipher / SRTP profile
+- SPED の negotiated / active / fallback 状態
+- 現在の carrier（SPED/direct）
+- handshake RTT、DTLS/SPED retransmission 数
+- early buffer の packets/bytes/drop 数、early server send の利用有無
+- selected pair / ICE restart と関連付けられる generation
+
+`formatDtlsVersion()` は `0xfefc` を `DTLS 1.3` として表示する。`packages/dtls/README.md`、`packages/webrtc/README.md` または近接 API docs に、既定値、opt-in 方法、1.2 fallback、WARP の 1-RTT + SPED、server early data、PSK 0-RTT 非対応を明記する。
+
+**ベンチマークは本タスクのスコープ外**とする。`benchmark/` への setup latency / packet count harness、seed 付き loss 注入による性能比較は実施しない。
+
+## 3. 技術的な実装アプローチと調査結果
+
+### 3.1 現行コードの確認結果
+
+| 対象 | 現状 | 必要な対応 |
+| --- | --- | --- |
+| `packages/webrtc/src/peerConnection.ts` | `iceTransport.start()` 完了後に `dtlsTransport.start()` を呼ぶ。 | WARP 有効時に限り coordinated startup を導入する。 |
+| `packages/webrtc/src/transport/dtls.ts` | ICE を通常の datagram transport として包み、DTLS / SRTP を `connection.onData` から直接振り分ける。状態は概ね `connected` の一段階。 | SPED injection、carrier 切替、readiness 分離、early buffer、中央 demux を追加する。 |
+| `packages/dtls/src/context/dtls.ts` | wire version は `0xfefd` 固定で、epoch / sequence / flight が単一 mutable state。 | 1.2/1.3 の state を完全分離し、read/write epoch ごとの state にする。 |
+| `packages/dtls/src/record/message/plaintext.ts` / `record/receive.ts` | 13-byte DTLS 1.2 header と offset 11/13 を固定利用。 | versioned parser と DTLS 1.3 unified header parser を追加する。 |
+| `packages/dtls/src/cipher/prf.ts` / `cipher/suites/aead.ts` | TLS 1.2 PRF、explicit nonce、13-byte AAD。 | HKDF key schedule と DTLS 1.3 nonce/AAD を別実装する。 |
+| `packages/dtls/src/client.ts` / `server.ts` / `flight/*` | HelloVerifyRequest を含む DTLS 1.2 の 6-flight state machine。flight 全体を固定 timer で再送する。 | 既存を Dtls12 engine として保持し、ACK-aware な Dtls13 engine と cancel 可能 timer controller を追加する。 |
+| `packages/dtls/src/record/message/fragment.ts` | MTU を 1280 bytes 前提で固定計算。 | carrier が返す complete-datagram MTU から record/crypto/STUN/TURN overhead を引いて分割する。 |
+| `packages/dtls/src/record/antiReplayWindow.ts` | unit test はあるが、受信 record path から使用されていない。 | DTLS 1.3 では epoch ごとの replay window を必ず record receive path に統合する。 |
+| `packages/ice/src/iceBase.ts` / `ice.ts` | Public 境界は `onData(Buffer)` と nomination/consent 後の `send()`。`CandidatePair.rtt` は保持するが通知しない。 | 内部 datagram context、pre-nomination SPED carrier、pair/RTT/MTU/generation event を追加する。 |
+| `packages/ice-server/src/stun/message.ts` | response は transaction key で再検証でき、unknown attribute も保持可能。ただし raw attribute の wire order と request 再認証が SPED 要件を満たさない。 | ordered attribute と Binding Request の二段階認証を実装する。 |
+| `packages/webrtc/src/media/stats.ts` | `tlsVersion` / `dtlsCipher` / `srtpCipher` はあるが WARP/readiness stats はない。 | 既存 stats を壊さず optional field を追加する。 |
+| `packages/dtls/tests/e2e/*` | OpenSSL を `-dtls1_2` 固定で起動する。 | 既存 OpenSSL 1.2 E2E を維持し、独立 DTLS 1.3 実装（主に BoringSSL）との両 role interop を追加する。 |
+| SPED codepoint | draft-00 は TBD。 | IANA/pion 準拠の `0xC070` / `0xC071` を draft00 constants に固定する。 |
+
+### 3.2 独立 DTLS 1.3 相互接続対象の選定
+
+DTLS 1.3 interop の対象は次の 2 系統のみとする。
+
+| 優先度 | 実装 | 役割 | 選定理由 |
+| --- | --- | --- | --- |
+| **P0（必須）** | **BoringSSL**（`bssl` tool / 小さな C++ or CLI shim） | DTLS 1.3 client/server 両 role の外部 peer | Chrome / libwebrtc が利用。RFC 9147 の DTLS 1.3 実装が実用段階。既存 OpenSSL spawn パターンを BoringSSL 向けに拡張しやすい。 |
+| **P1（推奨）** | **werift self**（既に計画） | 同一実装の client/server | 回帰の主軸。vector test と組み合わせる。 |
+
+#### BoringSSL harness の具体化
+
+実装前に次を文書化し、リポジトリに固定する。
+
+1. **revision pin**: `third_party` または CI スクリプトで BoringSSL の git commit（または release tag）を固定する。floating `HEAD` は使わない。
+2. **ビルド**: Linux 上で CMake + Ninja により `bssl` をビルドできる手順を `packages/dtls` の docs または `tests/e2e/README` に書く。環境変数でバイナリ path を上書き可能にする（例: `WERIFT_BORINGSSL_BSSL`）。
+3. **起動形態**: 現行 OpenSSL E2E と同様に child process spawn。最低限次のシナリオを自動化する。
+   - werift DTLS 1.3 **server** × BoringSSL **client**
+   - werift DTLS 1.3 **client** × BoringSSL **server**
+   - 証明書認証付き full handshake（self-signed 可）後、双方向 application data 1 往復以上
+   - cipher: 初期必須の `TLS_AES_128_GCM_SHA256` を含む
+   - group: X25519 を必須、可能なら P-256 も 1 ケース
+4. **DTLS-SRTP exporter**: BoringSSL 側で `EXTRACTOR-dtls_srtp` 相当の key material を取得できる場合は vector 比較を入れる。取得が難しい場合は werift 側の exporter vector を RFC/既知ベクトルで確定し、media 経路は self + RTP 結合テストで補う。
+5. **失敗時**: handshake 失敗・version mismatch・timeout を catch-and-ignore せず、ログ（alert / flight）を残して fail する。
+6. **環境**: CI または opt-in job で BoringSSL ビルド成果物をキャッシュし、未導入環境ではスキップではなく「必須 job では fail / ローカルでは skip with reason」を明示する。本タスク完了条件では P0 interop を成功させる。
+
+#### SPED 相互接続（別レイヤ）
+
+DTLS 1.3 record interop と SPED carrier interop は分ける。
+
+| レイヤ | peer | 役割 |
+| --- | --- | --- |
+| DTLS 1.3 record / handshake | BoringSSL、werift self | 証明書認証付き full handshake、application data |
+| SPED STUN attribute / carrier | **pion（必須）**、werift self | `0xC070` / `0xC071` の wire 互換と SPED 経路上の ICE+DTLS 並行 |
+
+BoringSSL は SPED を実装しない想定のため **SPED peer には使わない**。
+
+#### pion SPED interop harness（必須）
+
+sysbox イメージに Go と `pion-sped`（`packages/ice/tools/pion-sped`、`pion/stun v3.1.6` pin）が入り、`WERIFT_PION_SPED` で path 上書き可能である。本タスクではこれを前提に、次を **必須の完了条件** とする。
+
+1. **Attribute wire 互換（STUN 単位）**
+   - `pion-sped encode` / `decode` と werift の STUN serialize/parse が、同一 codepoint（DATA=`0xC070`、ACK=`0xC071`）で往復できる。
+   - 空 value の DATA（サポート広告）、非空 DATA（1 DTLS datagram）、ACK（CRC-32 を 4 byte 単位・最大 4 個）を双方で解釈できる。
+   - STUN padding と `MESSAGE-INTEGRITY` より前の attribute 順序を壊さない（§2.7 と整合）。
+2. **Agent / PeerConnection 相互接続（SPED 有効）**
+   - werift（SPED on）× pion（SPED on）を **両 role**（werift が offerer / answerer）で接続する。
+   - 認証済み Binding に ClientHello または server flight が埋め込まれ、最終的に DTLS handshake が完了し双方向 application data（または DataChannel / RTP のいずれか）が通る。
+   - 期待 wire: DATA/ACK type が IANA/pion と一致し、stats 上 SPED が negotiated/active になる。
+3. **非 SPED pion への fallback**
+   - pion 側 SPED 無効（または DATA attribute なし）の peer に対し、werift は同じ ClientHello/flight のまま direct DTLS へ fallback し、相互接続が成立する。
+4. **失敗時**
+   - codepoint 不一致、integrity 失敗、role 失敗を catch-and-ignore せず fail する。
+5. **環境**
+   - `Dockerfile.sysbox-base` の `pion-sped` / Go を利用。ローカルは `packages/ice/tools/pion-sped/install.sh` で再現可能にする。
+   - pin: `PION_STUN_VERSION`（現状 `v3.1.6`）と `WERIFT_PION_SPED` を docs に固定する。
+   - フル stack の pion WebRTC バイナリが必要な場合は revision を pin し、起動方法を harness に文書化する（stun 層の `pion-sped` だけでは不十分なシナリオ向け）。
+
+### 3.3 推奨実装順序
+
+1. `DtlsVersion`、設定、共通 association/carrier interface を追加し、既存 DTLS 1.2 を adapter 経由で動かす。ここでは挙動を変えない。
+2. immutable flight datagram、flight lifecycle event、dynamic MTU、RTT update、cancel 可能 timer、external retransmission mode を DTLS 1.2/共通層へ導入する。
+3. TLS 1.3 extension/message codec、transcript、HKDF/key schedule、deterministic vector test を追加する。
+4. DTLS 1.3 record protection、sequence reconstruction、replay window、ACK、epoch、KeyUpdate を追加する。
+5. DTLS 1.3 client/server full handshake と 1.2 fallback を完成させ、direct UDP 上で相互接続を通す。
+6. STUN ordered raw attribute と request 認証境界を修正し、SPED draft-00 の L1/L2、CRC ACK、fallback、MTU、RTT 同期を追加する。
+7. **pion-sped との STUN attribute wire 互換 test**（encode/decode・codepoint・padding）を通す。
+8. `RTCPeerConnection` の並行起動、JSEP role、ICE Lite/Full、TURN、restart、pre-nomination routing を統合する。
+9. early server data、方向別 SRTP key readiness、early RTP/RTCP/SCTP buffer、stats を統合する。
+10. loss/reorder/multi-candidate/large-flight test、BoringSSL DTLS 1.3 interop、**werift×pion SPED interop**、docs を仕上げる。
+
+各段階で DTLS 1.2 regression test を実行し、巨大な一括置換ではなく versioned boundary ごとにレビュー可能な変更へ分ける。
+
+## 4. 制約・注意点
+
+### Protocol / security
+
+- DTLS 1.3 は RFC 9147 と RFC 8446 を基準にし、verified errata を反映する。CID を将来追加する場合のみ [RFC 9853](https://www.rfc-editor.org/rfc/rfc9853.html) の Return Routability Check が追加適用される。
+- `addressValidation: "ice-authenticated"` は、現在の ICE generation の username と `MESSAGE-INTEGRITY` を検証した source にだけ設定する。unauthenticated STUN や単なる source address を address validation とみなさない。
+- generic `werift-dtls` は cookie / anti-amplification を維持する。address validation 前は server の送信量を受信量の 3 倍以内に制限し、key-share 用 HelloRetryRequest は cookie 省略時も動作させる。
+- WebRTC の SDP fingerprint 検証の意味を変更しない。認証失敗時は buffered application/media を全破棄し、transport を failed にする。
+- packet、fragment、reassembly、L1/L2、ACK、early data、old epoch key、timer のすべてに件数・bytes・時間の上限を設ける。巨大 length による過剰 allocation を避ける。
+- Buffer は TypeScript 上で実際には mutable なので、cached flight bytes は防御的 copy を行い、再送中に呼び出し側が変更できない所有権規則を設ける。
+
+### Compatibility
+
+- WARP 無効時の DTLS 1.2、RTP、RTCP、SCTP、DataChannel、fingerprint、ICE consent の挙動を変えない。
+- DTLS protocol fallback と SPED carrier fallback を混同しない。SPED fallback では negotiated version や ClientHello bytes を作り直さない。
+- `a=setup:active/passive`、ICE controlling/controlled role、JSEP role conflict、ICE Lite/Full、BUNDLE、ICE restart の既存規則を維持する。
+- UDP、ICE TCP、TURN direct/relay の transport 実装で datagram context と SPED attribute 処理が同じ意味になるよう、`StunProtocol`、TCP protocol、`StunOverTurnProtocol` を共通 interface で扱う。
+- Public API を変更する場合は `packages/dtls/src/index.ts`、`packages/webrtc/src/index.ts`、README/API docs を同時更新する。
+
+### 明示的な対象外
+
+- SNAP 自体と SCTP association RTT の除去
+- post-quantum / hybrid key exchange（Issue #572 の範囲）
+- PSK resumption、`NewSessionTicket` 永続化、client 0-RTT application data、anti-replay profile
+- DTLS Connection ID と RFC 9853 RRC の実装
+- **ベンチマーク**（setup latency / packet count harness、seed 付き loss 比較など）
+- **wolfSSL** 等の BoringSSL 以外の独立 DTLS 1.3 相互接続
+- **OpenSSL による DTLS 1.3 interop**（既存の OpenSSL `-dtls1_2` E2E による DTLS 1.2 regression は維持する）
+
+ただし epoch 1、early secret の拡張点、`early_data` / `pre_shared_key` / `psk_key_exchange_modes` の予測可能な reject/decline path は用意し、server early application data を client 0-RTT と扱わない。
+
+### リポジトリ規約と検証
+
+- テストは Arrange / Act / Assert の三段階とし、再利用可能な Arrange helper は各 package の単一 utility file に集約する。
+- Act / Assert の操作と確認には、意図がすぐ分かる粒度の日本語コメントを付ける。
+- protocol エラー、type error、interop failure を catch-and-ignore で隠さない。
+- package script、安定 entrypoint、docs、検証方法を変更した場合は最寄りの `AGENTS.md` / README も同時更新する。
+- Unix-like 環境と root `package.json` の Node.js 18 以上を基準とする。
+- DTLS 1.3 record 外部 interop の対象は BoringSSL（revision pin + ビルド手順 + `bssl` / `WERIFT_BORINGSSL_BSSL`）とする。既存 OpenSSL `-dtls1_2` E2E は DTLS 1.2 regression として維持するが、本タスクの 1.3 interop 対象には含めない。
+- **SPED 外部 interop の対象は pion**（`pion-sped` / pin 済み `pion/stun`、必要に応じて pin 済み pion WebRTC agent）とする。BoringSSL は SPED peer に使わない。
+- SPED attribute は IANA/pion 互換の `0xC070` / `0xC071` を draft00 constants に隔離し、Public API に露出しない。IANA 改訂時は constants と fixture のみ差し替える。
+
+## 5. 完了条件
+
+### DTLS 1.3 と互換性
+
+- [ ] werift 同士の DTLS 1.3 client/server が証明書認証付き full handshake を完了し、双方向 application data を交換できる。
+- [ ] `[1.3, 1.2]` endpoint が 1.2-only peer と両 role で DTLS 1.2 を選択し、1.3-only と 1.2-only は明確なエラーになる。
+- [ ] 既存 OpenSSL `-dtls1_2` E2E と全 DTLS 1.2 unit test が変更後も通る。
+- [ ] **BoringSSL interop（P0）**: 固定 revision の BoringSSL と、werift が DTLS 1.3 client / server の両 role で full handshake + 双方向 application data を完了する。
+- [ ] BoringSSL harness の revision、ビルド手順、`bssl`（または shim）の起動引数、環境変数 override が docs に再現可能に書かれている。
+- [ ] HKDF、transcript hash、traffic secret、Finished、exporter、encrypted record、sequence reconstruction、replay、ACK、KeyUpdate の deterministic vector test がある。
+- [ ] CID なし unified header、coalesced records、fragment/reassembly、invalid/truncated/oversized input、unsupported CID の negative test がある。
+
+### WARP / SPED
+
+- [ ] WARP 有効時に ICE と DTLS が並行起動し、`a=setup:passive` の client/server 経路で最初の適切な Binding Request に ClientHello、収まる場合は response に server flight が載る。
+- [ ] `a=setup:active`、Full ICE、ICE Lite、複数 candidate pair、TURN 経路でも role と carrier が正しく選択される。
+- [ ] SPED STUN attribute が wire 上で `0xC070`（DATA）/ `0xC071`（ACK）であり、draft00 constants と fixture が一致する。
+- [ ] 最初の認証済み STUN message から SPED 対応を in-band 判定し、非対応 peer には同じ ClientHello/flight のまま direct DTLS へ fallback する。
+- [ ] 1 SPED DATA attribute あたり 1 DTLS datagram であり、STUN/TURN/path MTU を超えない。
+- [ ] L1 round-robin、最大 4 CRC ACK、L1 removal、flight change clear が正しく、DTLS ACK state と混線しない。
+- [ ] unauthenticated、wrong generation、wrong source、DTLS demux 範囲外の埋め込み data を DTLS へ注入しない。
+- [ ] STUN retransmission、複数 pair、direct/SPED の両方から同一 datagram が届いても replay として安全に除去される。
+- [ ] flight 2/3 loss、fragmented certificate loss、partial ACK、reorder、duplicate、large certificate、TURN overhead、SPED→direct 切替の deterministic test がある。
+- [ ] candidate-pair RTT と path 変更が DTLS RTO/MTU に反映され、completion、fallback、restart、error、close 後に timer/queue が残らない。
+- [ ] **pion SPED wire 互換**: `pion-sped`（または同等の pin 済み `pion/stun`）と werift が `0xC070` / `0xC071` の encode/decode を往復でき、空 DATA・非空 DATA・CRC ACK を相互に解釈できる。
+- [ ] **werift × pion SPED interop（両 role）**: 双方 SPED 有効で ICE 並行 DTLS が成立し、handshake 完了後に双方向 application data（または DataChannel / RTP）が通る。stats 上 SPED が active になる。
+- [ ] **werift × 非 SPED pion fallback**: DATA attribute を付けない pion peer に対し、ClientHello を作り直さず direct DTLS へ fallback して接続できる。
+- [ ] pion harness の pin（`pion/stun` または WebRTC agent revision）、`WERIFT_PION_SPED`、起動手順が docs に再現可能に書かれている。
+
+### Early application data / DTLS-SRTP
+
+- [ ] server が自身の `Finished` 後、client `Finished` 前に保護済み application data を送信できる。
+- [ ] client は certificate、`CertificateVerify`、`Finished`、SDP fingerprint の検証前に early data/media を application、SCTP、RTP/RTCP へ配送しない。
+- [ ] reordered early record は厳格な件数・bytes・time 上限で buffer され、認証成功時だけ解放、失敗時は破棄される。
+- [ ] DTLS 1.3 `EXTRACTOR-dtls_srtp` が deterministic vector と一致し、双方向 RTP、RTCP、SCTP/DataChannel が DTLS 1.3 上で動作する。
+- [ ] Public `RTCDtlsTransport.state` は peer authentication 前に `connected` にならず、内部 readiness event だけが早期送信を許可する。
+
+### 0-RTT 境界、可観測性
+
+- [ ] PSK/client 0-RTT 対応を宣言せず、通常 full handshake で epoch 1 が未使用である。
+- [ ] 無効時の `early_data` / PSK extension から application bytes が誤配送されない。
+- [ ] stats から negotiated version、cipher、SPED 状態/carrier、RTT、再送、early buffer/drop、early server send の利用有無を確認できる。
+- [ ] docs が WARP 1-RTT + SPED、server early data、PSK client 0-RTT の違いと opt-in / fallback を説明する。
+- [ ] offerer が DTLS client で packet loss がなく flight が MTU 内に収まる条件で、DTLS 部分が期待どおり 1 media-network RTT になる（機能的な RTT 期待の確認であり、benchmark harness は不要）。
+- [ ] WARP の各最適化を個別に無効化しても相互接続と既存機能が正しく動く。
+
+### 必須検証
+
+- [ ] 各変更段階で `packages/dtls`、`packages/ice`、`packages/ice-server`、`packages/webrtc` の対象 unit/type test を実行する。
+- [ ] 統合完了時に `npm run type` と `npm run test:small` を実行する。
+- [ ] signaling、browser interop、RTP/SCTP/DataChannel 変更を含むため `npm run e2e` を実行する。
+- [ ] 最終的な全 stack 変更として `npm run ci` を実行し、追加した BoringSSL DTLS 1.3 interop harness と **pion SPED interop harness** も成功させる。
+
+## 6. 未確定事項の扱い（本詳細化での結論）
+
+| 項目 | 結論 | 残作業 |
+| --- | --- | --- |
+| SPED `DTLS-IN-STUN-DATA` / `DTLS-IN-STUN-ACK` codepoint | **確定**: `0xC070` / `0xC071`（IANA META-DTLS-IN-STUN / META-DTLS-IN-STUN-ACKNOWLEDGEMENT、pion 互換） | constants module への隔離と fixture 固定のみ。draft 本文が TBD でも wire は IANA に合わせる。 |
+| 独立 DTLS 1.3 interop 対象 | **確定**: P0 = BoringSSL（両 role）、P1 = werift self。wolfSSL / OpenSSL 1.3 interop は対象外。 | 実装時に BoringSSL revision を pin し、ビルド可否を CI/docs で確認する。 |
+| SPED 外部 interop 対象 | **確定**: **pion を必須 peer** とする（wire 互換 + 両 role の SPED 接続 + 非 SPED fallback）。BoringSSL は SPED peer に使わない。 | `pion-sped` / pin 済み stun・必要なら WebRTC agent の harness を実装し docs に起動方法を書く。 |
+
+## 参考仕様
+
+- [RFC 9147: DTLS 1.3](https://www.rfc-editor.org/rfc/rfc9147.html)
+- [RFC 8446: TLS 1.3](https://www.rfc-editor.org/rfc/rfc8446.html)
+- [RFC 5763: DTLS-SRTP Framework](https://www.rfc-editor.org/rfc/rfc5763.html)
+- [RFC 5764: DTLS Extension to Establish Keys for SRTP](https://www.rfc-editor.org/rfc/rfc5764.html)
+- [RFC 8445: ICE](https://www.rfc-editor.org/rfc/rfc8445.html)
+- [RFC 9429: JSEP](https://www.rfc-editor.org/rfc/rfc9429.html)
+- [draft-uberti-tsvwg-warp-00](https://datatracker.ietf.org/doc/html/draft-uberti-tsvwg-warp-00)
+- [draft-hancke-webrtc-sped-00](https://datatracker.ietf.org/doc/html/draft-hancke-webrtc-sped-00)
+- [draft-hancke-tsvwg-snap-00](https://datatracker.ietf.org/doc/html/draft-hancke-tsvwg-snap-00)
+- [IANA STUN Attributes](https://www.iana.org/assignments/stun-parameters/stun-parameters.xhtml)（`0xC070` / `0xC071`）
+- [pion/stun SPED attributes](https://github.com/pion/stun/pull/260)
+- [pion/webrtc WARP tracking](https://github.com/pion/webrtc/issues/3335)
+- リポジトリ内: `packages/ice/tools/pion-sped`（SPED STUN attribute smoke / interop fixture）、`Dockerfile.sysbox-base`（Go + `pion-sped` 導入）

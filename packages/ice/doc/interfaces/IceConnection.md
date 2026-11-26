@@ -88,6 +88,19 @@ Whether gathering contacts a STUN or TURN server.
 
 ***
 
+### onGatheringError?
+
+> `readonly` `optional` **onGatheringError?**: `Event`\<\[[`IceGatheringErrorInfo`](../type-aliases/IceGatheringErrorInfo.md)\]\>
+
+The current generation's gathering reported an error (see
+[IceGatheringErrorInfo](../type-aliases/IceGatheringErrorInfo.md)). Optional like onIceCandidateError.
+
+#### See
+
+packages/webrtc/tests/transport/iceGatheringError.test.ts「of an ICE agent without onGatheringError: gathering-failed is reported and the gathering completes」
+
+***
+
 ### onIceCandidate
 
 > `readonly` **onIceCandidate**: `Event`\<\[[`Candidate`](../classes/Candidate.md)\]\>

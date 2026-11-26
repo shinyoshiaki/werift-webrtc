@@ -6,6 +6,7 @@ import {
   MissingMappedAddressError,
 } from "./candidateError";
 import type { MdnsLookup } from "./dns/lookup";
+import type { IceGatheringErrorInfo } from "./gatheringError";
 import type { Cancelable } from "./helper";
 import {
   type Address,
@@ -88,6 +89,12 @@ export interface IceConnection {
    * (see {@link IceServerReachedInfo}). Optional like onIceCandidateError.
    */
   readonly onIceServerReached?: Event<[IceServerReachedInfo]>;
+  /**
+   * The current generation's gathering reported an error (see
+   * {@link IceGatheringErrorInfo}). Optional like onIceCandidateError.
+   * @see packages/webrtc/tests/transport/iceGatheringError.test.ts「of an ICE agent without onGatheringError: gathering-failed is reported and the gathering completes」
+   */
+  readonly onGatheringError?: Event<[IceGatheringErrorInfo]>;
 
   restart(): void;
   /** Record the remote `a=ice-options` tokens (see remoteIceOptions). */
@@ -150,6 +157,9 @@ export interface IceConnection {
   addRemoteCandidate(remoteCandidate: Candidate | undefined): Promise<void>;
 
   send(data: Buffer): Promise<void>;
+
+  /** @internal Return whether application data has an authenticated ICE path. */
+  canSendApplicationData(): boolean;
 
   getDefaultCandidate(): Candidate | undefined;
   resetNominatedPair(): void;
@@ -217,6 +227,38 @@ export class CandidatePair implements CandidatePairStats {
   retransmissionsSent = 0;
   consentRequestsSent = 0;
   private readonly requestTransactionIds = new Set<string>();
+  /** The most recent RTT samples (seconds), oldest first (see `smoothedRtt`). */
+  private readonly rttSamples: number[] = [];
+
+  /**
+   * Record the RTT (seconds) of an answered check: the totals, the samples of
+   * {@link smoothedRtt} and, unless `latest` is false (a response to an older
+   * check than the one `rtt` came from), `rtt`.
+   * @see tests/ice/selection-controller.test.ts "a response to an older check (latest: false) counts for the totals and the smoothed RTT, not the current RTT"
+   */
+  recordRoundTrip(rtt: number, { latest = true }: { latest?: boolean } = {}) {
+    if (latest) this.rtt = rtt;
+    this.totalRoundTripTime += rtt;
+    this.roundTripTimeMeasurements++;
+    this.rttSamples.push(rtt);
+    if (this.rttSamples.length > RTT_SMOOTHING_SAMPLES) this.rttSamples.shift();
+  }
+
+  /**
+   * The smoothed RTT (seconds) the selection switches by: the median of the
+   * last {@link RTT_SMOOTHING_SAMPLES} samples, undefined with fewer than
+   * {@link RTT_SMOOTHING_MIN_SAMPLES}.
+   * @see tests/ice/selection-controller.test.ts "the median of the last 5 samples: one outlier does not move it"
+   * @see tests/ice/selection-controller.test.ts "equal priority: one outlier RTT of the other pair does not move the selection"
+   */
+  get smoothedRtt(): number | undefined {
+    if (this.rttSamples.length < RTT_SMOOTHING_MIN_SAMPLES) return undefined;
+    const sorted = [...this.rttSamples].sort((a, b) => a - b);
+    const middle = sorted.length >> 1;
+    return sorted.length % 2
+      ? sorted[middle]
+      : (sorted[middle - 1] + sorted[middle]) / 2;
+  }
 
   toJSON() {
     return this.json;
@@ -282,6 +324,8 @@ export class CandidatePair implements CandidatePairStats {
   }
 }
 
+/** Default of {@link IceOptions.incomingCheckTimeout}, in seconds. */
+export const DEFAULT_INCOMING_CHECK_TIMEOUT = 30;
 export const ICE_COMPLETED = 1 as const;
 export const ICE_FAILED = 2 as const;
 
@@ -298,19 +342,145 @@ export const CONSENT_FAILURES = 6;
 export const CONSENT_TIMEOUT = 30;
 
 /**
- * Default single-shot response wait for consent requests (ms) when RTT is unknown.
- * Independent of retransmission count. Downstream ICE-lite peers typically
- * answer in 150–300ms; 1s is a conservative default used by interop patches.
+ * RTT-based response deadline of a consent request (ms) when the RTT is
+ * unknown (see {@link consentResponseTimeoutMs}). Downstream ICE-lite peers
+ * typically answer in 150–300ms. It is no longer how long the request's
+ * transaction stays open: that is {@link CONSENT_TIMEOUT}, so a response
+ * after this deadline still refreshes the consent.
  */
 export const CONSENT_RESPONSE_TIMEOUT = 1000;
 
 /** RFC 8445 §14.3: ICE RTO must not be less than 500ms. */
 export const CONSENT_RESPONSE_TIMEOUT_MIN = 500;
 
+// Failover of the selected pair without an ICE restart (semi-aggressive
+// nomination and renomination, full ICE, not ICE-TCP). The values follow
+// libwebrtc (`p2p/base/connection.h`, `p2p/base/ice_controller_interface.h`,
+// `basic_ice_controller.cc`); the libwebrtc name is given where it differs.
+
 /**
- * Compute consent response wait from pair RTT (seconds).
- * Uses 2×RTT + 200ms jitter margin, floored at {@link CONSENT_RESPONSE_TIMEOUT_MIN}.
- * Falls back to {@link CONSENT_RESPONSE_TIMEOUT} when RTT is unavailable.
+ * Ping interval (ms) of a pair that is weak (a check went unanswered) or
+ * stabilizing (fewer than {@link MIN_PINGS_AT_WEAK_PING_INTERVAL} responses
+ * since it began to be monitored). libwebrtc:
+ * `WEAK_OR_STABILIZING_WRITABLE_CONNECTION_PING_INTERVAL`.
+ */
+export const WEAK_OR_STABILIZING_WRITABLE_CONNECTION_PING_INTERVAL = 900;
+
+/**
+ * Ping interval (ms) of a stable backup pair (multiplied by a random 0.8–1.2).
+ * libwebrtc: `STABLE_WRITABLE_CONNECTION_PING_INTERVAL`.
+ */
+export const STABLE_WRITABLE_CONNECTION_PING_INTERVAL = 2500;
+
+/**
+ * Responses a pair needs, pinged at the weak interval, before it counts as
+ * stable. libwebrtc: `MIN_PINGS_AT_WEAK_PING_INTERVAL`.
+ */
+export const MIN_PINGS_AT_WEAK_PING_INTERVAL = 3;
+
+/**
+ * A pair is no longer writable once at least this many consecutive checks
+ * went unanswered and {@link CONNECTION_WRITE_CONNECT_TIMEOUT} passed since
+ * its last response. libwebrtc: `CONNECTION_WRITE_CONNECT_FAILURES`.
+ */
+export const CONNECTION_WRITE_CONNECT_FAILURES = 5;
+
+/** See {@link CONNECTION_WRITE_CONNECT_FAILURES} (ms). libwebrtc: `CONNECTION_WRITE_CONNECT_TIMEOUT`. */
+export const CONNECTION_WRITE_CONNECT_TIMEOUT = 5000;
+
+/**
+ * A pair that received nothing (response, request or data) for this long
+ * (ms) is weak. libwebrtc: `WEAK_CONNECTION_RECEIVE_TIMEOUT`.
+ */
+export const WEAK_CONNECTION_RECEIVE_TIMEOUT = 2500;
+
+/**
+ * How long (ms) the selected pair must have stopped receiving (nothing
+ * received for {@link WEAK_CONNECTION_RECEIVE_TIMEOUT}) before the
+ * controlling agent fails over to a backup that receives, without waiting
+ * for the selected pair to become unwritable. libwebrtc:
+ * `receiving_switching_delay` (default 1000 ms).
+ */
+export const RECEIVING_SWITCHING_DELAY = 1000;
+
+/**
+ * A backup pair that received nothing for this long (ms) is dropped (its
+ * state becomes Failed) and the next pair of its socket is monitored. The
+ * same value as {@link CONSENT_TIMEOUT}. libwebrtc:
+ * `DEAD_CONNECTION_RECEIVE_TIMEOUT`.
+ */
+export const DEAD_CONNECTION_RECEIVE_TIMEOUT = CONSENT_TIMEOUT * 1000;
+
+/**
+ * Response timeout (ms) of a backup check while the pair's RTT is still
+ * unknown (it never answered a check of this agent). libwebrtc starts a
+ * connection's RTT estimate at `DEFAULT_RTT` (3000 ms); the consent default
+ * ({@link CONSENT_RESPONSE_TIMEOUT}, 1 s) would never let a backup path
+ * slower than that become valid. Once the pair answered, the timeout follows
+ * its RTT ({@link consentResponseTimeoutMs}).
+ */
+export const BACKUP_UNKNOWN_RTT_RESPONSE_TIMEOUT = 3000;
+
+/**
+ * After the selected pair's consent expired (RFC 7675: no more application
+ * data on it), how long (ms) the agent stays `disconnected` waiting for the
+ * selection to move to a writable backup (its own failover nomination, or
+ * the peer's when controlled) before it fails. A peer that fails over does
+ * so 5–10 s after the path broke, long before the 30 s expiry; the grace
+ * covers a nomination still in flight. werift's own value.
+ */
+export const FAILOVER_CONSENT_EXPIRED_GRACE = 10_000;
+
+/**
+ * Pairs of one local socket (or TURN allocation) tried as its backup before
+ * the socket waits for a retry (1, 2, 4, 8, 16 s, then every 16 s) and starts
+ * again from its highest-priority pair. werift's own limit.
+ */
+export const FAILOVER_BACKUP_ATTEMPTS = 3;
+
+/**
+ * Consecutive responses a pair the agent failed over from needs before the
+ * selection may move back to it (or to another pair of its socket). Keeps
+ * the selection from flapping. werift's own value (libwebrtc relies on
+ * {@link MIN_PINGS_AT_WEAK_PING_INTERVAL} for the same purpose).
+ */
+export const FAILOVER_RECOVERY_RESPONSES = 3;
+
+/**
+ * Between pairs of equal state and priority, the selection moves only to a
+ * pair whose smoothed RTT ({@link CandidatePair.smoothedRtt}) is at least this
+ * much (ms) lower. libwebrtc: `kMinImprovement`.
+ * @see tests/ice/selection-controller.test.ts "equal priority: a pair only 9 ms faster does not take the selection"
+ */
+export const RTT_SWITCH_MIN_IMPROVEMENT = 10;
+
+/**
+ * The RTT samples {@link CandidatePair.smoothedRtt} keeps (the most recent
+ * ones). werift's own value: libwebrtc keeps a moving average instead, which
+ * one outlier still moves.
+ * @see tests/ice/selection-controller.test.ts "the median of the last 5 samples: one outlier does not move it"
+ */
+export const RTT_SMOOTHING_SAMPLES = 5;
+
+/**
+ * Samples a pair needs before {@link CandidatePair.smoothedRtt} has a value
+ * (the RTT takes part in a switch). The same as
+ * {@link MIN_PINGS_AT_WEAK_PING_INTERVAL}: a backup is stable from then on.
+ * @see tests/ice/selection-controller.test.ts "the median of the last 5 samples: one outlier does not move it"
+ */
+export const RTT_SMOOTHING_MIN_SAMPLES = 3;
+
+/**
+ * RTT-based response deadline (ms) from a pair RTT (seconds): when a consent
+ * request without a response counts as unanswered (failover's pacing and
+ * writability), and the response timeout of a backup check once the backup's
+ * RTT is known. Uses 2×RTT + 200ms jitter margin, floored at
+ * {@link CONSENT_RESPONSE_TIMEOUT_MIN}. Falls back to
+ * {@link CONSENT_RESPONSE_TIMEOUT} when RTT is unavailable.
+ *
+ * A consent request's transaction is not ended at this deadline: it stays
+ * open for {@link CONSENT_TIMEOUT}, so a response slower than the estimate
+ * (an RTT that rose after the selection) still refreshes the consent.
  */
 export function consentResponseTimeoutMs(rttSeconds?: number): number {
   if (
@@ -376,6 +546,44 @@ export type NormalizedTurnServer = Required<Omit<TurnServerOptions, "urls">> &
  */
 export type StunServerUrl = { address: Address; url: string };
 
+/**
+ * Thresholds of the failover of the selected pair ({@link IceOptions.failover}),
+ * after libwebrtc's `RTCConfiguration` fields of the same meaning. Lower
+ * values fail over sooner and also on a shorter loss burst.
+ */
+export interface IceFailoverOptions {
+  /**
+   * Consecutive unanswered checks after which a pair is unwritable (together
+   * with `unwritableTimeout`). An integer of at least 1; defaults to
+   * {@link CONNECTION_WRITE_CONNECT_FAILURES} (5). libwebrtc:
+   * `ice_unwritable_min_checks`.
+   */
+  unwritableMinChecks?: number;
+  /**
+   * Time (ms) since a pair's last response after which it is unwritable
+   * (together with `unwritableMinChecks`). At least 0; defaults to
+   * {@link CONNECTION_WRITE_CONNECT_TIMEOUT} (5000). libwebrtc:
+   * `ice_unwritable_timeout`.
+   */
+  unwritableTimeout?: number;
+  /**
+   * Time (ms) without receiving anything (response, request or data) after
+   * which a pair is weak (checked at the weak interval, 900 ms) and stops
+   * receiving. Greater than 0; defaults to
+   * {@link WEAK_CONNECTION_RECEIVE_TIMEOUT} (2500). libwebrtc:
+   * `receiving_timeout`.
+   */
+  receivingTimeout?: number;
+  /**
+   * Time (ms) the selected pair must have stopped receiving (one of its
+   * checks unanswered as well) before the controlling agent fails over to a
+   * backup that receives, before the selected pair becomes unwritable. At
+   * least 0; defaults to {@link RECEIVING_SWITCHING_DELAY} (1000).
+   * libwebrtc: `receiving_switching_delay`.
+   */
+  receivingSwitchingDelay?: number;
+}
+
 export interface IceOptions {
   /** Advertise and operate as an ICE lite agent. */
   iceLite: boolean;
@@ -398,6 +606,19 @@ export interface IceOptions {
    * timeout in the background and end-of-candidates follows them.
    */
   stunGatherTimeout?: number;
+  /**
+   * Seconds `connect()` waits for a connectivity check from the peer when it
+   * has no candidate pair of its own to check after both sides ended their
+   * candidates: the peer offered only active TCP candidates (RFC 6544), or
+   * none this agent can reach. A check from the peer adds a peer-reflexive
+   * pair and the connection proceeds; without one, `connect()` fails when the
+   * time runs out. An ICE-lite agent, which sends no checks, waits the same
+   * time whenever it has no candidate pair, also while it still gathers. The
+   * deadline is fixed when the wait begins; once the local gathering ended
+   * without a socket that could receive a check, `connect()` fails at once.
+   * Defaults to 30; 0 fails at once.
+   */
+  incomingCheckTimeout?: number;
   /**
    * Seconds to wait for a TURN TCP/TLS connection to be established.
    * Defaults to 8.
@@ -447,6 +668,13 @@ export interface IceOptions {
    * the pair with the largest value. Defaults to false.
    */
   renomination?: boolean;
+  /**
+   * Thresholds of the failover of the selected pair without an ICE restart
+   * (semi-aggressive nomination or renomination, full ICE, not ICE-TCP).
+   * Each unset or invalid value keeps its default, which follows libwebrtc.
+   * See {@link IceFailoverOptions}.
+   */
+  failover?: IceFailoverOptions;
   /**
    * STUN servers queried while gathering, in priority order. Every IPv4 UDP
    * host socket queries each of them in parallel; equal mappings are

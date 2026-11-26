@@ -201,6 +201,11 @@ export class DataChunk extends Chunk {
   /** Gap-acked before, then dropped by the peer (reneged) and not resent yet. */
   reneged: boolean = false;
   misses: number = 0;
+  /**
+   * Fast-retransmitted since it was last sent by the T3-rtx timer (or first
+   * sent): it is not struck or fast-retransmitted again (RFC 9260 §7.2.4).
+   */
+  fastRetransmitted: boolean = false;
   retransmit: boolean = false;
   sentCount: number = 0;
   bookSize: number = 0;

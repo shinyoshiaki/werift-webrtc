@@ -9,8 +9,10 @@ import type {
   InterfaceAddresses,
   TlsConnectionOptions,
 } from "../imports/common";
+import type { DtlsVersion } from "../imports/dtls";
 import type {
   CandidatePair,
+  IceFailoverOptions,
   Message,
   MessageIntegrityMode,
   Protocol,
@@ -128,6 +130,18 @@ export interface PeerConfig {
    */
   iceTurnConnectTimeout: number | undefined;
   /**
+   * Seconds ICE waits for a connectivity check from the peer when it has no
+   * candidate pair of its own to check after both sides ended their
+   * candidates (the peer offered only active TCP candidates, as Firefox does
+   * for ICE-TCP, or none werift can reach). Without a check in that time the
+   * ICE transport fails. With `iceLite`, which sends no checks, ICE waits the
+   * same time whenever it has no candidate pair, also while it still
+   * gathers. The deadline is fixed when the wait begins; once gathering ended
+   * without a socket that could receive a check, ICE fails at once. Defaults
+   * to 30 when undefined; 0 fails at once.
+   */
+  iceIncomingCheckTimeout: number | undefined;
+  /**
    * werift extension. With `iceNomination: "regular"`: milliseconds the
    * controlling ICE agent keeps checking before it nominates a candidate pair,
    * so a higher-priority candidate trickled shortly after a lower-priority one
@@ -156,6 +170,16 @@ export interface PeerConfig {
    * the attribute regardless. Defaults to false.
    */
   iceRenomination: boolean;
+  /**
+   * werift extension. Thresholds of the failover of the selected candidate
+   * pair without an ICE restart (with semi-aggressive nomination or
+   * renomination): how soon a pair is unwritable (`unwritableMinChecks`,
+   * `unwritableTimeout`) and how soon a selected pair that stopped receiving
+   * moves to a backup (`receivingTimeout`, `receivingSwitchingDelay`). Maps
+   * to `IceOptions.failover`; each unset or invalid value keeps its default
+   * (libwebrtc's: 5 checks, 5000 ms, 2500 ms, 1000 ms).
+   */
+  iceFailover: IceFailoverOptions | undefined;
   turnTransport: "udp" | "tcp" | "tls" | undefined;
   turnTlsOptions: TlsConnectionOptions | undefined;
   /**
@@ -174,6 +198,45 @@ export interface PeerConfig {
     | ((message: Message, addr: Address, protocol: Protocol) => boolean)
     | undefined;
   iceFilterCandidatePair: ((pair: CandidatePair) => boolean) | undefined;
+  /**
+   * Opt-in SPED (DTLS handshake embedded in ICE Binding).
+   * Omit or false: ICE completes, then DTLS starts (current serial path).
+   * true: this PeerConnection only overlaps ICE checks with DTLS 1.3 handshake.
+   * Requires explicit DTLS 1.3 in `dtls.protocolVersions`
+   * (`dtls.protocolVersions` defaults to empty / DTLS 1.2 only).
+   * Cannot be combined with `dtls.helloRetryRequest: true`
+   * (SPED uses ICE-authenticated address validation, not a DTLS cookie).
+   * Both are validated by the constructor and `setConfiguration()`, which
+   * throw synchronously and leave the configuration unchanged.
+   */
+  sped?: boolean;
+  /**
+   * WARP early outbound and encrypted-media buffering policy.
+   * - `allowEarlyServerData` (default false): the DTLS server may send
+   *   application data / media before the SDP fingerprint is verified.
+   *   Requires {@link PeerConfig.sped} `true` and DTLS 1.3; the constructor
+   *   and `setConfiguration()` throw synchronously otherwise.
+   * - `earlyMediaPolicy` (default `"drop"`): `"buffer"` retains inbound
+   *   encrypted media received before authentication (bounded) instead of
+   *   dropping it. Inbound data is never delivered before authentication.
+   * - `sendBeforeNomination` (default false): once the DTLS handshake is
+   *   done on this side (the DTLS client right after its Finished) and the
+   *   peer is authenticated, send application data and media on a valid
+   *   candidate pair (its own connectivity check succeeded) instead of
+   *   waiting for ICE nomination and consent (RFC 8445 §12.1, SPED
+   *   draft-00 §3.1.2.2). Applies only until a selected pair exists; never
+   *   during an ICE restart or on relay pairs. A peer that drops data
+   *   arriving before its own nomination only loses it like any packet loss
+   *   (SCTP retransmits). Requires {@link PeerConfig.sped} `true`; the
+   *   constructor and `setConfiguration()` throw synchronously otherwise.
+   * `setConfiguration()` merges these fields and applies them to every open
+   * DTLS transport, including ones a pending description prepared.
+   */
+  warp?: {
+    allowEarlyServerData?: boolean;
+    earlyMediaPolicy?: "drop" | "buffer";
+    sendBeforeNomination?: boolean;
+  };
   /**
    * Integrity attributes of the ICE connectivity checks and consent requests
    * werift sends (RFC 8489 short-term credentials). Applies to ICE transports
@@ -197,6 +260,20 @@ export interface PeerConfig {
   iceOptionIce2: boolean;
   dtls: Partial<{
     keys: DtlsKeys;
+    /**
+     * DTLS protocol versions in preference order.
+     * Unspecified / empty keeps DTLS 1.2 only. DTLS 1.3 requires explicit opt-in.
+     * Independent of {@link PeerConfig.sped} (SPED also requires DTLS 1.3; validated by the constructor / setConfiguration()).
+     */
+    protocolVersions: readonly DtlsVersion[];
+    /**
+     * DTLS 1.3 HelloRetryRequest cookie exchange.
+     * Default false: ICE-authenticated path omits cookie HRR and saves 1 RTT.
+     * true: send a cookie-bearing HRR (mapped internally to addressValidation: "dtls-cookie").
+     * Group-only HRR for key_share correction is independent of this option.
+     * Cannot be combined with {@link PeerConfig.sped} `true`.
+     */
+    helloRetryRequest?: boolean;
   }>;
   icePasswordPrefix: string | undefined;
   bundlePolicy: BundlePolicy;
@@ -278,6 +355,19 @@ export interface PeerConfig {
    */
   keyFrameRequestRouting: KeyFrameRequestRouting;
   /**
+   * How strictly the DTLS 1.2 handshake validates the peer's messages (see
+   * {@link CompatibilityOptionValues}). Cannot be changed after construction.
+   * - `"lenient"` (default): a malformed `supported_versions` is ignored and
+   *   DTLS 1.2 negotiated, duplicate extensions are accepted and `use_srtp`
+   *   is read without length checks, as before the strict checks.
+   * - `"standard"`: RFC-strict; these fail the handshake (a malformed
+   *   `supported_versions` with a `protocol_version` alert).
+   *
+   * A `supported_versions` without an overlapping version fails either way,
+   * and DTLS 1.3 always validates strictly.
+   */
+  dtlsHandshakeValidation: DtlsHandshakeValidation;
+  /**
    * Which m-lines of a BUNDLE group carry the local ICE candidates.
    * Cannot be changed after construction. See {@link BundleCandidates}.
    * - `"legacy"` (default): every m-line repeats its transport's candidates and
@@ -288,7 +378,8 @@ export interface PeerConfig {
   bundleCandidates: BundleCandidates;
   /**
    * Sets every compatibility option (`certificateScope`, `mLineReuse`,
-   * `transceiverPairing`, `keyFrameRequestRouting`, see
+   * `transceiverPairing`, `keyFrameRequestRouting`,
+   * `dtlsHandshakeValidation`, see
    * {@link CompatibilityOptionValues}) to the specification / browser behavior
    * at once. Cannot be changed after construction.
    * - `undefined` (default): each option keeps its own default.
@@ -303,10 +394,10 @@ export interface PeerConfig {
    *
    * ```ts
    * new RTCPeerConnection({ compatibility: "standard" });
-   * // certificateScope, mLineReuse, transceiverPairing and
-   * // keyFrameRequestRouting are all "standard"
+   * // certificateScope, mLineReuse, transceiverPairing,
+   * // keyFrameRequestRouting and dtlsHandshakeValidation are all "standard"
    * new RTCPeerConnection({ compatibility: "standard", certificateScope: "process" });
-   * // certificateScope is "process", the other three are "standard"
+   * // certificateScope is "process", the others are "standard"
    * ```
    *
    * It does not change `iceServers` / `iceUseDefaultStunServer`, which are not
@@ -328,6 +419,12 @@ export const MLineReuseModes: readonly MLineReuse[] =
 export type TransceiverPairing = CompatibilityOptionValue<"transceiverPairing">;
 export const TransceiverPairingModes: readonly TransceiverPairing[] =
   CompatibilityOptionValues.transceiverPairing;
+
+/** How strictly the DTLS 1.2 handshake validates the peer. See {@link PeerConfig.dtlsHandshakeValidation}. */
+export type DtlsHandshakeValidation =
+  CompatibilityOptionValue<"dtlsHandshakeValidation">;
+export const DtlsHandshakeValidationModes: readonly DtlsHandshakeValidation[] =
+  CompatibilityOptionValues.dtlsHandshakeValidation;
 
 /** The values of {@link PeerConfig.compatibility}. */
 export type CompatibilityPreset = "standard";
@@ -466,7 +563,15 @@ export type RTCPeerConnectionConfig = Partial<
       | DeprecatedKeyFrameRequestRouting;
   };
 
-export function generateDefaultPeerConfig(): PeerConfig {
+export function peerConfigHasDtls13(config: PeerConfig): boolean {
+  const versions = config.dtls.protocolVersions;
+  if (!versions || versions.length === 0) {
+    return false;
+  }
+  return versions.some((version) => version === "1.3");
+}
+
+export function generateDefaultPeerConfig(): Required<PeerConfig> {
   return {
     codecs: defaultCodecs(),
     headerExtensions: {
@@ -486,9 +591,11 @@ export function generateDefaultPeerConfig(): PeerConfig {
     iceTcpPassive: true,
     iceStunGatherTimeout: undefined,
     iceTurnConnectTimeout: undefined,
+    iceIncomingCheckTimeout: undefined,
     iceNominationDelayMs: undefined,
     iceNomination: undefined,
     iceRenomination: false,
+    iceFailover: undefined,
     turnTransport: undefined,
     turnTlsOptions: undefined,
     turnUdpFamily: undefined,
@@ -499,6 +606,12 @@ export function generateDefaultPeerConfig(): PeerConfig {
     icePasswordPrefix: undefined,
     iceUseLinkLocalAddress: undefined,
     dtls: {},
+    sped: false,
+    warp: {
+      allowEarlyServerData: false,
+      earlyMediaPolicy: "drop",
+      sendBeforeNomination: false,
+    },
     bundlePolicy: "max-compat",
     rtcpMuxPolicy: "require",
     iceCandidatePoolSize: 0,
@@ -515,6 +628,7 @@ export function generateDefaultPeerConfig(): PeerConfig {
     mLineReuse: "standard",
     transceiverPairing: "byKind",
     keyFrameRequestRouting: "fallback",
+    dtlsHandshakeValidation: "lenient",
     bundleCandidates: "legacy",
     compatibility: undefined,
   };
@@ -572,7 +686,28 @@ function normalizePeerConfiguration(
     );
   }
 
+  if ("sped" in input) {
+    normalizedConfig.sped = input.sped === true;
+  }
+
+  if ("warp" in input) {
+    if (
+      input.warp?.earlyMediaPolicy !== undefined &&
+      input.warp.earlyMediaPolicy !== "drop" &&
+      input.warp.earlyMediaPolicy !== "buffer"
+    ) {
+      throw createWebRtcTypeError(
+        'warp.earlyMediaPolicy must be "drop" or "buffer"',
+      );
+    }
+    normalizedConfig.warp = input.warp ? { ...input.warp } : {};
+  }
+
   return normalizedConfig;
+}
+
+function dtlsProtocolVersionsKey(versions: readonly DtlsVersion[] | undefined) {
+  return (versions ?? []).join(",");
 }
 
 function coerceUnsignedShort(value: unknown, name: string) {
@@ -620,7 +755,14 @@ export function clonePeerConfiguration(config: PeerConfig) {
     iceAdditionalHostAddresses: config.iceAdditionalHostAddresses
       ? [...config.iceAdditionalHostAddresses]
       : undefined,
-    dtls: { ...config.dtls },
+    dtls: {
+      ...config.dtls,
+      protocolVersions: config.dtls.protocolVersions
+        ? [...config.dtls.protocolVersions]
+        : undefined,
+      helloRetryRequest: config.dtls.helloRetryRequest,
+    },
+    warp: config.warp ? { ...config.warp } : undefined,
     certificates: [...config.certificates],
     debug: { ...config.debug },
     sctp: { ...config.sctp },
@@ -649,13 +791,18 @@ export function mergePeerConfiguration(
     isReconfiguration,
     hasLocalDescription,
     hasSctpTransport,
+    dtlsTransportCreated,
   }: {
     isReconfiguration: boolean;
     hasLocalDescription: boolean;
     hasSctpTransport: boolean;
+    dtlsTransportCreated: boolean;
   },
 ) {
   const normalizedConfig = normalizePeerConfiguration(input);
+  if (normalizedConfig.warp !== undefined) {
+    normalizedConfig.warp = { ...config.warp, ...normalizedConfig.warp };
+  }
 
   if (
     normalizedConfig.rtcpMuxPolicy &&
@@ -799,6 +946,64 @@ export function mergePeerConfiguration(
 
   if ((normalizedConfig.iceCandidatePoolSize ?? 0) > 0) {
     throw new Error("iceCandidatePoolSize > 0 is not supported");
+  }
+
+  // deepMerge skips undefined source values. Nested dtls must use the same
+  // contract so `{ protocolVersions: undefined }` cannot drop DTLS 1.3.
+  const nextDtls = { ...config.dtls };
+  if (normalizedConfig.dtls !== undefined) {
+    deepMerge(nextDtls, normalizedConfig.dtls);
+    normalizedConfig.dtls = nextDtls;
+  }
+  const nextWarp = { ...config.warp, ...normalizedConfig.warp };
+  const nextSped = normalizedConfig.sped ?? config.sped;
+  const nextHasDtls13 = (nextDtls.protocolVersions ?? []).some(
+    (version) => String(version) === "1.3",
+  );
+  if (nextSped === true && !nextHasDtls13) {
+    throw new Error(
+      "PeerConfig.sped requires DTLS 1.3 in dtls.protocolVersions",
+    );
+  }
+  if (nextSped === true && nextDtls.helloRetryRequest) {
+    throw new Error(
+      "PeerConfig.sped cannot be combined with dtls.helloRetryRequest",
+    );
+  }
+  if (
+    nextWarp.allowEarlyServerData === true &&
+    (nextSped !== true || !nextHasDtls13)
+  ) {
+    throw new Error(
+      "warp.allowEarlyServerData requires PeerConfig.sped and DTLS 1.3",
+    );
+  }
+  if (nextWarp.sendBeforeNomination === true && nextSped !== true) {
+    throw new Error("warp.sendBeforeNomination requires PeerConfig.sped");
+  }
+
+  if (dtlsTransportCreated) {
+    if ("sped" in normalizedConfig && normalizedConfig.sped !== config.sped) {
+      throw new Error(
+        "sped cannot be changed after a DTLS transport is created",
+      );
+    }
+    if (
+      dtlsProtocolVersionsKey(nextDtls.protocolVersions) !==
+      dtlsProtocolVersionsKey(config.dtls.protocolVersions)
+    ) {
+      throw new Error(
+        "dtls.protocolVersions cannot be changed after a DTLS transport is created",
+      );
+    }
+    if (
+      Boolean(nextDtls.helloRetryRequest) !==
+      Boolean(config.dtls.helloRetryRequest)
+    ) {
+      throw new Error(
+        "dtls.helloRetryRequest cannot be changed after a DTLS transport is created",
+      );
+    }
   }
 
   if (normalizedConfig.sctp !== undefined) {

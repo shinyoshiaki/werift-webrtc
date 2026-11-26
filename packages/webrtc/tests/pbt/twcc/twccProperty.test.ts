@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vitest";
 import {
+  propertyOptions,
+  propertySeeds,
+  seededRandom,
+} from "../../../../pbt/src";
+import {
   type BandwidthEstimator,
   GccBandwidthEstimator,
   kSendTimeHistoryWindowMs,
@@ -18,8 +23,6 @@ import {
   twccSentInfo,
   wireTwccFeedback,
 } from "../../media/twccTestUtils";
-import { seededRandom } from "../shared/random";
-import { propertySeeds } from "../shared/seeds";
 import {
   type FeedbackWindow,
   randomHistoryOps,
@@ -70,7 +73,7 @@ function deliver(
   }));
 }
 
-describe("twcc property", () => {
+describe("twcc property", propertyOptions(), () => {
   test.each(cases)(
     title(
       "adapter: 周回・送信確認の逆順・重複・並べ替え・corrective を混ぜても、受信した送信パケットは正しい世代でちょうど 1 回対応する",

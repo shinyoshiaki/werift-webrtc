@@ -13,12 +13,7 @@ export const isFirefox = browserName === "Firefox";
  * When the ticket is fixed, find its skips with
  * `grep -rn "firefox-known:<name>" e2e/tests` and remove them.
  */
-export const firefoxKnownIssue = {
-  iceTcpActiveOnly:
-    "[firefox-known:ice-tcp-active-only] 8b7c8e4a: 相手が active の TCP 候補だけだと werift の ICE が check を待たずに failed になる",
-  simulcastSsrcTrack:
-    "[firefox-known:simulcast-ssrc-track] be690c2e: a=ssrc 付き simulcast answer で SSRC のトラックが別に作られ、そのレイヤーの RTX がそちらへ復元される",
-} as const;
+export const firefoxKnownIssue = {} as const;
 
 /**
  * Why a test is skipped in Firefox: the test relies on something Firefox (or
@@ -469,7 +464,10 @@ export async function getTurnRelayConfig(): Promise<TurnRelayConfig> {
   return response.json() as Promise<TurnRelayConfig>;
 }
 
-export function waitForIceGatheringComplete(connection: RTCPeerConnection) {
+export function waitForIceGatheringComplete(
+  connection: RTCPeerConnection,
+  timeoutMs = 20_000,
+) {
   if (connection.iceGatheringState === "complete") {
     return Promise.resolve();
   }
@@ -481,7 +479,7 @@ export function waitForIceGatheringComplete(connection: RTCPeerConnection) {
         handleIceGatheringStateChange,
       );
       reject(new Error("ICE gathering did not complete in time"));
-    }, 20_000);
+    }, timeoutMs);
 
     const handleIceGatheringStateChange = () => {
       if (connection.iceGatheringState !== "complete") {
@@ -502,7 +500,10 @@ export function waitForIceGatheringComplete(connection: RTCPeerConnection) {
   });
 }
 
-export function waitForPeerConnection(connection: RTCPeerConnection) {
+export function waitForPeerConnection(
+  connection: RTCPeerConnection,
+  timeoutMs = 20_000,
+) {
   if (connection.connectionState === "connected") {
     return Promise.resolve();
   }
@@ -518,7 +519,7 @@ export function waitForPeerConnection(connection: RTCPeerConnection) {
           `peer connection did not connect: ${connection.connectionState}`,
         ),
       );
-    }, 20_000);
+    }, timeoutMs);
 
     const handleStateChange = () => {
       if (connection.connectionState !== "connected") {
@@ -536,7 +537,10 @@ export function waitForPeerConnection(connection: RTCPeerConnection) {
   });
 }
 
-export function waitForDataChannelOpen(channel: RTCDataChannel) {
+export function waitForDataChannelOpen(
+  channel: RTCDataChannel,
+  timeoutMs = 20_000,
+) {
   if (channel.readyState === "open") {
     return Promise.resolve();
   }
@@ -545,7 +549,7 @@ export function waitForDataChannelOpen(channel: RTCDataChannel) {
     const timer = setTimeout(() => {
       channel.removeEventListener("open", handleOpen);
       reject(new Error("data channel did not open in time"));
-    }, 20_000);
+    }, timeoutMs);
 
     const handleOpen = () => {
       clearTimeout(timer);

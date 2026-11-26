@@ -11,3 +11,11 @@
 ### data
 
 > **data**: `string` \| `Buffer`\<`ArrayBufferLike`\>
+
+***
+
+### type?
+
+> `readonly` `optional` **type?**: `string`
+
+`"message"` on received messages.

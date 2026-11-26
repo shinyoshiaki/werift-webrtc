@@ -1,6 +1,10 @@
 import { createWebRtcDomException, OverconstrainedError } from "../errors";
 import { EventTarget } from "../helper";
-import { MediaStream, type MediaStreamTrack } from "../media/track";
+import {
+  MediaStream,
+  type MediaStreamTrack,
+  setTrackMediaSettings,
+} from "../media/track";
 import type {
   BoundMediaRegister,
   MediaStreamConstraints,
@@ -100,12 +104,26 @@ export class MediaDevices extends EventTarget {
   cleanup() {
     this.disposed = true;
     this.disposeAbort.abort();
-    for (const stop of this.activeStops.values()) {
-      stop();
-    }
+    // 一つの停止（onended など）が投げても、残りの track と register の停止は完了させる。
+    const errors: unknown[] = [];
+    const stops = [...this.activeStops.values()];
     this.activeStops.clear();
+    for (const stop of stops) {
+      try {
+        stop();
+      } catch (error) {
+        errors.push(error);
+      }
+    }
     for (const register of this.registers) {
-      register.stop?.();
+      try {
+        register.stop?.();
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+    if (errors.length > 0) {
+      throw errors[0];
     }
   }
 
@@ -164,6 +182,18 @@ export class MediaDevices extends EventTarget {
           track.stop();
         }
         throw abortedException();
+      }
+      // getSettings / getConstraints が選択に使った値を返すよう track に記録する。
+      for (const track of tracks) {
+        setTrackMediaSettings(
+          track,
+          {
+            deviceId: register.deviceId,
+            groupId: register.groupId ?? "",
+            mimeType: selected.mimeType,
+          },
+          normalized,
+        );
       }
       return tracks;
     } catch (error) {

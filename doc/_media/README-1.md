@@ -69,7 +69,21 @@ attachment throws `NotSupportedError`; they do not expand the codec list.
 | --- | --- |
 | `werift` | Core werift classes and protocol helpers; no global installation |
 | `werift/polyfill` | Polyfill API plus ambient werift global types for TypeScript projects without `lib.dom` |
-| `werift/polyfill/dom` | The same runtime API with `lib.dom`-compatible type augmentation |
+| `werift/polyfill/dom` | The same runtime API with `lib.dom`-compatible type augmentation, plus `MediaStreamTrack` / `MediaStream` constructors typed as the DOM classes |
+
+werift's `MediaStreamTrack` and `MediaStream` are assignable to the DOM types,
+so a werift track goes to a DOM-typed library without a cast:
+
+```ts
+import { installPolyfill, MediaStreamTrack } from "werift/polyfill/dom";
+
+installPolyfill({ mediaRegister: [] });
+const producer = await sendTransport.produce({
+  track: new MediaStreamTrack({ kind: "audio" }),
+});
+```
+
+See [TypeScript entrypoints and compatibility](./guide.md#typescript-entrypoints-and-compatibility).
 
 The polyfill entrypoint is intentionally separate from `werift` so existing
 applications do not receive global mutations just by importing the core

@@ -110,6 +110,21 @@ dropped at the commit, so RTP pauses until the new generation nominates.
 
 ***
 
+### onGatheringError
+
+> `readonly` **onGatheringError**: [`Event`](Event.md)\<\[[`IceGatheringErrorDetails`](../type-aliases/IceGatheringErrorDetails.md)\]\>
+
+The current generation's gathering reported an error (werift extension,
+not W3C; see RTCIceGatherer.onGatheringError).
+
+#### See
+
+ - packages/webrtc/tests/transport/iceGatheringError.test.ts「RTCIceTransport.onGatheringError reports the same reasons」
+ - packages/webrtc/tests/transport/iceGatheringError.test.ts「nothing is reported after close」
+ - packages/webrtc/tests/transport/iceGatheringError.test.ts「a throwing transport onGatheringError listener does not stop the later ones」
+
+***
+
 ### ongatheringstatechange?
 
 > `optional` **ongatheringstatechange?**: () => `void`
@@ -160,13 +175,13 @@ URLs of a STUN / TURN server that answered while gathering (see RTCIceGatherer.o
 
 ### onStateChange
 
-> `readonly` **onStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"new"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"failed"` \| `"checking"`\]\>
+> `readonly` **onStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"failed"` \| `"checking"`\]\>
 
 ***
 
 ### state
 
-> **state**: `"closed"` \| `"new"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"failed"` \| `"checking"` = `"new"`
+> **state**: `"closed"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"failed"` \| `"checking"` = `"new"`
 
 ## Accessors
 

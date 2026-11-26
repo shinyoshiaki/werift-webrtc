@@ -18,6 +18,7 @@ import {
   RTCRtpReceiver,
   type RTCRtpSender,
   type RTCRtpTransceiver,
+  type RTCTrackEvent,
   RtpHeader,
   RtpPacket,
   useAbsSendTime,
@@ -83,8 +84,13 @@ export async function createConnectedVideoPeers(
     withAudio = false,
   }: { trickleOpen?: boolean; withAudio?: boolean } = {},
 ) {
-  const offerer = new RTCPeerConnection(config);
-  const answerer = new RTCPeerConnection(config);
+  const peerConfig = {
+    iceServers: [],
+    iceUseDefaultStunServer: false,
+    ...config,
+  };
+  const offerer = new RTCPeerConnection(peerConfig);
+  const answerer = new RTCPeerConnection(peerConfig);
   const outgoing = new MediaStreamTrack({ kind: "video" });
   let incoming: MediaStreamTrack | undefined;
   answerer.onRemoteTransceiverAdded.subscribe((transceiver) => {
@@ -425,6 +431,7 @@ function assertDescriptionBindings(pc: RTCPeerConnection) {
         !transceiver.stopping &&
         ["sendonly", "sendrecv"].includes(media.direction ?? "inactive") &&
         ["recvonly", "sendrecv"].includes(transceiver.direction) &&
+        !sendsByRid(media) &&
         media.ssrc[0]
       ) {
         expect(internal.router.ssrcTable[media.ssrc[0].ssrc]).toBe(
@@ -510,6 +517,7 @@ function assertDescriptionBindings(pc: RTCPeerConnection) {
  * | BUNDLE owner / transport | current | both (a split owner is provisional) | `assertDescriptionBindings` |
  * | SCTP port | current | reject a change of an existing association (also at the answer) | `assertSctpBinding` |
  * | SCTP max-message-size | current | provisional (W3C updates it at answer and pranswer) | `expectedLive("remoteMaxMessageSize")` |
+ * | In-band DataChannel `id` (#815) | current (none while the DTLS role is `auto`) | provisional: the pranswer's DTLS role reserves IDs of its parity (client even, server odd); rollback gives unsent ones back | `streamIds` oracle (tests/pbt/model/oracles.ts) |
  * | Header extension IDs | both; remap of a current ID rejected | both; remap rejected | `assertRouteTables` |
  * | Remote SSRC routes | both (conflicts staged) | both; routes only a replaced pranswer added are dropped | `assertEffectiveValues` |
  *
@@ -614,6 +622,7 @@ function assertEffectiveValues(pc: RTCPeerConnection, snapshot: Snapshot) {
     }
     // remote pranswer の SSRC は、current と衝突しなければ即座に、衝突すれば
     // staged として、その receiver に届く。
+    // RID で送る m-line の a=ssrc は経路にならない ({@link sendsByRid})。
     const pranswerMedia =
       snapshot.pendingRemote?.type === "pranswer"
         ? snapshot.pendingRemote.media.find(
@@ -622,6 +631,7 @@ function assertEffectiveValues(pc: RTCPeerConnection, snapshot: Snapshot) {
         : undefined;
     if (
       pranswerMedia &&
+      !sendsByRid(pranswerMedia) &&
       ["sendonly", "sendrecv"].includes(pranswerMedia.direction ?? "") &&
       ["recvonly", "sendrecv"].includes(transceiver.direction)
     ) {
@@ -920,6 +930,14 @@ function assertRouteTables(pc: RTCPeerConnection, snapshot: Snapshot) {
       !!m?.rtp.codecs.some((codec) => codec.name.toLowerCase() === "rtx");
     const rtxNegotiated = hasRtx(media) && hasRtx(local.media[index]);
     const unusedRtx = new Set<number>();
+    for (const { rid } of media.simulcastParameters) {
+      // RID は MID と組で current の receiver に届く。
+      expect(router.ridTable[ridRouteKey(media.rtp.muxId ?? "", rid)]).toBe(
+        receiver,
+      );
+      expect(receiver.tracks).toContain(receiver.trackByRID[rid]);
+    }
+    if (sendsByRid(media)) continue;
     for (const group of media.ssrcGroup) {
       if (group.semantic !== "FID") continue;
       const [mediaSsrc, rtxSsrc] = group.items.map(Number);
@@ -941,14 +959,18 @@ function assertRouteTables(pc: RTCPeerConnection, snapshot: Snapshot) {
       expect(track).toBeDefined();
       expect(receiver.tracks).toContain(track);
     }
-    for (const { rid } of media.simulcastParameters) {
-      // RID は MID と組で current の receiver に届く。
-      expect(router.ridTable[ridRouteKey(media.rtp.muxId ?? "", rid)]).toBe(
-        receiver,
-      );
-      expect(receiver.tracks).toContain(receiver.trackByRID[rid]);
-    }
   }
+}
+
+/**
+ * The remote sends this m-line by RID (`a=rid:<id> send`): its `a=ssrc` /
+ * `a=ssrc-group:FID` give no route, track or RTX pairing; the RID packets
+ * teach them (tests/media/firefoxSimulcastSsrc.test.ts).
+ */
+function sendsByRid(media: MediaDescription) {
+  return media.simulcastParameters.some(
+    (param) => `${param.direction}`.split(" ", 1)[0] === "send",
+  );
 }
 
 function assertRouterAndCodecs(pc: RTCPeerConnection, snapshot: Snapshot) {
@@ -1419,8 +1441,12 @@ export async function createDuplexSession(
   config: ConstructorParameters<typeof RTCPeerConnection>[0] = {},
   configB = config,
 ) {
-  const a = new RTCPeerConnection(config);
-  const b = new RTCPeerConnection(configB);
+  const defaults = {
+    iceServers: [],
+    iceUseDefaultStunServer: false,
+  };
+  const a = new RTCPeerConnection({ ...defaults, ...config });
+  const b = new RTCPeerConnection({ ...defaults, ...configB });
   const aOut = new MediaStreamTrack({ kind: "video" });
   const bOut = new MediaStreamTrack({ kind: "video" });
   const aChannel = a.createDataChannel("matrix");
@@ -2670,10 +2696,13 @@ export function holdDtlsStart(pc: RTCPeerConnection) {
   });
   for (const transport of pc.dtlsTransports) {
     const original = transport.start.bind(transport);
-    transport.start = async () => {
-      transport.start = original;
-      await released;
-      return original();
+    let startPromise: Promise<void> | undefined;
+    transport.start = () => {
+      startPromise ??= released.then(() => {
+        transport.start = original;
+        return original();
+      });
+      return startPromise;
     };
   }
   return { release };
@@ -2722,8 +2751,14 @@ export async function createHeldTurnRestartPeers(restarts: number) {
   const proxies = await Promise.all(
     [...Array(restarts)].map(() => createHeldUdpProxy(turn.server.address!)),
   );
-  const offerer = new RTCPeerConnection({ iceServers: turn.iceServers });
-  const answerer = new RTCPeerConnection();
+  const offerer = new RTCPeerConnection({
+    iceServers: turn.iceServers,
+    iceUseDefaultStunServer: false,
+  });
+  const answerer = new RTCPeerConnection({
+    iceServers: [],
+    iceUseDefaultStunServer: false,
+  });
   const channel = offerer.createDataChannel("turn");
   const received = answerer.onDataChannel.asPromise().then(([c]) => c);
   await offerer.setLocalDescription(await offerer.createOffer());
@@ -2767,10 +2802,12 @@ export async function createRelayOnlyPeers() {
   proxy.release();
   const a = new RTCPeerConnection({
     iceServers: turn.iceServers,
+    iceUseDefaultStunServer: false,
     iceTransportPolicy: "relay",
   });
   const b = new RTCPeerConnection({
     iceServers: turnIceServers(proxy.address),
+    iceUseDefaultStunServer: false,
     iceTransportPolicy: "relay",
   });
   const candidateErrors: string[] = [];
@@ -3171,7 +3208,7 @@ export async function waitUntil(
  */
 export function recordNegotiationEvents(pc: RTCPeerConnection) {
   const events = {
-    tracks: [] as import("../../../src").RTCTrackEvent[],
+    tracks: [] as RTCTrackEvent[],
     remoteTransceivers: [] as RTCRtpTransceiver[],
     dataChannels: [] as RTCDataChannel[],
     candidates: [] as (RTCIceCandidate | undefined)[],
@@ -3180,12 +3217,9 @@ export function recordNegotiationEvents(pc: RTCPeerConnection) {
     iceConnection: [] as string[],
     negotiationNeeded: 0,
   };
-  pc.addEventListener(
-    "track",
-    (event: import("../../../src").RTCTrackEvent) => {
-      events.tracks.push(event);
-    },
-  );
+  pc.addEventListener("track", (event: RTCTrackEvent) => {
+    events.tracks.push(event);
+  });
   pc.onRemoteTransceiverAdded.subscribe((transceiver) => {
     events.remoteTransceivers.push(transceiver);
   });
@@ -3311,6 +3345,44 @@ export async function createKeptRemoteTransceiver() {
     localTrack,
     offererEvents,
     both,
+    close: () => Promise.allSettled([offerer.close(), answerer.close()]),
+  };
+}
+
+/**
+ * Shared Arrange (acceptance of #817): `answerer` holds `offerer`'s audio
+ * offer as a pending remote description, with the transceiver the offer
+ * created (`remoteCreated`). `rollback()` rolls the offer back on both
+ * peers. `expectMediaFlows(sender)` then negotiates from `answerer` and
+ * checks that RTP written to `sender`'s track reaches `offerer`. Local
+ * candidates only (no public STUN).
+ */
+export async function createPendingRemoteOffer() {
+  const config = { iceServers: [], iceUseDefaultStunServer: false };
+  const offerer = new RTCPeerConnection(config);
+  const answerer = new RTCPeerConnection(config);
+  offerer.addTransceiver("audio", { direction: "sendrecv" });
+  await offerer.setLocalDescription(await offerer.createOffer());
+  await answerer.setRemoteDescription(offerer.localDescription!);
+  const [remoteCreated] = answerer.getTransceivers();
+  return {
+    offerer,
+    answerer,
+    remoteCreated,
+    rollback: async () => {
+      await answerer.setRemoteDescription({ type: "rollback" });
+      await offerer.setLocalDescription({ type: "rollback" });
+    },
+    expectMediaFlows: async (sender: RTCRtpSender) => {
+      const incoming = offerer.onTrack.watch(() => true);
+      await exchangeOfferAnswer(answerer, offerer);
+      const [track] = await incoming;
+      await Promise.all([
+        waitForConnection(offerer),
+        waitForConnection(answerer),
+      ]);
+      await sendAndExpectRtp(sender.track!, track, "after-rollback");
+    },
     close: () => Promise.allSettled([offerer.close(), answerer.close()]),
   };
 }

@@ -1,5 +1,5 @@
+import { seededRandom } from "../../../pbt/src";
 import { type BandwidthEstimator, GccBandwidthEstimator } from "../../src";
-import { seededRandom } from "../pbt/shared/random";
 import { twccSentInfo, wireTwccFeedback } from "./twccTestUtils";
 
 /**

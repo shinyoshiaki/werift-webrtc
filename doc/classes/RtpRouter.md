@@ -124,7 +124,7 @@ omits stays routed; only SSRCs a replaced pranswer alone added are dropped.
 
 ### announcedTrack
 
-> **announcedTrack**: (`transceiver`) => [`MediaStreamTrack`](MediaStreamTrack.md) \| `undefined`
+> **announcedTrack**: (`transceiver`) => [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\> \| `undefined`
 
 Internal: the track `ontrack` last announced for a transceiver (set by
 the TransceiverManager). A replacement offer resets `firedReceiving`
@@ -138,7 +138,7 @@ before it applies, while the announcement of the default track stands.
 
 #### Returns
 
-[`MediaStreamTrack`](MediaStreamTrack.md) \| `undefined`
+[`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\> \| `undefined`
 
 ***
 
@@ -339,6 +339,26 @@ of other transports are other streams and stay.
 ##### sender
 
 [`RTCRtpSender`](RTCRtpSender.md)
+
+#### Returns
+
+`void`
+
+***
+
+### releaseDroppedFidRtx()
+
+> **releaseDroppedFidRtx**(`receiver?`): `void`
+
+Internal: after a commit, drop the description routes of FID RTX SSRCs it
+removed (`takeDroppedFidRtxSsrcs`)
+(tests/media/firefoxSimulcastRepairedRidRoute.test.ts "確定で FID の組が外れた RTX SSRC を BUNDLE の別 m-line が MID と repaired RID 付きで使うと、その m-line の RID のトラックへ復元される").
+
+#### Parameters
+
+##### receiver?
+
+[`RTCRtpReceiver`](RTCRtpReceiver.md)
 
 #### Returns
 

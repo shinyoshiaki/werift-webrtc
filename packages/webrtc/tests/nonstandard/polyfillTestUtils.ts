@@ -12,7 +12,8 @@ import {
   installPolyfill,
   type MediaRegister,
 } from "../../src/polyfill";
-import { setUdpSocketFactory } from "../../src/polyfill/sourceIo";
+import type { UdpSocketFactory } from "../../src/polyfill/sourceIo";
+import { connectPeerConnections } from "../utils";
 
 const TYPESCRIPT_COMPILE_TIMEOUT_MS = 120_000;
 export const TYPESCRIPT_COMPILE_TEST_TIMEOUT_MS =
@@ -118,10 +119,14 @@ export function createHangingNodeStream() {
 }
 
 export async function withUdpSocketCounter<T>(
-  run: (sockets: { created: number; open: () => number }) => Promise<T>,
+  run: (sockets: {
+    created: number;
+    open: () => number;
+    createSocket: UdpSocketFactory;
+  }) => Promise<T>,
 ): Promise<T> {
   const sockets: Array<{ closed: boolean }> = [];
-  setUdpSocketFactory(() => {
+  const createCountedSocket: UdpSocketFactory = () => {
     const socket = createSocket("udp4");
     const rec = { closed: false };
     socket.once("close", () => {
@@ -129,19 +134,16 @@ export async function withUdpSocketCounter<T>(
     });
     sockets.push(rec);
     return socket;
+  };
+  return run({
+    get created() {
+      return sockets.length;
+    },
+    open() {
+      return sockets.filter((socket) => !socket.closed).length;
+    },
+    createSocket: createCountedSocket,
   });
-  try {
-    return await run({
-      get created() {
-        return sockets.length;
-      },
-      open() {
-        return sockets.filter((socket) => !socket.closed).length;
-      },
-    });
-  } finally {
-    setUdpSocketFactory();
-  }
 }
 
 /** Decode serialized RTP packets (from {@link waitForRtp}) as VP8 payloads. */
@@ -192,4 +194,34 @@ export async function receivesRtpWithin(
       resolve(false);
     }, timeoutMs);
   });
+}
+
+/**
+ * Shared Arrange for the acceptance test: install the polyfill and connect two
+ * polyfilled (global) `RTCPeerConnection`s on loopback without public STUN.
+ * `produce` imitates what `mediasoup-client`'s `produce({ track })` does with
+ * the DOM-typed track: it watches `"ended"` and sends the track with
+ * `addTransceiver(track, { direction: "sendonly" })`. Call `close` in `finally`.
+ */
+export async function arrangePolyfilledProducer() {
+  const uninstall = installTestPolyfill([]);
+  const config = { iceServers: [], iceUseDefaultStunServer: false };
+  const sender = new globalThis.RTCPeerConnection(config as any);
+  const receiver = new globalThis.RTCPeerConnection(config as any);
+  const remoteTrack = new Promise<MediaStreamTrack>((resolve) => {
+    receiver.ontrack = (event: any) => resolve(event.track);
+  });
+  const ended: string[] = [];
+  const produce = async (track: any) => {
+    const onEnded = () => ended.push(track.readyState);
+    track.addEventListener("ended", onEnded);
+    sender.addTransceiver(track, { direction: "sendonly" });
+    await connectPeerConnections(sender as any, receiver as any);
+    return { closeProducer: () => track.removeEventListener("ended", onEnded) };
+  };
+  const close = async () => {
+    await Promise.all([sender.close(), receiver.close()]);
+    uninstall();
+  };
+  return { produce, remoteTrack, ended, close };
 }

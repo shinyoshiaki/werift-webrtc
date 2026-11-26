@@ -1,5 +1,5 @@
 import { expect } from "vitest";
-
+import { type SeededRandom, seededRandom } from "../../../../pbt/src";
 import {
   MediaStreamTrack,
   RTCRtpCodecParameters,
@@ -26,9 +26,7 @@ import {
   waitForDtlsConnected,
 } from "../../negotiation/harness/negotiationTransactionUtils";
 
-export { type SeededRandom, seededRandom } from "../shared/random";
-
-import { type SeededRandom, seededRandom } from "../shared/random";
+export { type SeededRandom, seededRandom };
 
 /**
  * Shared Arrange for the negotiation property test: a duplex session whose

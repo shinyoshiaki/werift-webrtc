@@ -30,6 +30,7 @@ import {
   resolveCodecs,
   withNegotiatedCodecs,
 } from "./media/codecCompatibility";
+import type { MediaDirection } from "./media/rtpTransceiver";
 import { createBandwidthEstimator } from "./media/sender/createBandwidthEstimator";
 import type { RTCStats } from "./media/stats";
 import { captureTrackSourceCodecs, getTrackSourceCodecs } from "./media/track";
@@ -77,6 +78,14 @@ export function negotiateRemoteCodecs(
   });
 }
 
+/**
+ * The remote sends this m-line's layers by RID
+ * (tests/media/firefoxSimulcastSsrc.test.ts "simulcast (RID) receive with a=ssrc / ssrc-group:FID (Firefox)").
+ */
+function receivesByRid(media: MediaDescription) {
+  return media.simulcastParameters.some((param) => param.direction === "send");
+}
+
 function simulcastFromSendEncodings(
   encodings: RTCRtpEncodingParameters[] | undefined,
 ): TransceiverOptions["simulcast"] | undefined {
@@ -111,8 +120,9 @@ function simulcastFromSendEncodings(
  *   answer.
  * - A transceiver created for a remote offer is not an application operation
  *   (no `negotiationneeded`). Rollback removes it unless the application
- *   attached a track (`heldByApplication`); a kept one returns to its created
- *   state. An application `stop()` during the transaction survives rollback.
+ *   uses it (`heldByApplication`: `addTrack()` attached a track to it, even
+ *   one `replaceTrack(null)` / `removeTrack()` detached since, or its sender
+ *   has a track); a kept one returns to its created state. An application `stop()` during the transaction survives rollback.
  * - Each transceiver records what created it (`createdBy`: `addTrack`,
  *   `addTransceiver` or `remote`); reusing one with `addTrack()` or
  *   `replaceTrack()` keeps it. Under `transceiverPairing: "standard"` a remote
@@ -496,6 +506,20 @@ export class TransceiverManager {
     }
   }
 
+  /** transport など副作用のある資源を作る前に、track の codec が構成と互換か検証する */
+  private assertTrackCodecsSupported(
+    track: MediaStreamTrack,
+    direction: MediaDirection,
+  ) {
+    captureTrackSourceCodecs(track);
+    assertCodecsSupported({
+      kind: track.kind,
+      configured: this.filterCodecsByDirection(track.kind, direction),
+      source: getTrackSourceCodecs(track),
+      preferences: undefined,
+    });
+  }
+
   addTransceiver(
     trackOrKind: Kind | MediaStreamTrack,
     dtlsTransport?: RTCDtlsTransport,
@@ -519,13 +543,7 @@ export class TransceiverManager {
     const direction = options.direction || "sendrecv";
 
     if (typeof trackOrKind !== "string") {
-      captureTrackSourceCodecs(trackOrKind);
-      assertCodecsSupported({
-        kind,
-        configured: this.filterCodecsByDirection(kind, direction),
-        source: getTrackSourceCodecs(trackOrKind),
-        preferences: undefined,
-      });
+      this.assertTrackCodecsSupported(trackOrKind, direction);
     }
 
     const sender = new RTCRtpSender(trackOrKind, {
@@ -656,15 +674,16 @@ export class TransceiverManager {
       this.noteReusedForAddTrack(notSendTransceiver);
       return notSendTransceiver;
     } else {
+      // 失敗し得る検証を先に済ませ、失敗時に transport を作りっぱなしにしない
+      this.assertTrackCodecsSupported(track, "sendrecv");
       // JSEP 5.10: only a transceiver addTrack() creates may pair with a
       // remote offer m-section it has no MID for.
-      const transceiver = this.addTransceiver(
+      return this.addTransceiver(
         track,
         createTransport?.(),
         { direction: "sendrecv", streams },
         { createdBy: "addTrack" },
       );
-      return transceiver;
     }
   }
 
@@ -949,11 +968,28 @@ export class TransceiverManager {
     media: MediaDescription,
     transceiver: RTCRtpTransceiver,
   ): RTCRtpReceiveParameters {
+    // An m-line sent by RID takes no SSRC track or route from `a=ssrc`
+    // (tests/media/firefoxSimulcastSsrc.test.ts "werift の offer に対する Firefox の answer でも、トラックは RID ごとの 1 本だけで、両レイヤーの RTX は RID のトラックへ復元される").
+    const byRid = receivesByRid(media);
+    const ssrcs = byRid ? [] : media.ssrc;
+    // Its FID pairs still pair the RTX SSRCs
+    // (tests/media/firefoxSimulcastSsrc.test.ts "repaired RID がなく、切り替え前に RTX を受信していなくても、切り替え後に初めて届いた FID の RTX SSRC は新しい媒体の欠落を復元する").
+    const ridRtxPairs = byRid
+      ? media.ssrcGroup
+          .filter(
+            (group) => group.semantic === "FID" && group.items.length === 2,
+          )
+          .map((group) => ({
+            ssrc: Number(group.items[0]),
+            rtxSsrc: Number(group.items[1]),
+          }))
+      : undefined;
     const receiveParameters: RTCRtpReceiveParameters = {
       muxId: media.rtp.muxId,
       rtcp: media.rtp.rtcp,
       codecs: transceiver.codecs,
       headerExtensions: transceiver.headerExtensions,
+      ...(ridRtxPairs?.length ? { ridRtxPairs } : {}),
       // RTX pairs with its `apt` codec wherever the description lists it (an
       // answer may put RTX before its primary codec), so primaries come first.
       encodings: Object.values(
@@ -967,13 +1003,13 @@ export class TransceiverManager {
             if (codec.name.toLowerCase() === "rtx") {
               const params = codecParametersFromString(codec.parameters ?? "");
               const apt = acc[params["apt"]];
-              if (apt && media.ssrc.length === 2) {
-                apt.rtx = new RTCRtpRtxParameters({ ssrc: media.ssrc[1].ssrc });
+              if (apt && ssrcs.length === 2) {
+                apt.rtx = new RTCRtpRtxParameters({ ssrc: ssrcs[1].ssrc });
               }
               return acc;
             }
             acc[codec.payloadType] = new RTCRtpCodingParameters({
-              ssrc: media.ssrc[0]?.ssrc,
+              ssrc: ssrcs[0]?.ssrc,
               payloadType: codec.payloadType,
             });
             return acc;
