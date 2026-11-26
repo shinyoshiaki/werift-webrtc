@@ -4652,3 +4652,64 @@ export function injectStagedChecksFrom(
 export function stagedChecks(a: Connection) {
   return provisionalGeneration(a)?.receivedChecks ?? [];
 }
+
+/**
+ * Shared Arrange: `a` (controlled, renomination) staged an ICE restart; the
+ * controlling peer `b`, which applied that offer and restarted, renominated
+ * on its two host paths before its answer reached `a`: `nominations` lists
+ * the NOMINATION value of each check in arrival order, by path (`0` / `1`,
+ * `b`'s first and second socket). `b` never repeats a check, so only these
+ * checks tell `a` the path `b` selected. `paths` are `b`'s addresses.
+ */
+export async function createRenominatedBeforeAnswer(
+  nominations: { path: 0 | 1; value: number }[],
+) {
+  const shared: Partial<IceOptions> = {
+    useIpv6: false,
+    additionalHostAddresses: ["127.0.0.1"],
+    renomination: true,
+    incomingCheckTimeout: 1,
+  };
+  const a = createTestConnection(false, shared);
+  const b = createTestConnection(true, shared);
+  a.remoteRenomination = true;
+  b.remoteRenomination = true;
+  await inviteAccept(a, b);
+  await Promise.all([a.connect(), b.connect()]);
+  const staged = {
+    usernameFragment: "rstR",
+    password: "restart-password-r-0000",
+  };
+  a.stageLocalCredentials(staged.usernameFragment, staged.password);
+  await b.restart();
+  await b.gatherCandidates();
+  b.remoteUsername = staged.usernameFragment;
+  b.remotePassword = staged.password;
+  const bHosts = b.localCandidates.filter((c) => c.type === "host");
+  const paths = [bHosts[0], bHosts[1]].map((c) => [c.host, c.port] as Address);
+  const checklist = provisionalChecklistOf(a);
+  const aProtocol = (a as unknown as { protocols: Protocol[] }).protocols[0];
+  for (const { path, value } of nominations) {
+    const message = new Message(methods.BINDING, classes.REQUEST);
+    message
+      .setAttribute("USERNAME", `${staged.usernameFragment}:${b.localUsername}`)
+      .setAttribute("PRIORITY", 1)
+      .setAttribute("ICE-CONTROLLING", BigInt(1))
+      .setAttribute("NOMINATION", value);
+    checklist.checkIncoming(
+      checklist.generation!,
+      message,
+      paths[path],
+      aProtocol,
+    );
+  }
+  return { a, b, staged, paths };
+}
+
+/** The NOMINATION value each stored staged check of `a` carries, by sender address. */
+export function stagedNominations(a: Connection) {
+  return stagedChecks(a).map(([message, addr]) => ({
+    addr,
+    nomination: message.getAttributeValue("NOMINATION") as number | undefined,
+  }));
+}

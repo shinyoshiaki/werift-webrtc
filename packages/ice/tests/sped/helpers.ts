@@ -211,3 +211,46 @@ export function appendStunFingerprint(prefix: Buffer): Buffer {
     Buffer.concat([prefix, serializeStunRawAttribute(0x8028, value)]),
   );
 }
+
+/**
+ * Shared Arrange: a controlled SPED `connection` on `SpedProtocolMock`
+ * staged an ICE restart (`staged`) and received, before the answer, one check
+ * for the staged ufrag from the peer generation `peerUfrag` at `peerAddr`
+ * (the peer does not repeat it). Every datagram sent directly on the socket
+ * is kept in `sentDirect`.
+ */
+export function createSpedStagedRestartCheck(
+  peerAddr: Address = ["203.0.113.9", 5000],
+) {
+  const connection = createTestConnection(false);
+  const handle = attachTestSped(connection);
+  const protocol = new SpedProtocolMock();
+  const sentDirect: { data: Buffer; addr?: Address }[] = [];
+  protocol.sendData = async (data: Buffer, addr?: Address) => {
+    sentDirect.push({ data: Buffer.from(data), addr });
+  };
+  (connection as any).ensureProtocol(protocol);
+  (connection as any).protocols.push(protocol);
+  const staged = {
+    usernameFragment: "rstS",
+    password: "restart-password-s-0000",
+  };
+  const peerUfrag = "peerS";
+  connection.stageLocalCredentials(staged.usernameFragment, staged.password);
+  const check = new Message(methods.BINDING, classes.REQUEST);
+  check
+    .setAttribute("USERNAME", `${staged.usernameFragment}:${peerUfrag}`)
+    .setAttribute("PRIORITY", 1)
+    .setAttribute("ICE-CONTROLLING", BigInt(1));
+  const checklist = (connection as any).provisionalChecklist;
+  checklist.checkIncoming(checklist.generation, check, peerAddr, protocol);
+  return {
+    connection,
+    handle,
+    protocol,
+    staged,
+    peerUfrag,
+    peerAddr,
+    sentDirect,
+  };
+}

@@ -11,7 +11,12 @@ import { classes, methods } from "../../src/stun/const";
 import { Message } from "../../src/stun/message";
 import { getRawAttributeValue } from "../../src/stun/rawAttributeValue";
 import { createTestConnection } from "../utils";
-import { SpedProtocolMock, spedPair, tcpSpedPair } from "./helpers";
+import {
+  createSpedStagedRestartCheck,
+  SpedProtocolMock,
+  spedPair,
+  tcpSpedPair,
+} from "./helpers";
 
 describe("ICE restart と SPED hybrid carrier", () => {
   it("await 後の旧 generation 応答は pair / role / nomination を更新しない", async () => {
@@ -380,6 +385,49 @@ describe("ICE restart と SPED hybrid carrier", () => {
     // Assert: peer 引き出し用の synthetic Binding は廃止済み
     expect(requests).toHaveLength(0);
     expect(handle.session.hasL1).toBe(false);
+  });
+});
+
+describe("ICE restart: answer 前に staged generation が受けた check と SPED", () => {
+  it("commit 後に再生した check の経路で、early check と同じく fallback flight を直送する", async () => {
+    // Arrange: answer 前に staged ufrag 宛ての check を受けた SPED connection
+    const { connection, handle, staged, peerUfrag, peerAddr, sentDirect } =
+      createSpedStagedRestartCheck();
+    const hello = Buffer.from([22, 254, 253, 0, 1]);
+    try {
+      // Act: answer で restart を commit し、新 generation の SPED は直送 fallback に移る
+      await connection.restart();
+      connection.commitLocalCredentials(
+        staged.usernameFragment,
+        staged.password,
+      );
+      handle.session.replaceL1([hello]);
+      expect(handle.session.fallBackUndecided()).toBe(true);
+      connection.remoteUsername = peerUfrag;
+      connection.remotePassword = "peer-password-s-000000";
+      (connection as any).localCandidatesEnd = true;
+      const connected = connection.connect();
+      connected.catch(() => {});
+      await new Promise((r) => setTimeout(r, 30));
+
+      // Assert: 再生した check から prflx の経路を学び、その経路へ L1 の flight を直送する
+      expect(
+        connection.checkList.some(
+          (p) =>
+            p.remoteAddr[0] === peerAddr[0] && p.remoteAddr[1] === peerAddr[1],
+        ),
+      ).toBe(true);
+      expect(
+        sentDirect.some(
+          (s) =>
+            s.data.equals(hello) &&
+            s.addr?.[0] === peerAddr[0] &&
+            s.addr?.[1] === peerAddr[1],
+        ),
+      ).toBe(true);
+    } finally {
+      await connection.close();
+    }
   });
 });
 

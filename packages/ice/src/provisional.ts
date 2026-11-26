@@ -681,7 +681,8 @@ const senderOfCheck = (message: Message) => {
  * Keep a check for the commit without letting it be crowded out. The sender's
  * ufrag is not always known yet (no pranswer), so the list cannot filter by
  * it: a repeat from the same sender / address / socket replaces the earlier
- * one (unless that one nominated: USE-CANDIDATE / NOMINATION is kept), and a
+ * one unless that one nominated with a larger value (the largest USE-CANDIDATE
+ * / NOMINATION of the path is kept), and a
  * full list drops the oldest check of the sender holding the most, so a flood
  * from one (wrong) ufrag cannot evict the first check of another.
  */
@@ -700,8 +701,14 @@ const rememberStagedCheck = (
       senderOfCheck(m) === sender,
   );
   if (same >= 0) {
-    // A later plain check must not erase the nomination an earlier one made.
-    if (receivedNomination(checks[same][0]) > 0) return;
+    // The path keeps its largest nomination, as the live checklist keeps the
+    // largest `remoteNomination`: a later plain check (or a smaller NOMINATION
+    // value) does not erase it, and a renomination with a larger value
+    // (1 → 3) replaces it, so the commit replays the value the peer selected
+    // last.
+    if (receivedNomination(checks[same][0]) > receivedNomination(message)) {
+      return;
+    }
     checks.splice(same, 1);
   } else if (checks.length >= MAX_CARRIED_CHECKS) {
     const counts = new Map<string, number>();

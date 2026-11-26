@@ -1955,7 +1955,11 @@ export class Connection implements IceConnection {
         continue;
       }
       if (this.protocols.includes(protocol)) {
+        // Replayed as an early check is, SPED included: restart() reset the
+        // SPED session for this generation (probing, peer support unknown).
         this.checkIncoming(message, addr, protocol);
+        this.settleSpedUnconfirmed(this.findPairByAddr(protocol, addr));
+        await this.maybeSendSpedFallback(protocol, addr, this.generation);
       } else if (protocol.localCandidate?.type === "relay") {
         // The commit replaced the TURN allocation the check arrived on, so
         // it cannot be answered there; the peer's address is still learned

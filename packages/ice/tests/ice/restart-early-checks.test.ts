@@ -1,13 +1,17 @@
+import { CandidatePairState } from "../../src/iceBase";
 import { classes, methods } from "../../src/stun/const";
 import { Message } from "../../src/stun/message";
 import type { Protocol } from "../../src/types/model";
 import {
   carriedCheckCount,
   commitRestartWithoutCandidates,
+  createRenominatedBeforeAnswer,
   createRestartCheckedBeforeAnswer,
   expectDataFlows,
   injectStagedChecksFrom,
   stagedChecks,
+  stagedNominations,
+  waitUntil,
 } from "../utils";
 
 describe("checks a staged ICE restart received before its answer", () => {
@@ -172,6 +176,75 @@ describe("checks a staged ICE restart received before its answer", () => {
       ).toBe(true);
       // Assert: 旧 relay 上の nomination は現行 pair に持ち越さない（相手が再度 nominate する）。
       expect(a.checkList.some((p) => p.remoteNominated)).toBe(false);
+    } finally {
+      await Promise.allSettled([a.close(), b.close()]);
+    }
+  }, 20000);
+
+  test("a renomination with a larger value on the same path replaces the stored nomination", async () => {
+    // Arrange: answer 前に controlling peer が経路 A=1、B=2、A=3 の順で再指名する。
+    const { a, b, paths } = await createRenominatedBeforeAnswer([
+      { path: 0, value: 1 },
+      { path: 1, value: 2 },
+      { path: 0, value: 3 },
+    ]);
+    try {
+      // Act: staged generation が保存した check の NOMINATION を経路ごとに取り出す。
+      const stored = stagedNominations(a);
+      const at = (path: number) =>
+        stored.filter(
+          (s) => s.addr[0] === paths[path][0] && s.addr[1] === paths[path][1],
+        );
+
+      // Assert: 経路ごとに 1 件で、A は最後に受けた大きい値 3、B は 2 が残る。
+      expect(at(0).map((s) => s.nomination)).toEqual([3]);
+      expect(at(1).map((s) => s.nomination)).toEqual([2]);
+    } finally {
+      await Promise.allSettled([a.close(), b.close()]);
+    }
+  }, 20000);
+
+  test("a plain check or a smaller value after a nomination keeps the path's largest nomination", async () => {
+    // Arrange: 同じ経路に NOMINATION 3 の後、値 0（通常の check）と 2 が届く。
+    const { a, b, paths } = await createRenominatedBeforeAnswer([
+      { path: 0, value: 3 },
+      { path: 0, value: 0 },
+      { path: 0, value: 2 },
+    ]);
+    try {
+      // Act: 保存された、その経路の check を取り出す。
+      const stored = stagedNominations(a).filter(
+        (s) => s.addr[0] === paths[0][0] && s.addr[1] === paths[0][1],
+      );
+
+      // Assert: 最大の指名 3 が残り、後続の check で消えない。
+      expect(stored.map((s) => s.nomination)).toEqual([3]);
+    } finally {
+      await Promise.allSettled([a.close(), b.close()]);
+    }
+  }, 20000);
+
+  test("after the commit the controlled agent selects the path the peer renominated last", async () => {
+    // Arrange: answer 前に controlling peer が A=1、B=2、A=3 と再指名し、最後に A を選んでいる。
+    const { a, b, staged, paths } = await createRenominatedBeforeAnswer([
+      { path: 0, value: 1 },
+      { path: 1, value: 2 },
+      { path: 0, value: 3 },
+    ]);
+    try {
+      // Act: a が候補を含まない answer で restart を commit し、先行 check を再生して接続する。
+      await commitRestartWithoutCandidates(a, b, staged);
+      // Act: 再生した両経路の triggered check が終わるまで待つ（先に成功した経路が一時的に選ばれうる）。
+      await waitUntil(
+        () =>
+          a.checkList.length === 2 &&
+          a.checkList.every((p) => p.state === CandidatePairState.SUCCEEDED),
+      );
+
+      // Assert: a は peer が最後に選んだ経路 A を選択する（B=2 で上書きされない）。
+      expect(a.nominated).toBeDefined();
+      expect(a.nominated!.remoteAddr).toEqual(paths[0]);
+      expect(a.nominated!.remoteNomination).toBe(3);
     } finally {
       await Promise.allSettled([a.close(), b.close()]);
     }
