@@ -39,8 +39,9 @@ report (`abnormalExit`). Such a shard runs again alone too.
 ### Baseline comparison
 
 `--baseline <worktree root>` takes the root of another revision checked out
-with `git worktree add --detach <dir> <rev>` (never the active worktree; link
-or install its dependencies). Each confirmed failure (it failed again alone)
+with `git worktree add --detach <dir> <rev>` (never the active worktree, and a
+revision before the change: a commit that contains this worktree's HEAD, the
+same commit or a later one, is rejected; link or install its dependencies). Each confirmed failure (it failed again alone)
 is replayed in the same package of that worktree with the same file, title
 pattern and environment, up to `--baseline-runs` (default 3) times. It is
 **pre-existing** — listed with the baseline's result and left out of the exit
@@ -66,26 +67,40 @@ A failure the baseline passes, or fails in another form, stays confirmed
 the baseline replay re-checks it in every run.
 
 In a shard marked `statistical` (for example the webrtc leak heap slope P3),
-only a failure whose errors are all statistical assertions — the message
-starts with `STATISTICAL_FAILURE_MARKER` — is judged only against a baseline:
-without `--baseline` it is reported as statistical and left out of the exit
-code, and its signature has every number replaced by `<n>`. Any other failure
-of that shard (an operation that threw, a timeout, a hook, an unhandled error,
-a crash) counts as usual. Thresholds are not loosened instead.
+only a failure whose errors are all statistical assertions is judged only
+against a baseline (`isStatisticalError`): a failed `expect` (an
+`AssertionError` reported for the test, without a cause or aggregated errors)
+whose message starts with `STATISTICAL_FAILURE_MARKER` and whose rest matches
+the shard's `statisticalVerdict`, a pattern anchored to that assertion's whole
+message. Without `--baseline` it is reported as statistical and left out of
+the exit code. Any other failure of that shard counts as usual: an operation
+that threw (also an `Error` with the marker's text), a marked assertion that is
+not the verdict, a timeout, a hook, an unhandled error, a crash. Thresholds are
+not loosened instead.
 
-A baseline from before the marker fails the same assertion without it. A shard
-gives `unmarkedStatistical`, a pattern anchored to that assertion's whole
-message; an `AssertionError` without a cause that matches it has the same form
-as the marked one. Another assertion or an operation that threw on the baseline
-does not match, and the pattern never makes a failure of this revision
-statistical.
+With `--baseline`, the signature of a statistical assertion has every number
+replaced by `<n>`, and how far it went past each threshold is compared apart:
+the shard's `statisticalExcess` reads one number per check from the message
+(larger is worse; default: every number in order). The baseline's failure is
+the same only when, check by check, its largest excess over the replays is at
+least this revision's largest, so a heap slope of 400 KiB/cycle is not hidden
+by a baseline's 16.01. An excess that cannot be read (`NaN`) is never the
+same.
+
+A baseline from before the marker fails the same assertion without it: an
+unmarked `AssertionError` without a cause whose whole message matches
+`statisticalVerdict` has the same form as the marked one. Another assertion or
+an operation that threw on the baseline does not match, and an unmarked
+failure of this revision is never statistical.
 
 The output ends with
 `summary: <n> confirmed (exit code), <n> pre-existing (...), <n> flaky (passed alone), <n> statistical (...)`.
 Exit code 1 when a confirmed failure remains, 2 when the baseline cannot be
 used (no package at the same path, not a worktree root (no `.git`), this
 worktree or its package, also through a relative path or a symlink, since a
-checkout compared with itself reports every failure as pre-existing; vitest not
+checkout compared with itself reports every failure as pre-existing; no commit
+git can read in either worktree, or a baseline commit that contains this
+worktree's HEAD, which repeats the change's failures the same way; vitest not
 resolvable) or `--baseline` has
 no path (missing, empty, followed by another option, or written as
 `--baseline=<path>`); in both cases no shard runs.
@@ -101,5 +116,5 @@ one with fixed scenes or other parts gives its own `shards` (see
 - `propertySeeds(prefix, { seeds, steps? })`: `{ seeds, cases, steps, seedSelected, replay, title }`.
 - `propertyOptions(timeout?)`: `{ retry: 0, timeout? }`.
 - `SEED_TITLE_PATTERN`: the vitest `-t` pattern of the seed titles.
-- `STATISTICAL_FAILURE_MARKER`, `isStatisticalError`; type `ReportedError`.
+- `STATISTICAL_FAILURE_MARKER`, `isStatisticalError`, `statisticalMessage`, `statisticalExcess`, `messageNumbers`; type `ReportedError`.
 - `runDeepSearch(config, argv)`, `abnormalExit`, `failureSignature`, `sameFailure`, `baselinePackageDir`, `planDeepSearch`, `seedRanges`, `prefixShards`, `parseDeepArgs`; types `DeepSearchConfig`, `DeepSuite`, `DeepShard`, `DeepContext`.

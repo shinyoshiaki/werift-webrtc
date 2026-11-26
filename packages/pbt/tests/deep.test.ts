@@ -16,6 +16,8 @@ import {
 } from "../src";
 import {
   type Checkout,
+  commitAll,
+  git,
   passingSource,
   rejection,
   runFixtureCli,
@@ -227,7 +229,7 @@ describe("deep search against a baseline", () => {
       },
       baseline: { failing: verdictSource("slope 17.50 KiB/cycle") },
       statistical: ["failing"],
-      unmarkedStatistical: unmarkedVerdict,
+      statisticalVerdict: unmarkedVerdict,
     });
 
     // Assert: 以前からの失敗として終了コード 0。
@@ -267,7 +269,7 @@ describe("deep search against a baseline", () => {
         },
         baseline: { failing: baseline },
         statistical: ["failing"],
-        unmarkedStatistical: unmarkedVerdict,
+        statisticalVerdict: unmarkedVerdict,
       });
 
       // Assert: 確定した失敗のまま終了コード 1。
@@ -282,7 +284,7 @@ describe("deep search against a baseline", () => {
     const { exit } = await runFixtureDeepSearch(["failing"], {
       current: { failing: verdictSource("slope 16.01 KiB/cycle") },
       statistical: ["failing"],
-      unmarkedStatistical: unmarkedVerdict,
+      statisticalVerdict: unmarkedVerdict,
     });
 
     // Assert: 通常の失敗として終了コード 1。
@@ -387,10 +389,37 @@ describe("deep search against a baseline", () => {
       baseline: { failing: slopeSource(17.5) },
     });
 
-    // Assert: 数値だけの違いは同じ形なので以前からの失敗。
+    // Assert: 比較元の方が閾値を大きく超えた数値だけの違いは同じ形なので以前からの失敗。
     expect(repeated.exit).toBe(0);
     expect(repeated.lines).toContain("  pre-existing a failing fixture");
   }, 90_000);
+
+  test("a statistical failure further past the threshold than the baseline's stays confirmed", async () => {
+    // Act: 現行は閾値を大きく超え、比較元は同じ判定がわずかに超えるだけで失敗する。
+    const { exit, lines } = await runFixtureDeepSearch(["failing"], {
+      current: { failing: slopeSource(400) },
+      statistical: ["failing"],
+      baseline: { failing: slopeSource(16.01) },
+    });
+
+    // Assert: 境界付近の既存の失敗では悪化を隠さず、確定した失敗として終了コード 1。
+    expect(exit).toBe(1);
+    expect(lines).toContain("  FAILED a failing fixture");
+  }, 60_000);
+
+  test("a statistical failure whose excess cannot be read stays confirmed", async () => {
+    // Act: 比較元も同じ判定で失敗するが、超過量を読めない statisticalExcess を使う。
+    const { exit, lines } = await runFixtureDeepSearch(["failing"], {
+      current: { failing: slopeSource(16.01) },
+      statistical: ["failing"],
+      statisticalExcess: () => undefined,
+      baseline: { failing: slopeSource(17.5) },
+    });
+
+    // Assert: 比べられない超過量は同じ形とみなさず終了コード 1。
+    expect(exit).toBe(1);
+    expect(lines).toContain("  FAILED a failing fixture");
+  }, 60_000);
 
   test.each([
     {
@@ -424,13 +453,37 @@ describe("deep search against a baseline", () => {
       name: "a killed process",
       source: testSource('process.kill(process.ppid, "SIGKILL");'),
     },
+    {
+      name: "an Error (not an assertion) with the marker's text",
+      source: throwingSource(
+        "a failing fixture",
+        `${STATISTICAL_FAILURE_MARKER} slope 16.01 KiB/cycle`,
+      ),
+    },
+    {
+      name: "an Error named AssertionError with a cause and the marker's text",
+      source: testSource(
+        `const error = new Error(${JSON.stringify(`${STATISTICAL_FAILURE_MARKER} slope 16.01 KiB/cycle`)}, { cause: new Error("the operation failed") });\n  error.name = "AssertionError";\n  throw error;`,
+      ),
+    },
+    {
+      name: "a marked assertion that is not the shard's verdict",
+      source: verdictSource(`${STATISTICAL_FAILURE_MARKER} the session ended`),
+    },
+    {
+      name: "a marked verdict in an unhandled rejection",
+      source: testSource(
+        `void (async () => { ${slopeAssertion(16.01)} })();\n  await new Promise((r) => setTimeout(r, 50));`,
+      ),
+    },
   ])(
     "a statistical shard still fails on $name without a baseline",
     async ({ source }) => {
-      // Act: 統計的な分割で、閾値の判定ではない失敗を起こす。
+      // Act: 統計的な分割で、閾値の判定ではない失敗を起こす (判定の文言は指定する)。
       const { exit, output } = await runFixtureDeepSearch(["failing"], {
         current: { failing: source },
         statistical: ["failing"],
+        statisticalVerdict: /^slope \d+\.\d+ KiB\/cycle/,
       });
 
       // Assert: 通常の失敗として終了コード 1。
@@ -613,6 +666,36 @@ describe("deep search against a baseline", () => {
       },
     },
     {
+      name: "a checkout of this worktree's commit",
+      reason: "contains this worktree's HEAD",
+      baseline: ({ root }: Checkout) => {
+        git(root, "worktree", "add", "-q", "--detach", "same", "HEAD");
+        return join(root, "same");
+      },
+    },
+    {
+      name: "a checkout of a later commit",
+      reason: "contains this worktree's HEAD",
+      baseline: ({ root }: Checkout) => {
+        const later = join(root, "later");
+        git(root, "worktree", "add", "-q", "--detach", "later", "HEAD");
+        writeFileSync(join(later, "after"), "");
+        commitAll(later, "after this worktree's HEAD");
+        return later;
+      },
+    },
+    {
+      name: "a worktree root that git cannot read",
+      reason: "has no commit git can read",
+      baseline: ({ root }: Checkout) => {
+        const fake = join(root, "fake");
+        mkdirSync(join(fake, "deep"), { recursive: true });
+        writeFileSync(join(fake, ".git"), "");
+        writeFileSync(join(fake, "deep", "package.json"), "{}\n");
+        return fake;
+      },
+    },
+    {
       name: "a directory that is not a worktree root",
       reason: "is not a worktree root",
       baseline: ({ root }: Checkout) => {
@@ -639,6 +722,21 @@ describe("deep search against a baseline", () => {
     },
     60_000,
   );
+
+  test("a checkout of the commit before this worktree's HEAD is a baseline", () => {
+    // Act: 現行に 1 commit 足し、その前の commit を比較元として CLI で動かす。
+    const { status, stdout } = runFixtureCli("failing", ({ root }) => {
+      writeFileSync(join(root, "change"), "");
+      commitAll(root, "the change");
+      git(root, "worktree", "add", "-q", "--detach", "before", "HEAD~1");
+      return ["--baseline", join(root, "before"), "--baseline-runs", "1"];
+    });
+
+    // Assert: 変更前の版は比較元として受け付け、同じ失敗を以前からの失敗とする。
+    expect(status).toBe(0);
+    expect(stdout).toContain("  pre-existing a failing fixture");
+    expect(stdout).toMatch(/same failure on .*\/before\/deep at [0-9a-f]{12}/);
+  }, 60_000);
 
   test("a baseline without the package is an error before any shard runs", async () => {
     // Act: パッケージのないディレクトリを比較元に渡す。
@@ -701,6 +799,48 @@ describe("deep search against a baseline", () => {
     // Act / Assert: 比較できる原因がない失敗は同じ形にならない。
     expect(
       sameFailure({ ...failure, forms: [] }, [run("t seed 4", "Error: A")]),
+    ).toBe(false);
+  });
+
+  test("a statistical form is the same only when the baseline went at least as far past each threshold", () => {
+    // Arrange: 2 つの判定 (傾き・最終値) の超過量を持つ統計的な失敗と、比較元の同じ形の実行。
+    const form = "AssertionError: slope <n> and margin <n>";
+    const failure = {
+      id: "heap seed 4",
+      kind: "test" as const,
+      forms: [form],
+      excess: { [form]: [10, 2] },
+    };
+    const run = (excess?: number[]) => ({
+      failed: [
+        {
+          id: "heap seed 4",
+          title: "",
+          signature: form,
+          statistical: true,
+          excess,
+        },
+      ],
+      outside: [],
+      signal: null,
+      reported: true,
+    });
+
+    // Act / Assert: どちらの判定も比較元が同じかそれ以上に超えていれば同じ形。
+    expect(sameFailure(failure, [run([10, 5])])).toBe(true);
+    // Act / Assert: 片方でも比較元の超過量が小さければ同じ形ではない。
+    expect(sameFailure(failure, [run([30, 1])])).toBe(false);
+    // Act / Assert: 複数回の再生では判定ごとの最大で比べる。
+    expect(sameFailure(failure, [run([30, 1]), run([1, 5])])).toBe(true);
+    // Act / Assert: 超過量を読めない (NaN・なし・判定の数が違う) 比較元は同じ形ではない。
+    expect(sameFailure(failure, [run([Number.NaN, 5])])).toBe(false);
+    expect(sameFailure(failure, [run()])).toBe(false);
+    expect(sameFailure(failure, [run([30])])).toBe(false);
+    // Act / Assert: 現行の超過量を読めなければ同じ形ではない。
+    expect(
+      sameFailure({ ...failure, excess: { [form]: [Number.NaN, 2] } }, [
+        run([30, 5]),
+      ]),
     ).toBe(false);
   });
 

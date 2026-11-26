@@ -55,15 +55,51 @@ export const rejection = (message: string) =>
 export type Checkout = { root: string; dir: string };
 
 /**
+ * `git <args>` in `dir`, without the user's identity, signing or hooks;
+ * throws when it fails.
+ */
+export function git(dir: string, ...args: string[]) {
+  const result = spawnSync(
+    "git",
+    [
+      "-C",
+      dir,
+      "-c",
+      "user.name=pbt",
+      "-c",
+      "user.email=pbt@example.invalid",
+      "-c",
+      "commit.gpgsign=false",
+      "-c",
+      "core.hooksPath=/dev/null",
+      ...args,
+    ],
+    { encoding: "utf8" },
+  );
+  if (result.status !== 0) {
+    throw new Error(`git ${args.join(" ")} failed: ${result.stderr}`);
+  }
+  return result.stdout.trim();
+}
+
+/** Commit every file of the checkout at `root` with `message`. */
+export function commitAll(root: string, message: string) {
+  git(root, "add", "-A");
+  git(root, "commit", "-q", "--allow-empty", "-m", message);
+}
+
+/**
  * A temporary worktree (inside the package, so the fixtures resolve vitest
- * from the same node_modules): its root holds a `.git` marker and the fixtures
- * in `deep/`, with `overrides` replacing fixture files.
+ * from the same node_modules): a git repository of its own with one commit,
+ * holding the fixtures in `deep/`, with `overrides` replacing fixture files.
+ * Each one is another repository with its own commit, so none contains the
+ * commit of another.
  */
 function makeWorktree(overrides: FixtureSources) {
   const root = mkdtempSync(join(__dirname, "fixtures", ".worktree-"));
   const dir = join(root, "deep");
   mkdirSync(dir);
-  writeFileSync(join(root, ".git"), "");
+  git(root, "init", "-q");
   // フィクスチャと vitest の設定だけを写す (vitest のキャッシュは写さない)。
   for (const file of readdirSync(fixtureDir).filter((f) => /\.m?ts$/.test(f))) {
     cpSync(join(fixtureDir, file), join(dir, file));
@@ -73,6 +109,8 @@ function makeWorktree(overrides: FixtureSources) {
   for (const [name, source] of Object.entries(overrides)) {
     writeFileSync(join(dir, `${name}.fixture.ts`), source);
   }
+  // 同じフィクスチャでも別の commit にする (同じ内容・時刻の commit は同じ hash になる)。
+  commitAll(root, `fixtures of ${root}`);
   return { root, dir };
 }
 
@@ -83,7 +121,7 @@ function makeWorktree(overrides: FixtureSources) {
  * `current` replaces fixture files. `baseline` creates a second one and passes
  * it with `--baseline` (`--baseline-runs 1` unless `argv` sets it);
  * `statistical` marks fixtures whose shard is statistical, and every shard gets
- * `unmarkedStatistical`.
+ * `statisticalVerdict` and `statisticalExcess`.
  */
 export async function runFixtureDeepSearch(
   fixtures: DeepFixture[],
@@ -91,13 +129,15 @@ export async function runFixtureDeepSearch(
     current = {},
     baseline,
     statistical = [],
-    unmarkedStatistical,
+    statisticalVerdict,
+    statisticalExcess,
     argv = [],
   }: {
     current?: FixtureSources;
     baseline?: FixtureSources;
     statistical?: DeepFixture[];
-    unmarkedStatistical?: RegExp;
+    statisticalVerdict?: RegExp;
+    statisticalExcess?: (message: string) => number[] | undefined;
     argv?: string[];
   } = {},
 ) {
@@ -115,7 +155,8 @@ export async function runFixtureDeepSearch(
               file: `${name}.fixture.ts`,
               env: {},
               statistical: statistical.includes(name),
-              unmarkedStatistical,
+              statisticalVerdict,
+              statisticalExcess,
             },
           ],
         },

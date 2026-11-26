@@ -17,11 +17,13 @@
  *   simulcastRtx tests/pbt/simulcastRtx/simulcastRtxProperty.test.ts, 300 seeds x 300 steps
  *
  *   npm run pbt:deep -- --suite twcc,bwe,sender,receiver,simulcastRtx
- * The heap slope verdict of P3 is statistical (`DeepShard.statistical` and
- * `STATISTICAL_FAILURE_MARKER`): its failure counts in the exit code only when
- * the `--baseline` revision does not fail the same way; without `--baseline`
- * it is reported as statistical. Other failures of P3 (an operation that
- * threw, a timeout, a crash) and P1 / P2 always count.
+ * The heap slope verdict of P3 is statistical (`DeepShard.statistical`, the
+ * `expect` marked with `STATISTICAL_FAILURE_MARKER` whose message matches
+ * `HEAP_VERDICT`): its failure counts in the exit code only when the
+ * `--baseline` revision does not fail the same verdict at least as far past
+ * its thresholds (`heapVerdictExcess`); without `--baseline` it is reported
+ * as statistical. Other failures of P3 (an operation that threw, a timeout, a
+ * crash) and P1 / P2 always count.
  *
  * Before review, compare with develop so failures develop also has are
  * reported as pre-existing instead of failing the run:
@@ -41,13 +43,48 @@ const margin = String.raw`final median ${bytes} exceeds baseline ${bytes} \+ mar
 
 /**
  * The whole message of the P3 heap verdict without
- * `STATISTICAL_FAILURE_MARKER`, as a `--baseline` revision from before the
- * marker fails it: the cycle's templates, a reason of `detectLeak`
- * (tests/memleak) and `toBe(false)`.
+ * `STATISTICAL_FAILURE_MARKER` (`DeepShard.statisticalVerdict`): the cycle's
+ * templates, a reason of `detectLeak` (tests/memleak) and `toBe(false)`. A
+ * marked failure of this revision is statistical only when the rest matches
+ * it, and a `--baseline` revision from before the marker fails it in this
+ * form without the marker.
  */
-export const UNMARKED_HEAP_VERDICT = new RegExp(
+export const HEAP_VERDICT = new RegExp(
   String.raw`^\[.*\]: (?:${slope}(?: and ${margin})?|${margin}): expected true to be false // Object\.is equality$`,
 );
+
+const unit = { B: 1, KiB: 1024, MiB: 1024 * 1024 } as const;
+const toBytes = (value: string, name: string) =>
+  Number(value) * unit[name as keyof typeof unit];
+const amount = String.raw`(-?\d+(?:\.\d+)?) (B|KiB|MiB)`;
+
+/**
+ * How far a heap verdict (`HEAP_VERDICT`) went past its thresholds, in bytes
+ * (`DeepShard.statisticalExcess`): the slope over its threshold and the final
+ * median over baseline + margin, for each check the reason names. A
+ * `--baseline` failure of the same verdict hides this one only when neither
+ * is smaller there.
+ */
+export function heapVerdictExcess(message: string) {
+  const excess: number[] = [];
+  const s = message.match(
+    new RegExp(
+      String.raw`slope ${amount}/cycle \(R²=[^)]*\) exceeds ${amount}/cycle`,
+    ),
+  );
+  if (s) excess.push(toBytes(s[1], s[2]) - toBytes(s[3], s[4]));
+  const m = message.match(
+    new RegExp(
+      String.raw`final median ${amount} exceeds baseline ${amount} \+ margin ${amount}`,
+    ),
+  );
+  if (m) {
+    excess.push(
+      toBytes(m[1], m[2]) - toBytes(m[3], m[4]) - toBytes(m[5], m[6]),
+    );
+  }
+  return excess.length > 0 ? excess : undefined;
+}
 
 const config: DeepSearchConfig = {
   defaultSuites: ["fuzz", "scenario", "model", "leak"],
@@ -96,7 +133,8 @@ const config: DeepSearchConfig = {
               WERIFT_NEGOTIATION_LEAK_HEAP: "1",
             },
             statistical: true,
-            unmarkedStatistical: UNMARKED_HEAP_VERDICT,
+            statisticalVerdict: HEAP_VERDICT,
+            statisticalExcess: heapVerdictExcess,
           })),
         ];
       },

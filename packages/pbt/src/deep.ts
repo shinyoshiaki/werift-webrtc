@@ -21,7 +21,8 @@
  * Baseline comparison (`--baseline <worktree root>`): the root of another
  * revision checked out with `git worktree add --detach <dir> <rev>` (never the
  * active worktree, which is rejected before anything runs, as is a directory
- * that is not a worktree root; its dependencies installed or linked as for
+ * that is not a worktree root and a checkout whose commit contains this
+ * worktree's HEAD; its dependencies installed or linked as for
  * `tools/negotiation-diff`). Every confirmed failure is replayed in the same
  * package of that worktree with the same file, title pattern and environment,
  * up to `--baseline-runs` (default 3) times. It is pre-existing, reported and
@@ -42,12 +43,17 @@
  *
  * Statistical failures: in a shard marked `DeepShard.statistical` (e.g. the
  * heap slope P3 of the webrtc leak property), a test failure whose errors are
- * all statistical assertions (`STATISTICAL_FAILURE_MARKER`) is judged only
- * against a baseline: without `--baseline` a confirmed one is reported as
- * statistical and left out of the exit code; with it, it is compared like any
- * other failure (a baseline from before the marker matches through
- * `DeepShard.unmarkedStatistical`). Every other failure of such a shard (an operation that
- * threw, a timeout, a hook, an unhandled error, a crash) is a normal failure.
+ * all statistical assertions is judged only against a baseline: failed
+ * `expect`s (`AssertionError`, no cause) whose message starts with
+ * `STATISTICAL_FAILURE_MARKER` and whose rest matches the shard's
+ * `DeepShard.statisticalVerdict` (`isStatisticalError`). Without `--baseline`
+ * a confirmed one is reported as statistical and left out of the exit code;
+ * with it, it is compared like any other failure (a baseline from before the
+ * marker matches through `statisticalVerdict`), and the baseline must also
+ * have gone at least as far past each threshold (`DeepShard.statisticalExcess`),
+ * so a larger measurement is not hidden by a borderline one. Every other
+ * failure of such a shard (an operation that threw, also with the marker's
+ * text, a timeout, a hook, an unhandled error, a crash) is a normal failure.
  *
  * The output ends with `summary:` (confirmed / pre-existing / flaky /
  * statistical). Exit code 1 when a confirmed failure remains, 2 when
@@ -60,7 +66,7 @@
  * file also has fixed scenes or other shards gives its own `shards`. Every
  * shard is its own vitest process running one file with `--retry=0`.
  */
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   existsSync,
   mkdtempSync,
@@ -77,6 +83,7 @@ import {
   failureSignature,
   isStatisticalError,
   type ReportedError,
+  statisticalExcess,
   testSignature,
 } from "./failureForm";
 import { SEED_TITLE_PATTERN } from "./seeds";
@@ -89,18 +96,28 @@ export type DeepShard = {
   env: NodeJS.ProcessEnv;
   /**
    * The shard has a statistical check (for example a heap slope against a
-   * threshold) whose assertion message starts with
+   * threshold) whose `expect` message starts with
    * `STATISTICAL_FAILURE_MARKER`. A failure of that assertion confirmed alone
-   * is judged only against `--baseline`; without it, it is reported as
+   * (`isStatisticalError`: a failed `expect`, not an `Error` with the marker's
+   * text) is judged only against `--baseline`; without it, it is reported as
    * statistical and left out of the exit code. Other failures count as usual.
    */
   statistical?: boolean;
   /**
-   * The whole message of the statistical assertion as a revision from before
-   * the marker writes it, anchored to that one assertion: such a failure on a
-   * `--baseline` has the same form as the marked one here.
+   * The whole message of the statistical assertion without the marker,
+   * anchored to that one assertion. A marked failure of this revision whose
+   * rest does not match it is a normal failure; an unmarked one of a
+   * `--baseline` from before the marker that matches it has the same form as
+   * the marked one here.
    */
-  unmarkedStatistical?: RegExp;
+  statisticalVerdict?: RegExp;
+  /**
+   * How far a message of the statistical assertion (without the marker) went
+   * past its thresholds, one number per check, larger is worse (default: every
+   * number of the message in order). A baseline's failure is the same only
+   * when none of these is smaller than here (`statisticalExcess`).
+   */
+  statisticalExcess?: (message: string) => number[] | undefined;
 };
 
 /** What a suite's `shards` may read: the command-line options of the run. */
@@ -266,6 +283,8 @@ type Failure = {
   uncomparable?: string;
   /** Every observed run failed only statistical assertions. */
   statistical: boolean;
+  /** Per statistical form, the largest `statisticalExcess` observed on this revision. */
+  excess?: Record<string, number[]>;
   /** What the baseline did when this failure was replayed there. */
   baseline?: string;
 };
@@ -278,6 +297,8 @@ type TestFailure = {
   signature?: string;
   /** Whether every error is a statistical assertion. */
   statistical: boolean;
+  /** `statisticalExcess` of its errors (undefined: not all statistical). */
+  excess?: number[];
 };
 
 /** One vitest process: its tests by status and how it ended. */
@@ -342,14 +363,25 @@ function outsideProblem(run: ShardRun) {
   return explained ? undefined : { reason, forms: [], uncomparable: reason };
 }
 
+/** The largest value of each position, or undefined when the lengths differ. */
+function largest(values: number[][]) {
+  const [first, ...rest] = values;
+  if (!first || rest.some((v) => v.length !== first.length)) return undefined;
+  return first.map((n, i) => Math.max(n, ...rest.map((v) => v[i])));
+}
+
 /**
  * Whether replays on the baseline reproduced `failure`: every form observed on
  * this revision appeared in one of `runs`, as errors of the same test (by full
  * name) or, for errors outside the tests, among the baseline's errors outside
- * the tests. False for a failure without a comparable cause.
+ * the tests. A statistical form (`Failure.excess`) also needs the baseline to
+ * have gone at least as far past each threshold as this revision did (the
+ * largest excess of its same-form failures, position by position), so a worse
+ * measurement is not hidden by a borderline one. False for a failure without
+ * a comparable cause.
  */
 export function sameFailure(
-  failure: Pick<Failure, "id" | "kind" | "forms" | "uncomparable">,
+  failure: Pick<Failure, "id" | "kind" | "forms" | "uncomparable" | "excess">,
   runs: Pick<ShardRun, "failed" | "outside" | "signal" | "reported">[],
 ) {
   if (
@@ -359,22 +391,52 @@ export function sameFailure(
   ) {
     return false;
   }
-  return failure.forms.every((form) =>
-    runs.some((run) =>
-      failure.kind === "test"
-        ? run.failed.some((t) => t.id === failure.id && t.signature === form)
-        : run.reported && !run.signal && run.outside.includes(form),
-    ),
-  );
+  return failure.forms.every((form) => {
+    if (failure.kind !== "test") {
+      return runs.some(
+        (run) => run.reported && !run.signal && run.outside.includes(form),
+      );
+    }
+    const same = runs.flatMap((run) =>
+      run.failed.filter((t) => t.id === failure.id && t.signature === form),
+    );
+    if (same.length === 0) return false;
+    const here = failure.excess?.[form];
+    if (!here) return true;
+    const there = largest(same.flatMap((t) => (t.excess ? [t.excess] : [])));
+    return (
+      there !== undefined &&
+      there.length === here.length &&
+      here.every((n, i) => n <= there[i])
+    );
+  });
 }
 
-/** Add the forms one more run showed to `failure`. */
+/** Add the forms (and the excess of statistical forms) one more run showed to `failure`. */
 function addForms(
   failure: Failure,
-  { forms, uncomparable }: { forms: string[]; uncomparable?: string },
+  {
+    forms,
+    uncomparable,
+    excess,
+  }: {
+    forms: string[];
+    uncomparable?: string;
+    excess?: Record<string, number[]>;
+  },
 ) {
   failure.forms = [...new Set([...failure.forms, ...forms])];
   failure.uncomparable ??= uncomparable;
+  for (const [form, value] of Object.entries(excess ?? {})) {
+    const seen = failure.excess?.[form];
+    const worst = seen ? largest([seen, value]) : value;
+    if (!worst) {
+      failure.uncomparable ??=
+        "a statistical form was measured with different checks";
+      continue;
+    }
+    failure.excess = { ...failure.excess, [form]: worst };
+  }
 }
 
 /** What one run of a failed test adds to its failure. */
@@ -383,6 +445,10 @@ const observed = (test: TestFailure) => ({
   uncomparable:
     test.signature === undefined
       ? "the test failed without an error message"
+      : undefined,
+  excess:
+    test.signature !== undefined && test.excess
+      ? { [test.signature]: test.excess }
       : undefined,
 });
 
@@ -423,7 +489,7 @@ const passedCleanly = (result: ShardRun) =>
   !outsideProblem(result);
 
 /** A package of one revision: its directory, its worktree root and its vitest. */
-type Target = { cwd: string; root: string; vitest: string };
+type Target = { cwd: string; root: string; vitest: string; commit?: string };
 
 /** The nearest directory from `cwd` up with a `.git` entry. */
 function worktreeRoot(cwd: string) {
@@ -449,13 +515,29 @@ export function baselinePackageDir(baselineRoot: string, cwd: string) {
   );
 }
 
+/** `git -C <dir> <args>`: the exit status and the trimmed output. */
+function git(dir: string, args: string[]) {
+  const { status, stdout } = spawnSync("git", ["-C", dir, ...args], {
+    encoding: "utf8",
+  });
+  return { status, out: status === 0 ? stdout.trim() : undefined };
+}
+
+/** The commit checked out in `dir`, or undefined when git cannot read one. */
+const headCommit = (dir: string) =>
+  git(dir, ["rev-parse", "--verify", "HEAD^{commit}"]).out;
+
 /**
  * Why the package `baselineCwd` of `baselineRoot` cannot be the baseline of
  * the package `cwd`, or undefined when it can. This checkout compared with
  * itself would repeat every failure and report it as pre-existing, so the
  * baseline must be the root of another worktree whose package is another
  * directory; real paths are compared, so a relative path or a symlink to this
- * checkout is the same one.
+ * checkout is the same one. Another checkout of this revision repeats them
+ * too, so the baseline's commit must not contain this worktree's HEAD (the
+ * same commit or a later one): only a revision before the change, such as
+ * develop, can show that a failure was there before it. Both must be git
+ * checkouts with a commit, or this cannot be checked.
  */
 function baselineError(baselineRoot: string, baselineCwd: string, cwd: string) {
   if (!existsSync(join(baselineCwd, "package.json"))) {
@@ -469,6 +551,22 @@ function baselineError(baselineRoot: string, baselineCwd: string, cwd: string) {
   }
   if (realpathSync(baselineCwd) === realpathSync(cwd)) {
     return `${baselineCwd} is the package of this worktree (the baseline needs its own checkout of the package)`;
+  }
+  const root = worktreeRoot(cwd);
+  const head = headCommit(root);
+  if (!head) {
+    return `the commit of this worktree (${root}) cannot be read with git, so the baseline cannot be checked to be an earlier revision`;
+  }
+  const baselineHead = headCommit(baselineRoot);
+  if (!baselineHead) {
+    return `${resolvePath(baselineRoot)} has no commit git can read (make it with git worktree add --detach <dir> <rev>)`;
+  }
+  // 0: HEAD は比較元の祖先 (同じ commit を含む)。1: 祖先でない。128: 比較元にない commit。
+  if (
+    git(baselineRoot, ["merge-base", "--is-ancestor", head, baselineHead])
+      .status === 0
+  ) {
+    return `${resolvePath(baselineRoot)} is at ${baselineHead.slice(0, 12)}, which contains this worktree's HEAD ${head.slice(0, 12)}, so the changes would be compared with themselves (check out the revision before them, e.g. develop)`;
   }
   return undefined;
 }
@@ -530,6 +628,7 @@ export async function runDeepSearch(
         cwd: baselineCwd,
         root: resolvePath(baselineRoot),
         vitest: vitestEntry(baselineCwd),
+        commit: headCommit(baselineRoot),
       };
     } catch {
       console.error(
@@ -602,10 +701,18 @@ export async function runDeepSearch(
                 signature: testSignature(
                   t.errors,
                   target.root,
-                  shard.unmarkedStatistical,
+                  shard.statisticalVerdict,
                 ),
                 statistical:
-                  t.errors.length > 0 && t.errors.every(isStatisticalError),
+                  t.errors.length > 0 &&
+                  t.errors.every((error) =>
+                    isStatisticalError(error, shard.statisticalVerdict),
+                  ),
+                excess: statisticalExcess(
+                  t.errors,
+                  shard.statisticalVerdict,
+                  shard.statisticalExcess,
+                ),
               })),
             outside: report.outside.map((error) =>
               failureSignature(error, target.root),
@@ -844,7 +951,7 @@ export async function runDeepSearch(
   );
   console.log(
     `summary: ${totals.confirmed} confirmed (exit code), ` +
-      `${totals.preExisting} pre-existing (${baseline ? `same failure on ${baseline.cwd}` : "no --baseline"}), ` +
+      `${totals.preExisting} pre-existing (${baseline ? `same failure on ${baseline.cwd} at ${baseline.commit?.slice(0, 12)}` : "no --baseline"}), ` +
       `${totals.flaky} flaky (passed alone), ` +
       `${totals.statistical} statistical (not judged without --baseline)`,
   );

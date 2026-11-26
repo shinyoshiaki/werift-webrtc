@@ -15,8 +15,11 @@ export {
 export {
   failureSignature,
   isStatisticalError,
+  messageNumbers,
   type ReportedError,
   STATISTICAL_FAILURE_MARKER,
+  statisticalExcess,
+  statisticalMessage,
 } from "./failureForm";
 export { type SeededRandom, seededRandom } from "./random";
 export {
