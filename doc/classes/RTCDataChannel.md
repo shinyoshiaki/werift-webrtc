@@ -44,15 +44,16 @@
 
 ## Properties
 
-### bufferedAmount
-
-> **bufferedAmount**: `number` = `0`
-
-***
-
 ### bufferedAmountLow
 
 > `readonly` **bufferedAmountLow**: [`Event`](Event.md)\<`any`[]\>
+
+W3C `bufferedamountlow`.
+
+#### See
+
+ - tests/datachannel/bufferedAmount.test.ts "bufferedamountlow fires once per downward crossing, through every notification"
+ - tests/datachannel/bufferedAmount.test.ts "pc.close() keeps bufferedAmount and fires no bufferedamountlow"
 
 ***
 
@@ -114,15 +115,36 @@
 
 ***
 
+### onbufferedamountlow?
+
+> `optional` **onbufferedamountlow?**: `EventHandler`\<`Event`\>
+
+W3C `onbufferedamountlow`.
+
+#### See
+
+ - tests/datachannel/bufferedAmount.test.ts "bufferedamountlow fires once per downward crossing, through every notification"
+ - tests/datachannel/bufferedAmount.test.ts "onbufferedamountlow receives the same Event object as the bufferedamountlow listeners"
+
+***
+
 ### onclose?
 
-> `optional` **onclose?**: `Callback`
+> `optional` **onclose?**: `EventHandler`\<`Event`\>
+
+#### See
+
+tests/datachannel/bufferedAmount.test.ts "every event handler receives the same Event object as the listeners"
 
 ***
 
 ### onclosing?
 
-> `optional` **onclosing?**: `Callback`
+> `optional` **onclosing?**: `EventHandler`\<`Event`\>
+
+#### See
+
+tests/datachannel/bufferedAmount.test.ts "every event handler receives the same Event object as the listeners"
 
 ***
 
@@ -146,7 +168,11 @@
 
 ### onopen?
 
-> `optional` **onopen?**: `Callback`
+> `optional` **onopen?**: `EventHandler`\<`Event`\>
+
+#### See
+
+tests/datachannel/bufferedAmount.test.ts "every event handler receives the same Event object as the listeners"
 
 ***
 
@@ -291,11 +317,42 @@ v13.6.0, v12.17.0
 
 ## Accessors
 
+### bufferedAmount
+
+#### Get Signature
+
+> **get** **bufferedAmount**(): `number`
+
+W3C webrtc-pc `bufferedAmount`.
+
+##### See
+
+ - tests/datachannel/bufferedAmount.test.ts "is read-only"
+ - tests/datachannel/bufferedAmount.test.ts "send() adds the UTF-8 byte length synchronously"
+ - tests/datachannel/bufferedAmount.test.ts "with loss every message arrives and bufferedAmount reaches 0 before the ACK"
+ - tests/datachannel/bufferedAmount.test.ts "messages abandoned by maxPacketLifeTime before they were sent are subtracted and notified"
+ - tests/datachannel/bufferedAmount.test.ts "close() does not decrease bufferedAmount immediately; it drains while closing"
+ - tests/datachannel/bufferedAmount.test.ts "pc.close() keeps bufferedAmount and fires no bufferedamountlow"
+ - tests/transport/sctp.test.ts "stop discards unsent messages and keeps them in bufferedAmount"
+
+##### Returns
+
+`number`
+
+***
+
 ### bufferedAmountLowThreshold
 
 #### Get Signature
 
 > **get** **bufferedAmountLowThreshold**(): `number`
+
+W3C webrtc-pc `bufferedAmountLowThreshold`.
+
+##### See
+
+ - tests/datachannel/bufferedAmount.test.ts "a threshold reached exactly notifies once; a threshold raised above the amount does not notify"
+ - tests/datachannel/bufferedAmount.test.ts "bufferedAmountLowThreshold defaults to 0 and accepts only 0..2^32-1"
 
 ##### Returns
 
@@ -423,22 +480,6 @@ v13.6.0, v12.17.0
 
 ***
 
-### addBufferedAmount()
-
-> **addBufferedAmount**(`amount`): `void`
-
-#### Parameters
-
-##### amount
-
-`number`
-
-#### Returns
-
-`void`
-
-***
-
 ### addEventListener()
 
 > **addEventListener**(`type`, `listener`, `options?`): `void`
@@ -507,9 +548,18 @@ v0.1.26
 
 > **close**(): `void`
 
+Start the closing procedure (W3C webrtc-pc, RFC 8831 6.7).
+
 #### Returns
 
 `void`
+
+#### See
+
+ - tests/datachannel/closeDelivery.test.ts "close() right after a burst (%o): every message arrives in order before close fires on the sender"
+ - tests/datachannel/closeDelivery.test.ts "messages sent before close() while connecting reach the peer, then both ends close"
+ - tests/datachannel/closeDelivery.test.ts "pc.close() before the association is established closes the channel and drops its messages"
+ - tests/datachannel/closeDelivery.test.ts "an in-band channel closed before its DATA_CHANNEL_OPEN is sent closes at once and sends nothing"
 
 ***
 
@@ -1258,6 +1308,9 @@ v0.1.26
 
 > **send**(`data`): `void`
 
+Queue a message. While `connecting` it waits until the channel can send
+(werift convenience; W3C throws).
+
 #### Parameters
 
 ##### data
@@ -1267,6 +1320,18 @@ v0.1.26
 #### Returns
 
 `void`
+
+#### Throws
+
+Error when the message is larger than the peer's max-message-size.
+
+#### See
+
+ - tests/datachannel/closeDelivery.test.ts "messages sent before close() while connecting reach the peer, then both ends close"
+ - tests/datachannel/bufferedAmount.test.ts "send() adds the UTF-8 byte length synchronously"
+ - tests/datachannel/bufferedAmount.test.ts "send() on a closing or closed channel is ignored"
+ - tests/datachannel/bufferedAmount.test.ts "empty string and empty Buffer arrive in order, bufferedAmount stays 0, stats count them"
+ - tests/integrate/peerConnection.test.ts "respects remote max-message-size advertised in answer"
 
 ***
 
@@ -1325,7 +1390,7 @@ v0.3.5
 
 ### setReadyState()
 
-> **setReadyState**(`state`): `void`
+> **setReadyState**(`state`, `__namedParameters?`): `void`
 
 Internal. Every listener is isolated (DOM event semantics).
 
@@ -1335,12 +1400,19 @@ Internal. Every listener is isolated (DOM event semantics).
 
 [`DCState`](../type-aliases/DCState.md)
 
+##### \_\_namedParameters?
+
+###### notifyClosing?
+
+`boolean` = `true`
+
 #### Returns
 
 `void`
 
 #### See
 
+ - tests/datachannel/closeDelivery.test.ts "closing fires on the end the peer closed, not on the end calling close()"
  - tests/issue/815.test.ts "a throwing close listener of a registered channel skips no listener, channel or teardown"
  - tests/issue/815.test.ts "pc.close() closes every pending channel even if a close listener throws"
 

@@ -183,6 +183,11 @@
       ]
     },
     {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "enabled": true,
+      "reason": "bufferedAmount / bufferedamountlow follow W3C webrtc-pc: empty messages add nothing, close() does not drop it at once and data thrown away unsent by pc.close() is never subtracted. Gates the subtests that pass in every full run (wpt/baseline.json); the Blob subtests stay open."
+    },
+    {
       "file": "webrtc/RTCDataChannel-close.html",
       "enabled": true,
       "reason": "Gates the subtests that pass in every full run (wpt/baseline.json); the rest stays open: deferred until the close path matches the upstream RTCDataChannel timing and event semantics."
