@@ -13,6 +13,7 @@ export {
   dataChunkBookSize,
   maxPayloadSizeForMtu,
   SCTP,
+  SctpSendResult,
   SCTPSendPermissionRevokedError,
   validateSctpMtu,
 } from "./sctp";
