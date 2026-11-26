@@ -1118,9 +1118,10 @@ export class RTCSctpTransport {
   // not leak into a later one. User messages are dropped: a closing / closed
   // channel keeps them in bufferedAmount (never sent, see dropQueuedMessages),
   // a channel that outlives the transport (rollback) releases them without
-  // bufferedamountlow (releaseDiscardedBufferedAmount); DATA_CHANNEL_OPEN is kept only for channels still alive, so
-  // a channel that outlives the transport (e.g. rollback) can be announced,
-  // while closed channels and stale ACKs go.
+  // bufferedamountlow (releaseDiscardedBufferedAmount). DATA_CHANNEL_OPEN is
+  // kept only for channels still alive, so a channel that outlives the
+  // transport (e.g. rollback) can be announced, while closed channels and
+  // stale ACKs go.
   private discardUnsentMessages(closingChannels: boolean) {
     const kept = new FifoQueue<[RTCDataChannel, number, Buffer]>();
     for (const item of this.dataChannelQueue.toArray()) {

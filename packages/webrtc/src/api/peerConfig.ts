@@ -311,7 +311,8 @@ export interface PeerConfig {
    *
    * Another value is a `TypeError`. `setConfiguration()` may change it; the
    * new value applies to channels created afterwards, and an existing
-   * channel changes with its own `binaryType` setter.
+   * channel changes with its own `binaryType` setter. Not a compatibility
+   * option: `compatibility: "standard"` leaves it unchanged.
    */
   dataChannelBinaryType: RTCDataChannelBinaryType;
   /**
@@ -419,8 +420,9 @@ export interface PeerConfig {
    * // certificateScope is "process", the others are "standard"
    * ```
    *
-   * It does not change `iceServers` / `iceUseDefaultStunServer`, which are not
-   * compatibility options.
+   * It does not change `iceServers` / `iceUseDefaultStunServer` /
+   * `dataChannelBinaryType`, which are not compatibility options.
+   * @see tests/datachannel/binaryType.test.ts "compatibility: standard does not change dataChannelBinaryType (not a compatibility option)"
    */
   compatibility: CompatibilityPreset | undefined;
 }

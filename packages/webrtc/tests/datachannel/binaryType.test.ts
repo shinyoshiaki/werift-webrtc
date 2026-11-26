@@ -65,6 +65,22 @@ describe("datachannel/binaryType: defaults", () => {
     },
   );
 
+  test("compatibility: standard does not change dataChannelBinaryType (not a compatibility option)", async () => {
+    // Act: compatibility プリセットだけを指定して channel を作る
+    const pc = new RTCPeerConnection({ compatibility: "standard" });
+
+    try {
+      const channel = pc.createDataChannel("preset");
+
+      // Assert: プリセットは互換性オプションだけを変え、binaryType は werift 既定の nodebuffer のまま
+      expect(pc.getConfiguration().certificateScope).toBe("standard");
+      expect(pc.getConfiguration().dataChannelBinaryType).toBe("nodebuffer");
+      expect(channel.binaryType).toBe("nodebuffer");
+    } finally {
+      await pc.close();
+    }
+  });
+
   test("setConfiguration() applies to channels created afterwards only", async () => {
     // Arrange: 既定 (nodebuffer) で開いた channel
     const pair = await openDataChannelPair();

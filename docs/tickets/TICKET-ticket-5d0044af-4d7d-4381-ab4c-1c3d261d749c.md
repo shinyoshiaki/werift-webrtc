@@ -120,6 +120,7 @@ if (channel.onmessage) channel.onmessage({ data: msg });
 - リモート作成チャネルにも既定を効かせる経路が要る。チャネル生成後にハンドラで書き換える方式だと、`ondatachannel` 前後のタイミングに依存する。生成時に `RTCSctpTransport` が持つ既定を渡す config キーなら、両経路を一律に扱える。
 - 非標準 config キーには `bandwidthEstimator` / `filterProbePaddingOnReceiveRtp` / `mLineReuse` の前例がある。isomorphic なコードを書く Node 利用者も、コアのまま `"arraybuffer"` を選べる。
 - コア既定を将来 `"arraybuffer"` に切り替えるかは本チケットの範囲外とする。切り替えるなら別チケットで、メジャー相当の告知を伴って行う。
+- develop で追加された `compatibility: "standard"` プリセット（v0.28.0 でリリース済み）は `dataChannelBinaryType` を変えない。互換性オプション（`CompatibilityOptionValues`）は `"standard"` と werift 独自値の 2 値で構成される。3 値の `dataChannelBinaryType` はこの構成に合わず、`iceServers` / `iceUseDefaultStunServer` と同じく互換性オプションではない。プリセットに含めると、リリース済みのプリセット利用者の受信データが `Buffer` から `ArrayBuffer` に無言で変わる。ブラウザ互換の構成は README・WPT runner（`browserConfig.ts`）と同じく、`dataChannelBinaryType: "arraybuffer"` を明示して作る。`PeerConfig.compatibility` の TSDoc と `tests/datachannel/binaryType.test.ts` の "compatibility: standard does not change dataChannelBinaryType (not a compatibility option)" にこの判断を記録する。
 
 **型互換への影響**: werift の `binaryType` 型は `"nodebuffer"` を含むため、lib.dom の `RTCDataChannel.binaryType`（`BinaryType`）へは代入できない。逆方向（DOM の値 → werift）は代入できる。`werift/polyfill/dom` 利用者はグローバルを DOM 型で見るので影響を受けない。この非対称は `docs/browser-api-compatibility.md` に明記する。
 
