@@ -2,9 +2,10 @@ import { readFileSync } from "fs";
 import { setImmediate as waitImmediate } from "timers/promises";
 import { setFlagsFromString } from "v8";
 import { expect, type Mock, vi } from "vitest";
+
 import { runInNewContext } from "vm";
 
-import { SCTP, SCTP_STATE } from "../src";
+import { SCTP, SCTP_STATE, SCTPSendPermissionRevokedError } from "../src";
 import {
   type Chunk,
   CookieEchoChunk,
@@ -27,6 +28,147 @@ import type { Transport } from "../src/transport";
 
 export function load(name: string) {
   return readFileSync("./tests/data/" + name);
+}
+
+/**
+ * Arrange: transport whose sends can be held open or made to fail, so tests
+ * can interleave cancellation with an in-flight chunk.
+ */
+export function createControlledTransport() {
+  const sent: Buffer[] = [];
+  let hold: Promise<void> | undefined;
+  let release = () => {};
+  let failSends: "loss" | "revoked" | undefined;
+  const transport: Transport = {
+    send: async (data: Buffer) => {
+      if (failSends === "revoked") {
+        throw new SCTPSendPermissionRevokedError("transport rejected");
+      }
+      if (failSends === "loss") throw new Error("transport rejected");
+      sent.push(data);
+      if (hold) await hold;
+    },
+    close: () => {},
+  };
+  return {
+    transport,
+    sent,
+    /** Keep subsequent sends pending until `release()`. */
+    holdSends: () => {
+      hold = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    },
+    release: () => {
+      hold = undefined;
+      release();
+    },
+    /**
+     * Make subsequent sends reject. `loss` is an ordinary send failure;
+     * `revoked` is the transport withdrawing the start's send permission.
+     */
+    failSends: (kind: "loss" | "revoked" = "loss") => {
+      failSends = kind;
+    },
+    restoreSends: () => {
+      failSends = undefined;
+    },
+  };
+}
+
+/** Arrange: deliver an INIT_ACK (with state cookie) to an initiator in COOKIE_WAIT. */
+export async function receiveInitAck(sctp: SCTP) {
+  const ack = new InitAckChunk();
+  ack.initiateTag = 0x5678;
+  ack.advertisedRwnd = 131072;
+  ack.outboundStreams = 65535;
+  ack.inboundStreams = 65535;
+  ack.initialTsn = 1;
+  ack.params.push([0x0007, Buffer.from("cookie")]);
+  const packet = serializePacket(
+    5001,
+    5000,
+    (sctp as unknown as { localVerificationTag: number }).localVerificationTag,
+    ack,
+  );
+  await (
+    sctp as unknown as { handleData: (data: Buffer) => Promise<void> }
+  ).handleData(packet);
+}
+
+type SctpInternals = {
+  localVerificationTag: number;
+  handleData: (data: Buffer) => Promise<void>;
+};
+
+/**
+ * Arrange: drive a responder through INIT so it issues a state cookie.
+ * Returns the cookie from the INIT_ACK it sent.
+ */
+export async function receiveInitAndTakeCookie(
+  sctp: SCTP,
+  sent: Buffer[],
+): Promise<Buffer> {
+  const init = new InitChunk();
+  init.initiateTag = 0x5678;
+  init.advertisedRwnd = 131072;
+  init.outboundStreams = 65535;
+  init.inboundStreams = 65535;
+  init.initialTsn = 1;
+  await (sctp as unknown as SctpInternals).handleData(
+    serializePacket(5001, 5000, 0, init),
+  );
+  const initAck = parsePacket(sent[sent.length - 1])[3][0] as InitAckChunk;
+  return initAck.params.find(([type]) => type === 0x0007)![1];
+}
+
+/**
+ * Arrange: deliver an INIT whose common-header verification tag is `tag`.
+ * RFC 9260 requires 0; an older werift (<= 0.26) that answered our INIT
+ * before its own start() sends its INIT with the tag it learned from ours.
+ */
+export async function receiveInitTagged(
+  sctp: SCTP,
+  tag: number,
+  { initiateTag = 0x5678, initialTsn = 1 } = {},
+) {
+  const init = new InitChunk();
+  init.initiateTag = initiateTag;
+  init.advertisedRwnd = 131072;
+  init.outboundStreams = 65535;
+  init.inboundStreams = 65535;
+  init.initialTsn = initialTsn;
+  await (sctp as unknown as SctpInternals).handleData(
+    serializePacket(5001, 5000, tag, init),
+  );
+}
+
+/** Arrange: the verification tag `sctp` puts in its INIT / INIT_ACK. */
+export function localVerificationTagOf(sctp: SCTP) {
+  return (sctp as unknown as SctpInternals).localVerificationTag;
+}
+
+/** Assert helper: [verification tag, first chunk type] of each sent packet. */
+export function sentTagsAndTypes(sent: Buffer[]) {
+  return sent.map((packet) => {
+    const [, , tag, chunks] = parsePacket(packet);
+    return [tag, chunks[0].type] as const;
+  });
+}
+
+/** Arrange: deliver a COOKIE_ECHO carrying `cookie` to a responder. */
+export async function receiveCookieEcho(sctp: SCTP, cookie: Buffer) {
+  const echo = new CookieEchoChunk();
+  echo.body = cookie;
+  const internals = sctp as unknown as SctpInternals;
+  await internals.handleData(
+    serializePacket(5001, 5000, internals.localVerificationTag, echo),
+  );
+}
+
+/** Arrange: chunk types carried by the packets a transport has sent. */
+export function sentChunkTypes(sent: Buffer[]) {
+  return sent.map((packet) => parsePacket(packet)[3][0].type);
 }
 
 /** Builds the queue type SCTP keeps sent / outbound DATA chunks in. */
@@ -249,131 +391,6 @@ export const measureBurstTransfer = async (count: number, size: number) => {
   }
 };
 
-type SctpInternals = {
-  localVerificationTag: number;
-  handleData: (data: Buffer) => Promise<void>;
-};
-
-/**
- * Arrange: transport whose sends can be held open or made to fail, so tests
- * can interleave incoming chunks or state changes with an in-flight chunk.
- */
-export function createControlledTransport() {
-  const sent: Buffer[] = [];
-  let hold: Promise<void> | undefined;
-  let release = () => {};
-  let failSends = false;
-  const transport: Transport = {
-    send: async (data: Buffer) => {
-      if (failSends) throw new Error("transport rejected");
-      sent.push(data);
-      if (hold) await hold;
-    },
-    close: () => {},
-  };
-  return {
-    transport,
-    sent,
-    /** Keep subsequent sends pending until `release()`. */
-    holdSends: () => {
-      hold = new Promise<void>((resolve) => {
-        release = resolve;
-      });
-    },
-    release: () => {
-      hold = undefined;
-      release();
-    },
-    /** Make subsequent sends reject (an ordinary send failure). */
-    failSends: () => {
-      failSends = true;
-    },
-    restoreSends: () => {
-      failSends = false;
-    },
-  };
-}
-
-/** Arrange: deliver an INIT_ACK (with state cookie) to an initiator in COOKIE_WAIT. */
-export async function receiveInitAck(sctp: SCTP) {
-  const ack = new InitAckChunk();
-  ack.initiateTag = 0x5678;
-  ack.advertisedRwnd = 131072;
-  ack.outboundStreams = 65535;
-  ack.inboundStreams = 65535;
-  ack.initialTsn = 1;
-  ack.params.push([0x0007, Buffer.from("cookie")]);
-  const internals = sctp as unknown as SctpInternals;
-  await internals.handleData(
-    serializePacket(5001, 5000, internals.localVerificationTag, ack),
-  );
-}
-
-/**
- * Arrange: deliver an INIT whose common-header verification tag is `tag`.
- * RFC 9260 requires 0; an older werift (<= 0.26) that answered our INIT
- * before its own start() sends its INIT with the tag it learned from ours.
- */
-export async function receiveInitTagged(
-  sctp: SCTP,
-  tag: number,
-  { initiateTag = 0x5678, initialTsn = 1 } = {},
-) {
-  const init = new InitChunk();
-  init.initiateTag = initiateTag;
-  init.advertisedRwnd = 131072;
-  init.outboundStreams = 65535;
-  init.inboundStreams = 65535;
-  init.initialTsn = initialTsn;
-  await (sctp as unknown as SctpInternals).handleData(
-    serializePacket(5001, 5000, tag, init),
-  );
-}
-
-/**
- * Arrange: drive a responder through INIT so it issues a state cookie.
- * Returns the cookie from the INIT_ACK it sent.
- */
-export async function receiveInitAndTakeCookie(
-  sctp: SCTP,
-  sent: Buffer[],
-): Promise<Buffer> {
-  await receiveInitTagged(sctp, 0);
-  const initAck = parsePacket(sent[sent.length - 1])[3][0] as InitAckChunk;
-  return initAck.params.find(([type]) => type === 0x0007)![1];
-}
-
-/** Arrange: deliver a COOKIE_ECHO carrying `cookie` to a responder. */
-export async function receiveCookieEcho(sctp: SCTP, cookie: Buffer) {
-  const echo = new CookieEchoChunk();
-  echo.body = cookie;
-  const internals = sctp as unknown as SctpInternals;
-  await internals.handleData(
-    serializePacket(5001, 5000, internals.localVerificationTag, echo),
-  );
-}
-
-/** Arrange: the verification tag `sctp` puts in its INIT / INIT_ACK. */
-export function localVerificationTagOf(sctp: SCTP) {
-  return (sctp as unknown as SctpInternals).localVerificationTag;
-}
-
-/** Assert helper: chunk types carried by the packets a transport has sent. */
-export function sentChunkTypes(sent: Buffer[]) {
-  return sent.map((packet) => parsePacket(packet)[3][0].type);
-}
-
-/** Assert helper: [verification tag, first chunk type] of each sent packet. */
-export function sentTagsAndTypes(sent: Buffer[]) {
-  return sent.map((packet) => {
-    const [, , tag, chunks] = parsePacket(packet);
-    return [tag, chunks[0].type] as const;
-  });
-}
-
-/** Chunk types an initiator of werift <= 0.26 ignores. */
-export const LEGACY_INITIATOR_IGNORED = [InitChunk.type, CookieEchoChunk.type];
-
 /** Chunk types carried by one serialized SCTP packet. */
 const packetChunkTypes = (buf: Buffer) =>
   parsePacket(buf)[3].map((chunk) => chunk.type);
@@ -381,7 +398,8 @@ const packetChunkTypes = (buf: Buffer) =>
 /**
  * Arrange: two SCTP endpoints with the given roles over memory transports.
  * `ignoredBySecond` drops the chunk types the first endpoint sends that the
- * second endpoint would ignore, emulating an older werift initiator.
+ * second endpoint would ignore, emulating a peer that picks the initiator by
+ * another rule (an older werift initiator ignores INIT and COOKIE_ECHO).
  */
 export const createSctpEndpointPair = ({
   roles,
@@ -409,6 +427,9 @@ export const createSctpEndpointPair = ({
   };
   return { first, second, connected, stop };
 };
+
+/** Arrange: chunk types an old werift initiator ignores. */
+export const LEGACY_INITIATOR_IGNORED = [InitChunk.type, CookieEchoChunk.type];
 
 /**
  * Arrange: two unstarted endpoints with the given roles whose packets in both
@@ -545,6 +566,9 @@ export const receiveSack = (sctp: SCTP, sack: SackChunk): Promise<void> =>
 /** TSN preceding `tsn` with uint32 wrap-around. */
 export const tsnBefore = (tsn: number) => (tsn + 0xffffffff) % 0x100000000;
 
+export const outboundQueueOf = (sctp: SCTP): FifoQueue<DataChunk> =>
+  (sctp as any).outboundQueue;
+
 export const sentQueueOf = (sctp: SCTP): DataChunk[] => [
   ...(sctp as any).sentQueue,
 ];
@@ -664,36 +688,6 @@ export const flushImmediates = async (rounds = 10) => {
 };
 
 /**
- * Seeds of a property test, as in packages/webrtc/tests/pbt/shared/seeds.ts:
- * `<prefix>_SEEDS` seeds (default `defaults.seeds`) starting at `<prefix>_SEED`
- * (default 1). A failing seed is replayed with `<prefix>_SEED=<n> <prefix>_SEEDS=1`.
- */
-export const propertySeeds = (prefix: string, defaults: { seeds: number }) => {
-  const env = process.env;
-  const count = Number(env[`${prefix}_SEEDS`] ?? defaults.seeds);
-  const first = Number(env[`${prefix}_SEED`] ?? 1);
-  return {
-    seeds: [...Array(count)].map((_, index) => first + index),
-    /** True when `<prefix>_SEED` picks the seeds (a replay of one seed). */
-    seedSelected: env[`${prefix}_SEED`] !== undefined,
-    replay: (seed: number | string) =>
-      `${prefix}_SEED=${seed} ${prefix}_SEEDS=1`,
-  };
-};
-
-/** Deterministic PRNG (mulberry32) so a failing random-loss seed can be replayed. */
-export const createSeededRandom = (seed: number) => {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-};
-
-/**
  * Sender bookkeeping that must hold at any time: flightSize equals the bytes of
  * the chunks counted in flight, and a counted chunk is neither gap-acked nor
  * waiting for retransmission. Returns a description of the first violation.
@@ -711,6 +705,70 @@ export const findFlightSizeViolation = (sctp: SCTP) => {
     return `tsn ${bad.tsn} counted in flight while acked=${bad.acked} retransmit=${bad.retransmit}`;
   }
   return undefined;
+};
+
+/** Bytes a DATA chunk of `payloadLength` occupies on the wire: 16-byte header + payload padded to 4. */
+export const dataChunkWireSize = (payloadLength: number) =>
+  16 + Math.ceil(payloadLength / 4) * 4;
+
+/**
+ * Oracle of the sender's congestion control, observed from outside its
+ * bookkeeping (the chunks' wire sizes and the T3 / Fast Retransmit marks):
+ * - new data goes out only while the DATA already in flight, counted at its
+ *   wire size, is below cwnd (RFC 9260 §6.1 B / §7.2);
+ * - a chunk is marked for Fast Retransmit at most once per transmission
+ *   round started by the T3-rtx timer (RFC 9260 §7.2.4).
+ * Returns the violations found so far and the counts of the marks.
+ */
+export const observeCongestionControl = (sctp: SCTP) => {
+  const sender = sctp as any;
+  const violations: string[] = [];
+  const fastRetransmits = new Map<DataChunk, number>();
+  const t3Rounds = new Map<DataChunk, number>();
+  const counts = { newData: 0, fastRetransmits: 0, t3: 0 };
+
+  const strike = sender.strikeChunk.bind(sender);
+  sender.strikeChunk = (chunk: DataChunk) => {
+    const marked = strike(chunk);
+    if (marked) {
+      counts.fastRetransmits++;
+      const n = (fastRetransmits.get(chunk) ?? 0) + 1;
+      fastRetransmits.set(chunk, n);
+      if (n > 1 + (t3Rounds.get(chunk) ?? 0)) {
+        violations.push(
+          `tsn ${chunk.tsn} fast-retransmitted ${n} times in ${t3Rounds.get(chunk) ?? 0} T3 rounds`,
+        );
+      }
+    }
+    return marked;
+  };
+  const t3 = sender.timer3Expired;
+  sender.timer3Expired = () => {
+    counts.t3++;
+    for (const chunk of sender.sentQueue as DataChunk[]) {
+      if (!chunk.acked && !chunk.abandoned) {
+        t3Rounds.set(chunk, (t3Rounds.get(chunk) ?? 0) + 1);
+      }
+    }
+    t3();
+  };
+  const send = sender.sendChunk.bind(sender);
+  sender.sendChunk = (chunk: Chunk) => {
+    if (chunk instanceof DataChunk && chunk.sentCount === 1) {
+      counts.newData++;
+      // The chunk is already counted in flight: the others were below cwnd.
+      const others = ([...sender.sentQueue] as DataChunk[])
+        .filter((c) => c.inFlight && c !== chunk)
+        .reduce((sum, c) => sum + dataChunkWireSize(c.userData.length), 0);
+      if (others >= sender.cwnd) {
+        violations.push(
+          `new tsn ${chunk.tsn} sent with ${others} wire bytes in flight >= cwnd ${sender.cwnd}`,
+        );
+      }
+    }
+    return send(chunk);
+  };
+  return { violations, counts };
 };
 
 // # stream reset (RFC 6525) helpers

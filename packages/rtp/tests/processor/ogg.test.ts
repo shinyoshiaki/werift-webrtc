@@ -1,5 +1,7 @@
+import { mkdtemp, readFile, rm, writeFile } from "fs/promises";
+import { tmpdir } from "os";
+import { join } from "path";
 import { describe, expect, it } from "vitest";
-
 import {
   OggCallback,
   OggHeaderTypeBos,
@@ -369,9 +371,6 @@ describe("packages/rtp/tests/processor/ogg.test.ts", () => {
 
   it("saveOggToFileSystem replaces existing file content", async () => {
     // Arrange: 保存先に古い内容が残っている。
-    const { mkdtemp, readFile, rm, writeFile } = await import("fs/promises");
-    const { tmpdir } = await import("os");
-    const { join } = await import("path");
     const dir = await mkdtemp(join(tmpdir(), "werift-ogg-"));
     const path = join(dir, "out.ogg");
     await writeFile(path, "OLD-CONTENT");
@@ -398,9 +397,6 @@ describe("packages/rtp/tests/processor/ogg.test.ts", () => {
 
   it("saveOggToFileSystem appends pages and reports eol", async () => {
     // Arrange
-    const { mkdtemp, readFile, rm } = await import("fs/promises");
-    const { tmpdir } = await import("os");
-    const { join } = await import("path");
     const dir = await mkdtemp(join(tmpdir(), "werift-ogg-"));
     const path = join(dir, "out.ogg");
     const save = saveOggToFileSystem(path);

@@ -62,6 +62,19 @@ Application data (not STUN) and the remote address it came from.
 
 ***
 
+### onPathBroken?
+
+> `optional` **onPathBroken?**: [`Event`](../classes/Event.md)\<\[readonly \[`string`, `number`\] \| `undefined`, `Error`\]\>
+
+Sending failed in a way that says the path is gone, not just a lost
+packet: a routing error from the OS for this remote address (see
+`PATH_BROKEN_SEND_ERRORS`), or, with no address, every path of the
+protocol (its TURN allocation is lost: the connection to the TURN
+server closed, a Refresh failed, the server is unreachable). The ICE
+agent fails over at once instead of waiting for unanswered checks.
+
+***
+
 ### onRequestReceived
 
 > **onRequestReceived**: [`Event`](../classes/Event.md)\<\[[`Message`](../classes/Message.md), readonly \[`string`, `number`\], `Buffer`\<`ArrayBufferLike`\>\]\>

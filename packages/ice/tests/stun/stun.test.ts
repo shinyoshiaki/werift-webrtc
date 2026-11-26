@@ -39,24 +39,12 @@ describe("stun", () => {
       readMessage("binding_request_ice_controlled.bin").slice(0, -1),
       Buffer.from("z"),
     ]);
-    try {
-      parseMessage(data);
-    } catch (error) {
-      expect((error as Error).message).toBe(
-        "STUN message fingerprint does not match",
-      );
-    }
+    expect(parseMessage(data)).toBeUndefined();
   });
 
   test("test_binding_request_ice_controlled_bad_integrity", () => {
     const data = readMessage("binding_request_ice_controlled.bin");
-    try {
-      parseMessage(data, Buffer.from("bogus-key"));
-    } catch (error) {
-      expect((error as Error).message).toBe(
-        "STUN message integrity does not match",
-      );
-    }
+    expect(parseMessage(data, Buffer.from("bogus-key"))).toBeUndefined();
   });
 
   test("test_binding_request_ice_controlling", () => {
@@ -100,23 +88,11 @@ describe("stun", () => {
       readMessage("binding_response.bin"),
       Buffer.from("123"),
     ]);
-    try {
-      parseMessage(data);
-    } catch (error) {
-      expect((error as Error).message).toBe(
-        "STUN message length does not match",
-      );
-    }
+    expect(parseMessage(data)).toBeUndefined();
   });
 
   test("test_message_shorter_than_header", () => {
-    try {
-      parseMessage(Buffer.from("123"));
-    } catch (error) {
-      expect((error as Error).message).toBe(
-        "STUN message length is less than 20 bytes",
-      );
-    }
+    expect(parseMessage(Buffer.from("123"))).toBeUndefined();
   });
 
   test(
@@ -130,11 +106,14 @@ describe("stun", () => {
         DummyProtocol,
       );
 
-      try {
-        await transaction.run();
-      } catch (error: any) {
-        expect(error.str).toBe("STUN transaction timed out");
-      }
+      // Act: 応答の無い transaction を再送上限まで走らせる
+      const error = await transaction.run().then(
+        () => undefined,
+        (e: any) => e,
+      );
+
+      // Assert: 例外で終わり、それが timeout である
+      expect(error?.str).toBe("STUN transaction timed out");
 
       const response = new Message(methods.BINDING, classes.RESPONSE);
       transaction.responseReceived(response, ["127.0.0.1", 1234]);

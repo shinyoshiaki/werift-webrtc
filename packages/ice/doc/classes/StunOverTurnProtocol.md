@@ -60,6 +60,18 @@ Application data (not STUN) and the remote address it came from.
 
 ***
 
+### onPathBroken
+
+> `readonly` **onPathBroken**: `Event`\<\[readonly \[`string`, `number`\] \| `undefined`, `Error`\]\>
+
+See `Protocol.onPathBroken`: the TURN allocation is lost (every path of this protocol).
+
+#### Implementation of
+
+[`Protocol`](../interfaces/Protocol.md).[`onPathBroken`](../interfaces/Protocol.md#onpathbroken)
+
+***
+
 ### onRequestReceived
 
 > **onRequestReceived**: `Event`\<\[[`Message`](Message.md), readonly \[`string`, `number`\], `Buffer`\<`ArrayBufferLike`\>\]\>

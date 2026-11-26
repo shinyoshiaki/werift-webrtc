@@ -7,14 +7,10 @@ import {
   createDataChunk,
   createEstablishedMockSctp,
   createForwardTsnChunk,
-  createLossyPrSctpPair,
   createReconfigResponseChunk,
   createResetRequestChunk,
-  createSeededRandom,
   dropDataPacketsAt,
   dropReconfigSuccessResponses,
-  flushImmediates,
-  propertySeeds,
   recordSctpEvents,
 } from "./utils";
 
@@ -625,96 +621,34 @@ describe("stream reset overtaking a retransmitted DATA chunk", () => {
   }, 30_000);
 });
 
-describe("stream reset under seeded random loss of every packet (property)", () => {
-  const { seeds, replay } = propertySeeds("WERIFT_SCTP_RESET", { seeds: 60 });
-  const LOSS_RATE = 0.2;
-  const STREAMS = [1, 2, 3, 4, 5, 6];
+describe("onReconfigStreams direction and isOutgoingResetPending", () => {
+  test("the requester sees outgoing, the peer incoming; pending until the peer answers", async () => {
+    // Arrange: 確立済みのペアと、両端の reset 通知の記録。
+    const pair = await createConnectedSctpPair();
+    const seen: string[] = [];
+    pair.client.onReconfigStreams.subscribe((ids, direction) => {
+      seen.push(`client:${direction}:${ids.join(",")}`);
+    });
+    pair.server.onReconfigStreams.subscribe((ids, direction) => {
+      seen.push(`server:${direction}:${ids.join(",")}`);
+    });
+    try {
+      // Act: client が stream 3 の送信側 reset を要求する (データは送っていない)。
+      pair.client.reconfigQueue.push(3);
+      const transmitted = pair.client.transmitReconfigRequest();
 
-  test.each(seeds.map((seed) => [seed, replay(seed)] as const))(
-    `completes every reset and delivers every message once (seed %i, replay: %s)`,
-    async (seed, _replay) => {
-      // Arrange: 両端が全 stream で送信済み (reset に逆方向の request が伴う) のペアと、全パケットを乱数で落とす経路
-      const pair = await createLossyPrSctpPair();
-      try {
-        const random = createSeededRandom(seed);
-        const delivered: { streamId: number; id: number }[] = [];
-        const resetOnServer = new Set<number>();
-        pair.server.onReceive.subscribe((streamId, _ppId, data) => {
-          if (data.length >= 4)
-            delivered.push({ streamId, id: data.readUInt32BE(0) });
-        });
-        pair.server.onReconfigStreams.subscribe((ids) => {
-          for (const id of ids) resetOnServer.add(id);
-        });
-        for (const streamId of STREAMS) {
-          await pair.server.send(streamId, 51, Buffer.from("s"));
-        }
-        await flushImmediates();
-        pair.recorder.dropIf = () => random() < LOSS_RATE;
-        pair.serverRecorder.dropIf = () => random() < LOSS_RATE;
+      // Assert: 応答が届くまでは pending で、関係のない stream は pending ではない。
+      expect(pair.client.isOutgoingResetPending(3)).toBe(true);
+      expect(pair.client.isOutgoingResetPending(5)).toBe(false);
+      await transmitted;
 
-        // Act: 送信・reset・時間経過を乱数で織り交ぜる (reset した stream には以後送らない = DataChannel の close)
-        const open = new Set(STREAMS);
-        const resetRequested: number[] = [];
-        const sent: { streamId: number; id: number }[] = [];
-        for (let step = 0; step < 30; step++) {
-          const streamId = [...open][Math.floor(random() * open.size)];
-          if (streamId !== undefined && random() < 0.75) {
-            const id = sent.length;
-            const data = Buffer.alloc(16 + Math.floor(random() * 3_000), id);
-            data.writeUInt32BE(id, 0);
-            sent.push({ streamId, id });
-            void pair.client.send(streamId, 53, data);
-          } else if (streamId !== undefined) {
-            open.delete(streamId);
-            resetRequested.push(streamId);
-            pair.client.reconfigQueue.push(streamId);
-            void pair.client.transmitReconfigRequest();
-          }
-          await flushImmediates(3);
-          await vi.advanceTimersByTimeAsync(Math.floor(random() * 1_500));
-          await flushImmediates(3);
-        }
-        // Act: 損失を止め、両端の送信と再構成が片付くまで時間を進める
-        pair.recorder.dropIf = undefined;
-        pair.serverRecorder.dropIf = undefined;
-        const busy = (sctp: any) =>
-          sctp.outboundQueue.length > 0 ||
-          sctp.sentQueue.length > 0 ||
-          sctp.reconfigRequest !== undefined ||
-          sctp.reconfigQueue.length > 0;
-        for (
-          let i = 0;
-          i < 120 && (busy(pair.client) || busy(pair.server));
-          i++
-        ) {
-          await vi.advanceTimersByTimeAsync(5_000);
-          await flushImmediates();
-        }
-
-        // Assert: association は保たれ、両端の reset request がすべて完了している
-        expect(pair.client.associationState).toBe(SCTP_STATE.ESTABLISHED);
-        expect(pair.server.associationState).toBe(SCTP_STATE.ESTABLISHED);
-        expect(busy(pair.client)).toBe(false);
-        expect(busy(pair.server)).toBe(false);
-        expect([...resetOnServer].sort()).toEqual(
-          expect.arrayContaining([...resetRequested].sort()),
-        );
-        // Assert: 送ったメッセージはすべて 1 回ずつ、stream ごとに送信順で届く
-        expect(delivered.map((d) => d.id).sort((a, b) => a - b)).toEqual(
-          sent.map((m) => m.id),
-        );
-        for (const streamId of STREAMS) {
-          const ids = delivered
-            .filter((d) => d.streamId === streamId)
-            .map((d) => d.id);
-          expect(ids).toEqual(
-            sent.filter((m) => m.streamId === streamId).map((m) => m.id),
-          );
-        }
-      } finally {
-        await pair.stop();
-      }
-    },
-  );
+      // Assert: server は incoming、client は outgoing として通知され、完了後は pending でない。
+      await vi.waitFor(() =>
+        expect(seen).toEqual(["server:incoming:3", "client:outgoing:3"]),
+      );
+      expect(pair.client.isOutgoingResetPending(3)).toBe(false);
+    } finally {
+      await pair.stop();
+    }
+  });
 });

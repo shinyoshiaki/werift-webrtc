@@ -83,6 +83,7 @@ new Promise<void>(async (done, failed) => {
 
   await pc.setLocalDescription(await pc.createOffer());
   console.log("local offer ", pc.localDescription?.sdp);
+  // hoist-imports-allow: got is ESM-only and only needed for signaling
   const { default: got } = await import("got");
   const data = await got
     .post(url, {

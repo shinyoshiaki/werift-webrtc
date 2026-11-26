@@ -1,0 +1,138 @@
+import type { RTCPeerConnection } from "../..";
+
+export type WeriftDtlsDiagnostics = {
+  connectionState: string;
+  dtlsState?: string;
+  dtlsRole?: string;
+  tlsVersion?: string;
+  dtlsCipher?: string;
+  srtpCipher?: string;
+  lastError?: { name: string; message: string; code?: string };
+  rtpPacketsReceived: number;
+  rtcpPacketsReceived: number;
+  iceRestarts?: number;
+  /** WARP sendBeforeNomination: werift sent on a valid pair before nomination. */
+  warpPreNominationSendUsed?: boolean;
+  /** SPED runtime state and DTLS carrier (RTCTransportStats warpSpedState / warpCarrier). */
+  warpSpedState?: string;
+  warpCarrier?: string;
+  /** werift's ICE agent has a nominated (selected) pair. */
+  iceNominated?: boolean;
+};
+
+/**
+ * Keep werift's (ICE-controlled) agent from nominating while held: incoming
+ * checks lose their USE-CANDIDATE, so its own checks still make pairs valid
+ * but none is selected. Call once the ICE transport exists (after the remote
+ * offer is applied), before any check.
+ */
+export function holdIceNomination(pc: RTCPeerConnection) {
+  const ice = pc.iceTransports[0].connection as unknown as {
+    checkIncoming: (
+      message: { attributes: [string, unknown][] },
+      ...rest: unknown[]
+    ) => void;
+  };
+  const original = ice.checkIncoming.bind(ice);
+  let held = true;
+  ice.checkIncoming = (message, ...rest) => {
+    if (held) {
+      message.attributes = message.attributes.filter(
+        ([key]) => key !== "USE-CANDIDATE",
+      );
+    }
+    return original(message, ...rest);
+  };
+  return {
+    release: () => {
+      held = false;
+    },
+  };
+}
+
+export function attachMediaCounters(pc: RTCPeerConnection) {
+  const counters = {
+    rtpPacketsReceived: 0,
+    rtcpPacketsReceived: 0,
+  };
+
+  const attachTransport = () => {
+    for (const dtls of pc.dtlsTransports) {
+      dtls.onRtcp.subscribe(() => {
+        counters.rtcpPacketsReceived++;
+      });
+      dtls.onRtp.subscribe(() => {
+        counters.rtpPacketsReceived++;
+      });
+    }
+  };
+
+  attachTransport();
+  pc.onRemoteTransceiverAdded.subscribe((transceiver) => {
+    transceiver.onTrack.subscribe((track) => {
+      track.onReceiveRtp.subscribe(() => {
+        counters.rtpPacketsReceived++;
+      });
+    });
+  });
+
+  return { counters, attachTransport };
+}
+
+export async function collectWeriftDtlsDiagnostics(
+  pc: RTCPeerConnection | undefined,
+  counters?: { rtpPacketsReceived: number; rtcpPacketsReceived: number },
+): Promise<WeriftDtlsDiagnostics> {
+  if (!pc) {
+    return {
+      connectionState: "new",
+      rtpPacketsReceived: 0,
+      rtcpPacketsReceived: 0,
+    };
+  }
+
+  const stats = await pc.getStats();
+  const transport = [...stats.values()].find(
+    (stat) => stat.type === "transport",
+  ) as
+    | {
+        tlsVersion?: string;
+        dtlsCipher?: string;
+        srtpCipher?: string;
+        dtlsState?: string;
+        dtlsRole?: string;
+        iceRestarts?: number;
+        warpPreNominationSendUsed?: boolean;
+        warpSpedState?: string;
+        warpCarrier?: string;
+      }
+    | undefined;
+  const dtls = pc.dtlsTransports[0];
+  const lastError = dtls?.lastError;
+
+  return {
+    connectionState: pc.connectionState,
+    dtlsState: dtls?.state ?? transport?.dtlsState,
+    dtlsRole: dtls?.role === "auto" ? transport?.dtlsRole : dtls?.role,
+    tlsVersion: transport?.tlsVersion,
+    dtlsCipher: transport?.dtlsCipher,
+    srtpCipher: transport?.srtpCipher,
+    lastError: lastError
+      ? {
+          name: lastError.name,
+          message: lastError.message,
+          code: (lastError as { code?: string }).code,
+        }
+      : undefined,
+    rtpPacketsReceived:
+      counters?.rtpPacketsReceived ?? dtls?.packetsReceived ?? 0,
+    rtcpPacketsReceived: counters?.rtcpPacketsReceived ?? 0,
+    iceRestarts: transport?.iceRestarts,
+    warpPreNominationSendUsed: transport?.warpPreNominationSendUsed,
+    warpSpedState: transport?.warpSpedState,
+    warpCarrier: transport?.warpCarrier,
+    iceNominated: !!(
+      pc.iceTransports[0]?.connection as unknown as { nominated?: unknown }
+    )?.nominated,
+  };
+}

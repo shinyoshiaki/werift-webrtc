@@ -5,6 +5,7 @@ import {
   GenericNack,
   MediaStreamTrack,
   type PeerConfig,
+  RTCPeerConnection,
   RTCRtpCodecParameters,
   RTCRtpCodingParameters,
   RTCRtpTransceiver,
@@ -12,6 +13,11 @@ import {
   RtcpTransportLayerFeedback,
   RtpHeader,
   RtpPacket,
+  useNACK,
+  usePLI,
+  useRepairedRtpStreamId,
+  useSdesMid,
+  useSdesRTPStreamId,
 } from "../../src";
 import { RTCRtpSimulcastParameters } from "../../src/media/parameters";
 import type { NackHandler } from "../../src/media/receiver/nack";
@@ -221,7 +227,7 @@ export function createSimulcastRtxReceiver(
   const sentRtcp: unknown[] = [];
   dtls.sendRtcp = async (packets) => {
     sentRtcp.push(...packets);
-    return undefined;
+    return 0;
   };
   const transceiver = new RTCRtpTransceiver(
     "video",
@@ -414,4 +420,317 @@ export function collectDeliveredRtp(track: MediaStreamTrack) {
     });
   });
   return delivered;
+}
+
+/**
+ * Arrange: the SSRCs of a Firefox simulcast sender with two layers. Firefox
+ * describes each layer's media and RTX SSRC with `a=ssrc` and
+ * `a=ssrc-group:FID` besides `a=rid`, without saying which RID they carry.
+ */
+export const firefoxSimulcastLayers = [
+  { rid: "high", ssrc: 3388294025, rtxSsrc: 1904437218 },
+  { rid: "low", ssrc: 2201395340, rtxSsrc: 4017512609 },
+] as const;
+
+/**
+ * Arrange: a werift peer receiving VP8 + RTX simulcast with the MID / RID /
+ * repaired RID extensions in the IDs of {@link simulcastExtensionIds} and the
+ * payload types of {@link createSimulcastMediaPacket} (VP8 96, RTX 97).
+ */
+export function createFirefoxSimulcastReceivingPeer() {
+  return new RTCPeerConnection({
+    codecs: {
+      video: [
+        new RTCRtpCodecParameters({
+          mimeType: "video/VP8",
+          clockRate: 90000,
+          payloadType: 96,
+          rtcpFeedback: [useNACK(), usePLI()],
+        }),
+        new RTCRtpCodecParameters({
+          mimeType: "video/rtx",
+          clockRate: 90000,
+          payloadType: 97,
+          parameters: codecParametersToString({ apt: 96 }),
+        }),
+      ],
+      audio: [],
+    },
+    headerExtensions: {
+      video: [useSdesMid(), useSdesRTPStreamId(), useRepairedRtpStreamId()],
+      audio: [],
+    },
+  });
+}
+
+/**
+ * Arrange: a Firefox description sending one video m-line by simulcast
+ * (`a=rid:<id> send` ×2, `a=simulcast:send`, RID / repaired RID extensions)
+ * that also lists each layer's media and RTX SSRC (`a=ssrc` ×4,
+ * `a=ssrc-group:FID` ×2), as Firefox writes it in an offer or an answer.
+ */
+export function firefoxSimulcastSdp(
+  options: {
+    type: "offer" | "answer";
+    mid?: string;
+    /** Appended to each `a=rid:<id> send` line (RFC 8851 restrictions). */
+    ridRestrictions?: string;
+    /** false: the description omits the repaired RID extension (RFC 8852). */
+    repairedRidExtension?: boolean;
+  } = { type: "offer" },
+) {
+  const mid = options.mid ?? "0";
+  const ids = simulcastExtensionIds;
+  const cname = "{f9b1d5a0-4c3e-4f5e-9d2b-7a1c2e3f4a5b}";
+  const [high, low] = firefoxSimulcastLayers;
+  const ridSuffix = options.ridRestrictions
+    ? ` ${options.ridRestrictions}`
+    : "";
+  return [
+    "v=0",
+    "o=mozilla...THIS_IS_SDPARTA-99.0 4011592410357045000 0 IN IP4 0.0.0.0",
+    "s=-",
+    "t=0 0",
+    "a=fingerprint:sha-256 0B:E6:4B:7C:6A:2D:3F:51:4E:8C:9A:1B:2C:3D:4E:5F:60:71:82:93:A4:B5:C6:D7:E8:F9:0A:1B:2C:3D:4E:5F",
+    `a=group:BUNDLE ${mid}`,
+    "a=ice-options:trickle",
+    "a=msid-semantic:WMS *",
+    "m=video 9 UDP/TLS/RTP/SAVPF 96 97",
+    "c=IN IP4 0.0.0.0",
+    "a=sendonly",
+    `a=extmap:${ids.mid} ${RTP_EXTENSION_URI.sdesMid}`,
+    `a=extmap:${ids.rid} ${RTP_EXTENSION_URI.sdesRTPStreamID}`,
+    ...(options.repairedRidExtension === false
+      ? []
+      : [`a=extmap:${ids.rrid} ${RTP_EXTENSION_URI.repairedRtpStreamId}`]),
+    "a=fmtp:97 apt=96",
+    "a=ice-pwd:4f0bb1b0a7b8b0d2e6f3c9a1d5e7f9a1",
+    "a=ice-ufrag:9a3c1d2e",
+    `a=mid:${mid}`,
+    "a=msid:{5c4d3e2f-1a0b-4c9d-8e7f-6a5b4c3d2e1f} {0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d}",
+    `a=rid:high send${ridSuffix}`,
+    `a=rid:low send${ridSuffix}`,
+    "a=rtcp-fb:96 nack",
+    "a=rtcp-fb:96 nack pli",
+    "a=rtcp-mux",
+    "a=rtpmap:96 VP8/90000",
+    "a=rtpmap:97 rtx/90000",
+    `a=setup:${options.type === "offer" ? "actpass" : "active"}`,
+    "a=simulcast:send high;low",
+    `a=ssrc:${high.ssrc} cname:${cname}`,
+    `a=ssrc:${high.rtxSsrc} cname:${cname}`,
+    `a=ssrc:${low.ssrc} cname:${cname}`,
+    `a=ssrc:${low.rtxSsrc} cname:${cname}`,
+    `a=ssrc-group:FID ${high.ssrc} ${high.rtxSsrc}`,
+    `a=ssrc-group:FID ${low.ssrc} ${low.rtxSsrc}`,
+    "",
+  ].join("\r\n");
+}
+
+/**
+ * Act helper: each layer of {@link firefoxSimulcastLayers} sends media
+ * 1 and 3 with its RID (2 is lost), then the RTX of 2 with its repaired RID,
+ * through `route` (the receiving peer's RTP routing).
+ */
+export function sendFirefoxSimulcastWithRepair(
+  route: (packet: RtpPacket) => void,
+  mid = "0",
+  { repairedRid = true }: { repairedRid?: boolean } = {},
+) {
+  for (const layer of firefoxSimulcastLayers) {
+    for (const sequenceNumber of [1, 3]) {
+      route(
+        createSimulcastMediaPacket({
+          ssrc: layer.ssrc,
+          sequenceNumber,
+          rid: layer.rid,
+          mid,
+        }),
+      );
+    }
+    route(
+      createSimulcastRtxFor(layer.ssrc, 2, {
+        rtxSsrc: layer.rtxSsrc,
+        rtxSequenceNumber: 1,
+        rrid: repairedRid ? layer.rid : undefined,
+        mid,
+      }),
+    );
+  }
+}
+
+/**
+ * Arrange: {@link firefoxSimulcastSdp} (offer) whose `a=ssrc` /
+ * `a=ssrc-group:FID` lines are exactly `fidPairs` (`[media, rtx]`); none
+ * gives a Chrome-like description without SSRCs.
+ */
+export function firefoxSimulcastOfferWithFid(fidPairs: [number, number][]) {
+  const withoutSsrcs = firefoxSimulcastSdp({ type: "offer" })
+    .split("\r\n")
+    .filter((line) => !/^a=ssrc(-group)?:/.test(line))
+    .join("\r\n");
+  return (
+    withoutSsrcs +
+    fidPairs
+      .flatMap(([media, rtx]) => [
+        `a=ssrc:${media} cname:x`,
+        `a=ssrc:${rtx} cname:x`,
+        `a=ssrc-group:FID ${media} ${rtx}`,
+      ])
+      .concat([""])
+      .join("\r\n")
+  );
+}
+
+/**
+ * Arrange: a {@link createFirefoxSimulcastReceivingPeer} that applied the
+ * Firefox simulcast offer `sdp` and answered it. `route` feeds RTP through
+ * its router, `deliveredOf(rid)` records what the RID's track delivers, and
+ * `remoteOffer` applies a re-offer (answered unless `answer: false`).
+ */
+export async function receiveFirefoxSimulcastOffer(sdp: string) {
+  const pc = createFirefoxSimulcastReceivingPeer();
+  const tracks: MediaStreamTrack[] = [];
+  pc.onTransceiverAdded.subscribe((transceiver) =>
+    transceiver.onTrack.subscribe((track) => tracks.push(track)),
+  );
+  await pc.setRemoteDescription({ type: "offer", sdp });
+  await pc.setLocalDescription(await pc.createAnswer());
+  const [transceiver] = pc.getTransceivers();
+  const { router } = pc as unknown as { router: RtpRouter };
+  const route = (packet: RtpPacket) =>
+    router.routeRtp(packet, transceiver.dtlsTransport);
+  const deliveredOf = (rid: string) =>
+    collectDeliveredRtp(tracks.find((track) => track.rid === rid)!);
+  const remoteOffer = async (offer: string, { answer = true } = {}) => {
+    await pc.setRemoteDescription({ type: "offer", sdp: offer });
+    if (answer) await pc.setLocalDescription(await pc.createAnswer());
+  };
+  return { pc, route, deliveredOf, remoteOffer };
+}
+
+/**
+ * Arrange: a BUNDLE offer of two Firefox-style simulcast video m-lines
+ * (MID "0" and "1", RIDs high / low each). MID "0" lists the FID pairs
+ * `fidPairs` (media, RTX); MID "1" sends Chrome style, without `a=ssrc`.
+ */
+export function firefoxSimulcastBundleOfferWithFid(
+  fidPairs: [number, number][],
+) {
+  const section = (mid: string, msid: string, pairs: [number, number][]) => {
+    const lines = firefoxSimulcastSdp({ type: "offer", mid })
+      .split("\r\n")
+      .filter((line) => line !== "" && !/^a=ssrc(-group)?:/.test(line));
+    const media = lines.slice(lines.findIndex((l) => l.startsWith("m=")));
+    return media
+      .map((line) => (line.startsWith("a=msid:") ? `a=msid:${msid}` : line))
+      .concat(
+        pairs.flatMap(([m, rtx]) => [
+          `a=ssrc:${m} cname:x`,
+          `a=ssrc:${rtx} cname:x`,
+          `a=ssrc-group:FID ${m} ${rtx}`,
+        ]),
+      );
+  };
+  const header = firefoxSimulcastSdp({ type: "offer" })
+    .split("\r\n")
+    .filter((line) => line !== "");
+  const session = header
+    .slice(
+      0,
+      header.findIndex((l) => l.startsWith("m=")),
+    )
+    .map((line) =>
+      line.startsWith("a=group:BUNDLE") ? "a=group:BUNDLE 0 1" : line,
+    );
+  return [
+    ...session,
+    ...section("0", "{s0} {t0}", fidPairs),
+    ...section("1", "{s1} {t1}", []),
+    "",
+  ].join("\r\n");
+}
+
+/**
+ * Arrange: a {@link createFirefoxSimulcastReceivingPeer} that applied the
+ * BUNDLE offer `sdp` of {@link firefoxSimulcastBundleOfferWithFid} and
+ * answered it. `deliveredOf(mid, rid)` records what that m-line's RID track
+ * delivers, `remoteOffer` applies and answers a re-offer.
+ */
+export async function receiveFirefoxSimulcastBundleOffer(sdp: string) {
+  const pc = createFirefoxSimulcastReceivingPeer();
+  await pc.setRemoteDescription({ type: "offer", sdp });
+  await pc.setLocalDescription(await pc.createAnswer());
+  const { router } = pc as unknown as { router: RtpRouter };
+  const transceivers = pc.getTransceivers();
+  const route = (packet: RtpPacket) =>
+    router.routeRtp(packet, transceivers[0].dtlsTransport);
+  const deliveredOf = (mid: string, rid: string) =>
+    collectDeliveredRtp(
+      transceivers
+        .find((t) => t.mid === mid)!
+        .receiver.tracks.find((track) => track.rid === rid)!,
+    );
+  const remoteOffer = async (offer: string) => {
+    await pc.setRemoteDescription({ type: "offer", sdp: offer });
+    await pc.setLocalDescription(await pc.createAnswer());
+  };
+  return { pc, router, route, deliveredOf, remoteOffer };
+}
+
+/**
+ * Arrange: the m-line of {@link firefoxSimulcastSdp} sending one stream by
+ * SSRC instead of RIDs (no `a=rid` / `a=simulcast`): `a=ssrc` of `media` and
+ * `rtx` with their `a=ssrc-group:FID`.
+ */
+export function firefoxSingleStreamOfferWithFid(media: number, rtx: number) {
+  return firefoxSimulcastOfferWithFid([[media, rtx]])
+    .split("\r\n")
+    .filter((line) => !/^a=(rid|simulcast):/.test(line))
+    .join("\r\n");
+}
+
+/**
+ * Arrange (acceptance): a werift peer that negotiated Firefox-style simulcast
+ * ({@link firefoxSimulcastSdp}: `a=rid` ×2, `a=simulcast`, RID / repaired RID
+ * extensions, `a=ssrc` ×4, `a=ssrc-group:FID` ×2) as the answerer of
+ * Firefox's offer (`role: "offer"`) or the offerer Firefox answers
+ * (`role: "answer"`). `announced` is what `transceiver.onTrack` gave the
+ * application (one event per remote track), `ontrack` what `pc.ontrack` gave
+ * (one per transceiver); `receive` feeds RTP to the receiving DTLS transport
+ * as SRTP decryption would, without ICE.
+ */
+export async function negotiateFirefoxSimulcast(role: "offer" | "answer") {
+  const pc = createFirefoxSimulcastReceivingPeer();
+  const announced: MediaStreamTrack[] = [];
+  const ontrack: MediaStreamTrack[] = [];
+  pc.ontrack = ({ track }) => ontrack.push(track);
+  const watch = (transceiver: RTCRtpTransceiver) =>
+    transceiver.onTrack.subscribe((track) => announced.push(track));
+  if (role === "offer") {
+    pc.onTransceiverAdded.subscribe(watch);
+    await pc.setRemoteDescription({
+      type: "offer",
+      sdp: firefoxSimulcastSdp({ type: "offer" }),
+    });
+    await pc.setLocalDescription(await pc.createAnswer());
+  } else {
+    watch(
+      pc.addTransceiver("video", {
+        direction: "recvonly",
+        simulcast: [
+          { rid: "high", direction: "recv" },
+          { rid: "low", direction: "recv" },
+        ],
+      }),
+    );
+    await pc.setLocalDescription(await pc.createOffer());
+    await pc.setRemoteDescription({
+      type: "answer",
+      sdp: firefoxSimulcastSdp({ type: "answer" }),
+    });
+  }
+  const dtls = pc.getTransceivers()[0].receiver.dtlsTransport;
+  const receive = (packet: RtpPacket) => dtls.onRtp.execute(packet);
+  return { pc, announced, ontrack, receive };
 }

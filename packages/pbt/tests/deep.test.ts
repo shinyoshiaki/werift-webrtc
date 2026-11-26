@@ -1,0 +1,1002 @@
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { describe, expect, test } from "vitest";
+
+import {
+  abnormalExit,
+  baselinePackageDir,
+  type DeepSearchConfig,
+  failureSignature,
+  messageNumbers,
+  planDeepSearch,
+  SEED_TITLE_PATTERN,
+  STATISTICAL_FAILURE_MARKER,
+  sameFailure,
+  seedRanges,
+} from "../src";
+import {
+  type Checkout,
+  commitAll,
+  git,
+  passingSource,
+  rejection,
+  runFixtureCli,
+  runFixtureDeepSearch,
+  testSource,
+  throwingSource,
+} from "./utils";
+
+const config: DeepSearchConfig = {
+  cwd: "/tmp/pkg",
+  suites: {
+    slow: {
+      file: "tests/pbt/slow/slowProperty.test.ts",
+      prefix: "P_SLOW",
+      seeds: 10,
+    },
+    fast: {
+      file: "tests/pbt/fast/fastProperty.test.ts",
+      prefix: "P_FAST",
+      steps: 50,
+    },
+    custom: {
+      file: "tests/pbt/custom/customProperty.test.ts",
+      shards: ({ ranges, option }) => [
+        { label: "custom fixed", file: "f", pattern: "fixed: ", env: {} },
+        ...ranges(Number(option("custom-count") ?? 2), 1).map(({ first }) => ({
+          label: `custom ${first}`,
+          file: "f",
+          env: { P_CUSTOM_SEED: String(first) },
+        })),
+      ],
+    },
+  },
+  defaultSuites: ["slow", "custom"],
+};
+
+describe("deep search plan", () => {
+  test("seed ranges cover the seeds once, at least jobs × 3 ranges", () => {
+    // Act: 100 seed を 4 job で分ける。
+    const ranges = seedRanges(100, { first: 11, jobs: 4 });
+
+    // Assert: 11 から 110 まで重ならずに並び、12 個以上に分かれる。
+    expect(ranges.length).toBeGreaterThanOrEqual(12);
+    const all = ranges.flatMap(({ first, count }) =>
+      [...Array(count)].map((_, i) => first + i),
+    );
+    expect(all).toEqual([...Array(100)].map((_, i) => 11 + i));
+  });
+
+  test("the default suites run in the config's order; a prefix suite shards its seed titles", () => {
+    // Act: 引数なしで計画する。
+    const plan = planDeepSearch(config, [], 2);
+
+    // Assert: 既定の suite だけが設定の順に並ぶ。
+    expect([...new Set(plan.map((p) => p.suite))]).toEqual(["slow", "custom"]);
+    // Assert: prefix の suite は seed の範囲ごとの環境と seed の題名のパターンで分かれ、10 seed を覆う。
+    const slow = plan.filter((p) => p.suite === "slow").map((p) => p.shard);
+    expect(slow.every((s) => s.pattern === SEED_TITLE_PATTERN)).toBe(true);
+    expect(slow.reduce((n, s) => n + Number(s.env.P_SLOW_SEEDS), 0)).toBe(10);
+    expect(slow[0].env).toEqual({ P_SLOW_SEED: "1", P_SLOW_SEEDS: "2" });
+  });
+
+  test("--suite, --seeds, --steps and --seed override the defaults; a suite's own shards read its options", () => {
+    // Act: suite・seed 数・steps・開始 seed・独自の option を指定する。
+    const plan = planDeepSearch(
+      config,
+      [
+        "--suite",
+        "fast,custom",
+        "--seeds",
+        "6",
+        "--steps",
+        "9",
+        "--seed",
+        "100",
+        "--custom-count",
+        "3",
+      ],
+      1,
+    );
+
+    // Assert: fast は 100 から 6 seed、steps 9。custom は独自の分割 (固定 1 + 3)。
+    const fast = plan.filter((p) => p.suite === "fast").map((p) => p.shard);
+    expect(fast.map((s) => s.env.P_FAST_SEED)).toEqual(["100", "102", "104"]);
+    expect(fast.every((s) => s.env.P_FAST_STEPS === "9")).toBe(true);
+    const custom = plan
+      .filter((p) => p.suite === "custom")
+      .map((p) => p.shard.label);
+    expect(custom).toEqual([
+      "custom fixed",
+      "custom 100",
+      "custom 101",
+      "custom 102",
+    ]);
+  });
+
+  test("a suite's steps are passed when --steps is not given; an unknown suite is an error", () => {
+    // Act / Assert: steps を持つ suite は既定の steps を渡す。
+    const fast = planDeepSearch(config, ["--suite", "fast", "--seeds", "1"], 1);
+    expect(fast[0].shard.env.P_FAST_STEPS).toBe("50");
+    // Act / Assert: 知らない suite は例外。
+    expect(() => planDeepSearch(config, ["--suite", "nope"], 1)).toThrow(
+      /unknown pbt:deep suite nope/,
+    );
+  });
+});
+
+describe("deep search run", () => {
+  test("a shard whose tests pass and whose vitest exits 0 passes", async () => {
+    // Act: 通るだけのフィクスチャを実行器で動かす。
+    const { exit, output } = await runFixtureDeepSearch(["passing"]);
+
+    // Assert: 終了コード 0 で、1 件通過・失敗なしと報告する。
+    expect(exit).toBe(0);
+    expect(output).toContain("1 passed, 0 failed, 0 pre-existing, 0 flaky");
+  }, 60_000);
+
+  test("an unhandled error after the assertions passed fails the search", async () => {
+    // Act: assertion は通るが、その後に未処理の rejection で vitest が終了コード 1 になるフィクスチャを動かす。
+    const { exit, lines } = await runFixtureDeepSearch(["unhandled"]);
+
+    // Assert: テストの結果がすべて通過でも、実行器は終了コード 1 を返す。
+    expect(exit).toBe(1);
+    // Assert: 単独での再実行でも異常終了するので flaky ではなく失敗とし、分割名と終了コードを示す。
+    expect(lines).toContain(
+      "  FAILED unhandled shard: vitest exited with code 1 (an error outside the test results, e.g. an unhandled rejection)",
+    );
+    expect(lines.join("\n")).toContain("1 failed, 0 pre-existing, 0 flaky");
+  }, 60_000);
+
+  test("the CLI of npm run pbt:deep (node, not vitest) runs shards and reads their reports", () => {
+    // Act: package の npm script と同じく、node の型除去で cli.ts を起動する。
+    const { status, stdout } = runFixtureCli("passing");
+
+    // Assert: reporter を読み込んで結果を集計し、終了コード 0。
+    expect(stdout).toContain("passing: 1 shards, 1 tests, 1 passed, 0 failed");
+    expect(status).toBe(0);
+  }, 60_000);
+
+  test("a failing assertion fails the search under its test title", async () => {
+    // Act: assertion が失敗するフィクスチャと、通るフィクスチャを同じ pool で動かす。
+    const { exit, lines } = await runFixtureDeepSearch(["failing", "passing"]);
+
+    // Assert: 終了コード 1 で、失敗はテストの題名で報告し、異常終了の行は重ねて出さない。
+    expect(exit).toBe(1);
+    expect(lines).toContain("  FAILED a failing fixture");
+    expect(lines.some((line) => line.includes("vitest exited"))).toBe(false);
+    // Assert: 通るフィクスチャは失敗にならない。
+    expect(lines.join("\n")).toContain(
+      "passing: 1 shards, 1 tests, 1 passed, 0 failed",
+    );
+  }, 60_000);
+
+  test("a failed test skipped on the replay alone is not flaky, even when another selected test passes", async () => {
+    // Act: 初回だけ失敗し、単独の再実行では skip される (題名を含む隣のテストは通る) フィクスチャを動かす。
+    const { exit, lines, output } = await runFixtureDeepSearch(["failing"], {
+      current: { failing: skippedOnReplaySource("a failing fixture") },
+    });
+
+    // Assert: 失敗したテスト自身が通っていないので flaky にせず、終了コード 1。
+    expect(exit).toBe(1);
+    expect(lines).toContain("  FAILED a failing fixture");
+    expect(output).toContain("0 flaky");
+  }, 60_000);
+
+  test("an abnormal shard whose replay skips a test of the first run is not flaky", async () => {
+    // Act: 初回は未処理の rejection とテストの通過、分割の再実行ではそのテストが skip され隣だけが通る。
+    const { exit, output } = await runFixtureDeepSearch(["failing"], {
+      current: {
+        failing: skippedOnReplaySource(
+          "a failing fixture",
+          rejection("unhandled on the first run"),
+        ),
+      },
+    });
+
+    // Assert: 初回に実行したテストが再実行で通っていないので flaky にせず、終了コード 1。
+    expect(exit).toBe(1);
+    expect(output).toContain("  FAILED failing shard: vitest exited");
+    expect(output).toContain("0 flaky");
+  }, 60_000);
+
+  test("an exit by a signal, an exit code or a missing report is abnormal; exit code 0 with a report is not", () => {
+    // Act / Assert: シグナルで終わったプロセスは異常終了。
+    expect(
+      abnormalExit({ exitCode: null, signal: "SIGKILL", reported: true }),
+    ).toBe("vitest was killed by SIGKILL");
+    // Act / Assert: 終了コードが 0 以外なら異常終了。
+    expect(abnormalExit({ exitCode: 2, signal: null, reported: true })).toMatch(
+      /^vitest exited with code 2/,
+    );
+    // Act / Assert: 終了コード 0 でもレポートがなければ異常終了。
+    expect(abnormalExit({ exitCode: 0, signal: null, reported: false })).toBe(
+      "vitest wrote no report",
+    );
+    // Act / Assert: 終了コード 0 でレポートがあれば正常。
+    expect(
+      abnormalExit({ exitCode: 0, signal: null, reported: true }),
+    ).toBeUndefined();
+  });
+});
+
+/** The webrtc heap slope verdict (P3): a statistical assertion on a measured value. */
+const slopeAssertion = (slope: number, unit = "KiB") =>
+  `expect(true, ${JSON.stringify(`${STATISTICAL_FAILURE_MARKER} slope ${slope} ${unit}/cycle`)}).toBe(false);`;
+const slopeSource = (slope: number, unit?: string) =>
+  testSource(slopeAssertion(slope, unit));
+/** The whole message of `slopeAssertion` without the marker: the shard's `statisticalVerdict`. */
+const slopeVerdict =
+  /^slope \d+(?:\.\d+)? (?:B|KiB|MiB)\/cycle: expected true to be false \/\/ Object\.is equality$/;
+
+/**
+ * A fixture whose test `title` fails on the first run and is skipped on later
+ * runs, beside a passing test whose title contains `title` (so the replay's
+ * pattern selects it too). `setup` is module-level code of the first run only.
+ */
+const skippedOnReplaySource = (title: string, setup = "") =>
+  `import { existsSync, writeFileSync } from "node:fs";
+import { expect, test } from "vitest";
+
+const marker = new URL("./ran", import.meta.url);
+const first = !existsSync(marker);
+if (first) {
+  writeFileSync(marker, "");
+  ${setup}
+}
+test.skipIf(!first)(${JSON.stringify(title)}, () => {
+  expect(${setup ? "1" : "2"}).toBe(1);
+});
+test(${JSON.stringify(`${title} neighbour`)}, () => {});
+`;
+
+/** A failing test whose first run executes `first` and whose later runs (the replay alone) `later`. */
+const onceThen = (first: string, later: string) =>
+  testSource(`const marker = new URL("./ran", import.meta.url);
+  if (!existsSync(marker)) {
+    writeFileSync(marker, "");
+    ${first}
+  }
+  ${later}`);
+
+/**
+ * The same verdict written over several lines as the webrtc test writes it, so
+ * the failing source line (`).toBe(false);`) is the same with and without the
+ * marker. `error` is the whole custom message.
+ */
+const verdictSource = (message: string) =>
+  testSource(`expect(
+    true,
+    ${JSON.stringify(message)},
+  ).toBe(false);`);
+const unmarkedVerdict =
+  /^slope \d+\.\d+ KiB\/cycle: expected true to be false \/\/ Object\.is equality$/;
+
+describe("deep search against a baseline", () => {
+  test("the verdict of a baseline from before the marker is the same failure", async () => {
+    // Act: 現行はマーカー付き、比較元は develop と同じくマーカーなしの同じ判定が失敗する。
+    const { exit, lines } = await runFixtureDeepSearch(["failing"], {
+      current: {
+        failing: verdictSource(
+          `${STATISTICAL_FAILURE_MARKER} slope 16.01 KiB/cycle`,
+        ),
+      },
+      baseline: { failing: verdictSource("slope 17.50 KiB/cycle") },
+      statistical: ["failing"],
+      statisticalVerdict: unmarkedVerdict,
+    });
+
+    // Assert: 以前からの失敗として終了コード 0。
+    expect(exit).toBe(0);
+    expect(lines).toContain("  pre-existing a failing fixture");
+  }, 60_000);
+
+  test.each([
+    {
+      name: "an operation that throws",
+      baseline: throwingSource("a failing fixture", "the operation failed"),
+    },
+    {
+      name: "an error with the verdict's text that is not an assertion",
+      baseline: throwingSource(
+        "a failing fixture",
+        "slope 16.01 KiB/cycle: expected true to be false // Object.is equality",
+      ),
+    },
+    {
+      name: "another assertion",
+      baseline: verdictSource("the session ended"),
+    },
+    {
+      name: "another reason of the verdict",
+      baseline: verdictSource("final median 9.00 MiB"),
+    },
+  ])(
+    "a marked verdict stays confirmed when a baseline from before the marker fails with $name",
+    async ({ baseline }) => {
+      // Act: 比較元はマーカー導入前のパターンに合わない別の原因で失敗する。
+      const { exit, lines } = await runFixtureDeepSearch(["failing"], {
+        current: {
+          failing: verdictSource(
+            `${STATISTICAL_FAILURE_MARKER} slope 16.01 KiB/cycle`,
+          ),
+        },
+        baseline: { failing: baseline },
+        statistical: ["failing"],
+        statisticalVerdict: unmarkedVerdict,
+      });
+
+      // Assert: 確定した失敗のまま終了コード 1。
+      expect(exit).toBe(1);
+      expect(lines).toContain("  FAILED a failing fixture");
+    },
+    60_000,
+  );
+
+  test("the pattern of an unmarked verdict does not make a failure of this revision statistical", async () => {
+    // Act: 現行がマーカーなしでパターンに合う失敗をし、--baseline を渡さない。
+    const { exit } = await runFixtureDeepSearch(["failing"], {
+      current: { failing: verdictSource("slope 16.01 KiB/cycle") },
+      statistical: ["failing"],
+      statisticalVerdict: unmarkedVerdict,
+    });
+
+    // Assert: 通常の失敗として終了コード 1。
+    expect(exit).toBe(1);
+  }, 60_000);
+
+  test("a confirmed failure the baseline passes stays in the exit code", async () => {
+    // Act: 比較元では同じ題名のテストが通るようにして --baseline で動かす。
+    const { exit, lines, output } = await runFixtureDeepSearch(["failing"], {
+      baseline: { failing: passingSource("a failing fixture") },
+    });
+
+    // Assert: 変更起因の失敗として終了コード 1 で、比較元の結果を添えて報告する。
+    expect(exit).toBe(1);
+    expect(lines).toContain("  FAILED a failing fixture");
+    expect(lines).toContain("    baseline: passed");
+    expect(output).toContain(
+      "summary: 1 confirmed (exit code), 0 pre-existing",
+    );
+  }, 60_000);
+
+  test("a failure the baseline repeats in the same form is pre-existing and leaves the exit code", async () => {
+    // Act: 比較元も同じフィクスチャ (同じ題名・同じメッセージで失敗) のまま動かす。
+    const { exit, lines, output } = await runFixtureDeepSearch(
+      ["failing", "passing"],
+      { baseline: {} },
+    );
+
+    // Assert: 以前からの失敗として報告し、終了コードは 0。
+    expect(exit).toBe(0);
+    expect(lines).toContain("  pre-existing a failing fixture");
+    expect(output).toContain(
+      "failed the same way on the baseline (attempt 1): failed: AssertionError: expected 2 to be 3 // Object.is equality",
+    );
+    expect(output).toContain(
+      "failing: 1 shards, 1 tests, 0 passed, 0 failed, 1 pre-existing",
+    );
+    expect(output).toMatch(
+      /summary: 0 confirmed \(exit code\), 1 pre-existing \(same failure on .*\.worktree-/,
+    );
+  }, 60_000);
+
+  test("a failure the baseline shows in another form stays confirmed", async () => {
+    // Act: 比較元では同じ題名のテストが別のメッセージで失敗する。
+    const { exit, lines } = await runFixtureDeepSearch(["failing"], {
+      baseline: {
+        failing: throwingSource("a failing fixture", "another error"),
+      },
+    });
+
+    // Assert: 同じ形ではないので確定した失敗のまま終了コード 1。
+    expect(exit).toBe(1);
+    expect(lines).toContain("  FAILED a failing fixture");
+    expect(lines).toContain("    baseline: failed: Error: another error");
+  }, 60_000);
+
+  test("an abnormal exit the baseline repeats is pre-existing", async () => {
+    // Act: 未処理の rejection で終わるフィクスチャを、比較元も同じまま動かす。
+    const { exit, lines } = await runFixtureDeepSearch(["unhandled"], {
+      baseline: {},
+    });
+
+    // Assert: 同じ異常終了の理由なので以前からの失敗とし、終了コードは 0。
+    expect(exit).toBe(0);
+    expect(lines).toContain(
+      "  pre-existing unhandled shard: vitest exited with code 1 (an error outside the test results, e.g. an unhandled rejection)",
+    );
+  }, 60_000);
+
+  test("a statistical failure is not judged without a baseline and is judged against one", async () => {
+    // Act: 統計的な分割の、統計的な assertion の失敗を --baseline なしで動かす。
+    const current = { failing: slopeSource(16.01) };
+    const alone = await runFixtureDeepSearch(["failing"], {
+      current,
+      statistical: ["failing"],
+      statisticalVerdict: slopeVerdict,
+    });
+
+    // Assert: statistical として示し、終了コードに含めない。
+    expect(alone.exit).toBe(0);
+    expect(alone.lines).toContain(
+      "  statistical (judged only with --baseline) a failing fixture",
+    );
+    expect(alone.output).toContain(
+      "1 statistical (not judged without --baseline)",
+    );
+
+    // Act: 比較元では通るようにして --baseline で動かす。
+    const compared = await runFixtureDeepSearch(["failing"], {
+      current,
+      statistical: ["failing"],
+      statisticalVerdict: slopeVerdict,
+      baseline: { failing: passingSource("a failing fixture") },
+    });
+
+    // Assert: 比較元で通るので確定した失敗として終了コード 1。
+    expect(compared.exit).toBe(1);
+    expect(compared.lines).toContain("  FAILED a failing fixture");
+
+    // Act: 比較元でも同じ判定が別の測定値で失敗するようにして動かす。
+    const repeated = await runFixtureDeepSearch(["failing"], {
+      current,
+      statistical: ["failing"],
+      statisticalVerdict: slopeVerdict,
+      baseline: { failing: slopeSource(17.5) },
+    });
+
+    // Assert: 比較元の方が閾値を大きく超えた数値だけの違いは同じ形なので以前からの失敗。
+    expect(repeated.exit).toBe(0);
+    expect(repeated.lines).toContain("  pre-existing a failing fixture");
+  }, 90_000);
+
+  test("a statistical shard without a verdict pattern makes no failure statistical", async () => {
+    // Act: statisticalVerdict を指定しない統計的な分割で、マーカー付きの assertion が失敗する。
+    const { exit, lines, output } = await runFixtureDeepSearch(["failing"], {
+      current: { failing: slopeSource(16.01) },
+      statistical: ["failing"],
+    });
+
+    // Assert: どの assertion が判定か分からないので statistical にせず、終了コード 1。
+    expect(exit).toBe(1);
+    expect(lines).toContain("  FAILED a failing fixture");
+    expect(output).toContain("0 statistical (not judged without --baseline)");
+  }, 60_000);
+
+  test("a statistical failure further past the threshold than the baseline's stays confirmed", async () => {
+    // Act: 現行は閾値を大きく超え、比較元は同じ判定がわずかに超えるだけで失敗する。
+    const { exit, lines } = await runFixtureDeepSearch(["failing"], {
+      current: { failing: slopeSource(400) },
+      statistical: ["failing"],
+      statisticalVerdict: slopeVerdict,
+      baseline: { failing: slopeSource(16.01) },
+    });
+
+    // Assert: 境界付近の既存の失敗では悪化を隠さず、確定した失敗として終了コード 1。
+    expect(exit).toBe(1);
+    expect(lines).toContain("  FAILED a failing fixture");
+  }, 60_000);
+
+  test.each([
+    {
+      name: "a larger MiB slope",
+      current: [900, "KiB"],
+      baseline: [1, "MiB"],
+      same: true,
+    },
+    {
+      name: "a larger KiB slope",
+      current: [900, "B"],
+      baseline: [1.5, "KiB"],
+      same: true,
+    },
+    {
+      name: "a smaller KiB slope",
+      current: [1, "MiB"],
+      baseline: [900, "KiB"],
+      same: false,
+    },
+    {
+      name: "a smaller B slope",
+      current: [1.5, "KiB"],
+      baseline: [900, "B"],
+      same: false,
+    },
+  ] as const)(
+    "a statistical failure is compared across units with $name on the baseline",
+    async ({ current, baseline, same }) => {
+      // Act: 現行と比較元が同じ判定を別の単位の測定値で失敗する (既定の超過量で比べる)。
+      const { exit, lines } = await runFixtureDeepSearch(["failing"], {
+        current: { failing: slopeSource(current[0], current[1]) },
+        statistical: ["failing"],
+        statisticalVerdict: slopeVerdict,
+        baseline: { failing: slopeSource(baseline[0], baseline[1]) },
+      });
+
+      // Assert: 単位ごと置き換えて同じ形とし、bytes に換算した超過量が比較元以下のときだけ以前からの失敗。
+      expect(exit).toBe(same ? 0 : 1);
+      expect(lines).toContain(
+        same
+          ? "  pre-existing a failing fixture"
+          : "  FAILED a failing fixture",
+      );
+    },
+    60_000,
+  );
+
+  test("a statistical failure whose excess cannot be read stays confirmed", async () => {
+    // Act: 比較元も同じ判定で失敗するが、超過量を読めない statisticalExcess を使う。
+    const { exit, lines } = await runFixtureDeepSearch(["failing"], {
+      current: { failing: slopeSource(16.01) },
+      statistical: ["failing"],
+      statisticalVerdict: slopeVerdict,
+      statisticalExcess: () => undefined,
+      baseline: { failing: slopeSource(17.5) },
+    });
+
+    // Assert: 比べられない超過量は同じ形とみなさず終了コード 1。
+    expect(exit).toBe(1);
+    expect(lines).toContain("  FAILED a failing fixture");
+  }, 60_000);
+
+  test.each([
+    {
+      name: "an operation that throws",
+      source: testSource('throw new Error("the operation failed");'),
+    },
+    {
+      name: "a timeout",
+      source: testSource("await new Promise(() => {});", { timeout: 200 }),
+    },
+    {
+      name: "an unhandled error besides the threshold",
+      source: testSource(
+        `${rejection("unhandled in the measurement")}\n  ${slopeAssertion(16.01)}`,
+      ),
+    },
+    {
+      name: "a failing hook besides the threshold",
+      source: testSource(slopeAssertion(16.01), {
+        setup: 'afterAll(() => {\n  throw new Error("cleanup failed");\n});',
+      }),
+    },
+    {
+      name: "a threshold on the first run and another error on the replay",
+      source: onceThen(
+        slopeAssertion(16.01),
+        'throw new Error("the operation failed");',
+      ),
+    },
+    {
+      name: "a killed process",
+      source: testSource('process.kill(process.ppid, "SIGKILL");'),
+    },
+    {
+      name: "an Error (not an assertion) with the marker's text",
+      source: throwingSource(
+        "a failing fixture",
+        `${STATISTICAL_FAILURE_MARKER} slope 16.01 KiB/cycle`,
+      ),
+    },
+    {
+      name: "an Error named AssertionError with a cause and the marker's text",
+      source: testSource(
+        `const error = new Error(${JSON.stringify(`${STATISTICAL_FAILURE_MARKER} slope 16.01 KiB/cycle`)}, { cause: new Error("the operation failed") });\n  error.name = "AssertionError";\n  throw error;`,
+      ),
+    },
+    {
+      name: "a marked assertion that is not the shard's verdict",
+      source: verdictSource(`${STATISTICAL_FAILURE_MARKER} the session ended`),
+    },
+    {
+      name: "a marked verdict in an unhandled rejection",
+      source: testSource(
+        `void (async () => { ${slopeAssertion(16.01)} })();\n  await new Promise((r) => setTimeout(r, 50));`,
+      ),
+    },
+  ])(
+    "a statistical shard still fails on $name without a baseline",
+    async ({ source }) => {
+      // Act: 統計的な分割で、閾値の判定ではない失敗を起こす (判定の文言は指定する)。
+      const { exit, output } = await runFixtureDeepSearch(["failing"], {
+        current: { failing: source },
+        statistical: ["failing"],
+        statisticalVerdict: /^slope \d+\.\d+ KiB\/cycle/,
+      });
+
+      // Assert: 通常の失敗として終了コード 1。
+      expect(exit).toBe(1);
+      expect(output).toMatch(/summary: [1-9]\d* confirmed/);
+    },
+    60_000,
+  );
+
+  test.each([
+    {
+      name: "the same first line and another second line (a scene error)",
+      current: testSource('throw new Error("seed 4 scene {}\\ncause A");'),
+      baseline: testSource('throw new Error("seed 4 scene {}\\ncause B");'),
+    },
+    {
+      name: "another cause",
+      current: testSource(
+        'throw new Error("failed", { cause: new Error("cause A") });',
+      ),
+      baseline: testSource(
+        'throw new Error("failed", { cause: new Error("cause B") });',
+      ),
+    },
+    {
+      name: "other actual values the message abbreviates",
+      current: testSource(
+        'expect(["a socket of the first transport was left open"]).toEqual([]);',
+      ),
+      baseline: testSource(
+        'expect(["a timer of the second transport was left running"]).toEqual([]);',
+      ),
+    },
+    {
+      name: "the same message from another assertion",
+      current: testSource("const left = 1;\n  expect(left).toBe(0);"),
+      baseline: testSource("const right = 1;\n  expect(right).toBe(0);"),
+    },
+    {
+      name: "another number",
+      current: testSource('throw new Error("2 sockets left");'),
+      baseline: testSource('throw new Error("1 sockets left");'),
+    },
+    {
+      name: "another error type",
+      current: testSource('throw new TypeError("failed");'),
+      baseline: testSource('throw new RangeError("failed");'),
+    },
+    {
+      name: "a first-run cause (another one on the replay) not seen",
+      current: onceThen(
+        'throw new Error("new on this revision");',
+        'throw new Error("old flake");',
+      ),
+      baseline: testSource('throw new Error("old flake");'),
+    },
+  ])(
+    "a test failing with $name than on the baseline stays confirmed",
+    async ({ current, baseline }) => {
+      // Act: 同じ題名のテストが、比較元では別の原因で失敗する。
+      const { exit, lines } = await runFixtureDeepSearch(["failing"], {
+        current: { failing: current },
+        baseline: { failing: baseline },
+      });
+
+      // Assert: 確定した失敗のまま終了コード 1。
+      expect(exit).toBe(1);
+      expect(lines).toContain("  FAILED a failing fixture");
+    },
+    60_000,
+  );
+
+  test.each([
+    {
+      name: "a failed assertion",
+      baseline: testSource("expect(1).toBe(2);"),
+    },
+    {
+      name: "another unhandled error",
+      baseline: testSource(rejection("another unhandled error")),
+    },
+  ])(
+    "an unhandled error is not matched by $name on the baseline",
+    async ({ baseline }) => {
+      // Act: 現行は未処理の rejection、比較元は同じ終了コードの別の原因で失敗する。
+      const { exit, output } = await runFixtureDeepSearch(["failing"], {
+        current: { failing: testSource(rejection("new unhandled error")) },
+        baseline: { failing: baseline },
+      });
+
+      // Assert: 原因が違うので確定した失敗のまま終了コード 1。
+      expect(exit).toBe(1);
+      expect(output).toContain("  FAILED failing shard: vitest exited");
+      expect(output).toContain("summary: 1 confirmed (exit code)");
+    },
+    60_000,
+  );
+
+  test("a new unhandled error is not hidden by a pre-existing test failure of its shard", async () => {
+    // Act: テストの失敗は比較元と同じで、現行にだけ未処理の rejection が加わる。
+    const body = 'throw new Error("old failure");';
+    const { exit, lines, output } = await runFixtureDeepSearch(["failing"], {
+      current: {
+        failing: testSource(body, { setup: rejection("new unhandled error") }),
+      },
+      baseline: { failing: testSource(body, { setup: "// nothing" }) },
+    });
+
+    // Assert: テストの失敗は以前からのもの、テストの外のエラーは確定として終了コード 1。
+    expect(exit).toBe(1);
+    expect(lines).toContain("  pre-existing a failing fixture");
+    expect(output).toContain("  FAILED failing shard: ");
+  }, 60_000);
+
+  test("a killed process has no comparable cause and stays confirmed", async () => {
+    // Act: 現行も比較元も vitest がシグナルで終了する。
+    const source = testSource('process.kill(process.ppid, "SIGKILL");');
+    const { exit, output } = await runFixtureDeepSearch(["failing"], {
+      current: { failing: source },
+      baseline: { failing: source },
+    });
+
+    // Assert: 原因を照合できないので確定した失敗とし、その理由を示す。
+    expect(exit).toBe(1);
+    expect(output).toContain(
+      "not compared with the baseline: vitest was killed by SIGKILL",
+    );
+  }, 60_000);
+
+  test.each([
+    { name: "as the last argument", argv: ["--baseline"] },
+    { name: "with an empty path", argv: ["--baseline", ""] },
+    { name: "followed by another option", argv: ["--baseline", "--jobs", "1"] },
+    { name: "written with =", argv: ["--baseline=/tmp/base"] },
+    { name: "with --dry-run", argv: ["--dry-run", "--baseline"] },
+  ])(
+    "--baseline $name is an error before any shard runs",
+    ({ argv }) => {
+      // Act: パスを欠いた --baseline を付けて CLI を起動する。
+      const { status, stdout, stderr } = runFixtureCli("passing", argv);
+
+      // Assert: 比較なしの成功にせず、理由を示して終了コード 2。
+      expect(status).toBe(2);
+      expect(stderr).toContain("pbt:deep --baseline: no path given");
+      // Assert: 分割の実行も計画の出力もしない。
+      expect(stdout).toBe("");
+    },
+    60_000,
+  );
+
+  test.each([
+    {
+      name: "the root of this worktree",
+      reason: "is this worktree",
+      baseline: ({ root }: Checkout) => root,
+    },
+    {
+      name: "a relative path to this worktree",
+      reason: "is this worktree",
+      // CLI の作業ディレクトリは root の下のパッケージ。
+      baseline: () => "..",
+    },
+    {
+      name: "a symlink to this worktree",
+      reason: "is this worktree",
+      baseline: ({ root }: Checkout) => {
+        symlinkSync(root, join(root, "self"));
+        return join(root, "self");
+      },
+    },
+    {
+      name: "another worktree whose package links to this one",
+      reason: "is the package of this worktree",
+      baseline: ({ root, dir }: Checkout) => {
+        const other = join(root, "other");
+        mkdirSync(other);
+        writeFileSync(join(other, ".git"), "");
+        symlinkSync(dir, join(other, "deep"));
+        return other;
+      },
+    },
+    {
+      name: "a checkout of this worktree's commit",
+      reason: "contains this worktree's HEAD",
+      baseline: ({ root }: Checkout) => {
+        git(root, "worktree", "add", "-q", "--detach", "same", "HEAD");
+        return join(root, "same");
+      },
+    },
+    {
+      name: "a checkout of a later commit",
+      reason: "contains this worktree's HEAD",
+      baseline: ({ root }: Checkout) => {
+        const later = join(root, "later");
+        git(root, "worktree", "add", "-q", "--detach", "later", "HEAD");
+        writeFileSync(join(later, "after"), "");
+        commitAll(later, "after this worktree's HEAD");
+        return later;
+      },
+    },
+    {
+      name: "a worktree root that git cannot read",
+      reason: "has no commit git can read",
+      baseline: ({ root }: Checkout) => {
+        const fake = join(root, "fake");
+        mkdirSync(join(fake, "deep"), { recursive: true });
+        writeFileSync(join(fake, ".git"), "");
+        writeFileSync(join(fake, "deep", "package.json"), "{}\n");
+        return fake;
+      },
+    },
+    {
+      name: "a directory that is not a worktree root",
+      reason: "is not a worktree root",
+      baseline: ({ root }: Checkout) => {
+        const copy = join(root, "copy");
+        mkdirSync(join(copy, "deep"), { recursive: true });
+        writeFileSync(join(copy, "deep", "package.json"), "{}\n");
+        return copy;
+      },
+    },
+  ])(
+    "$name as the baseline is an error before any shard runs",
+    ({ baseline, reason }) => {
+      // Act: 失敗するフィクスチャを、別の版ではない比較元を指定して CLI で動かす。
+      const { status, stdout, stderr } = runFixtureCli(
+        "failing",
+        (checkout) => ["--baseline", baseline(checkout)],
+      );
+
+      // Assert: 自分自身との比較で pre-existing にせず、理由を示して終了コード 2。
+      expect(status).toBe(2);
+      expect(stderr).toContain(reason);
+      // Assert: 分割は実行しない。
+      expect(stdout).toBe("");
+    },
+    60_000,
+  );
+
+  test("a checkout of the commit before this worktree's HEAD is a baseline", () => {
+    // Act: 現行に 1 commit 足し、その前の commit を比較元として CLI で動かす。
+    const { status, stdout } = runFixtureCli("failing", ({ root }) => {
+      writeFileSync(join(root, "change"), "");
+      commitAll(root, "the change");
+      git(root, "worktree", "add", "-q", "--detach", "before", "HEAD~1");
+      return ["--baseline", join(root, "before"), "--baseline-runs", "1"];
+    });
+
+    // Assert: 変更前の版は比較元として受け付け、同じ失敗を以前からの失敗とする。
+    expect(status).toBe(0);
+    expect(stdout).toContain("  pre-existing a failing fixture");
+    expect(stdout).toMatch(/same failure on .*\/before\/deep at [0-9a-f]{12}/);
+  }, 60_000);
+
+  test("a baseline without the package is an error before any shard runs", async () => {
+    // Act: パッケージのないディレクトリを比較元に渡す。
+    const { exit, output } = await runFixtureDeepSearch(["passing"], {
+      argv: ["--baseline", "/nonexistent-baseline"],
+    });
+
+    // Assert: 終了コード 2 で理由を示し、分割は実行しない。
+    expect(exit).toBe(2);
+    expect(output).toContain("has no package.json");
+    expect(output).not.toContain("passing: 1 shards");
+  });
+
+  test("the failure form keeps the whole cause and drops only run-to-run differences", () => {
+    // Act: 作業ツリーの根・行番号・時間・色を含むエラーの形を作る。
+    const error = {
+      name: "Error",
+      message: "\u001b[31mseed 4\ntimed out after 5012 ms in /a/b/x.ts:3:1",
+      cause: { name: "TypeError", message: "2 sockets left" },
+    };
+    const form = failureSignature(error, "/a/b");
+
+    // Assert: 2 行目以降と cause と数を残し、根・行番号・時間・色だけを除く。
+    expect(form).toBe(
+      "Error: seed 4\ntimed out after <n> ms in <root>/x.ts:<n>:<n>\ncaused by: TypeError: 2 sockets left",
+    );
+    // Act / Assert: メッセージのないエラー (cause を含む) は比較できる形がない。
+    expect(failureSignature({}, "/a/b")).toBeUndefined();
+    expect(failureSignature({ ...error, cause: {} }, "/a/b")).toBeUndefined();
+  });
+
+  test("a statistical form replaces a measured value with its unit and its excess is in one unit", () => {
+    // Arrange: 同じ判定の、単位の違う 2 つの失敗。
+    const verdict = /^slope .+\/cycle$/;
+    const error = (slope: string) => ({
+      name: "AssertionError",
+      message: `${STATISTICAL_FAILURE_MARKER} slope ${slope}/cycle`,
+    });
+
+    // Act / Assert: 測定値は単位ごと <n> になり、KiB と MiB、B と KiB、ms と s で同じ形。
+    expect(failureSignature(error("900.00 KiB"), "/r", verdict)).toBe(
+      "AssertionError: slope <n>/cycle",
+    );
+    expect(failureSignature(error("1.00 MiB"), "/r", verdict)).toBe(
+      failureSignature(error("900.00 KiB"), "/r", verdict),
+    );
+    expect(failureSignature(error("900 B"), "/r", verdict)).toBe(
+      failureSignature(error("1.5 KiB"), "/r", verdict),
+    );
+    expect(failureSignature(error("1000 ms"), "/r", verdict)).toBe(
+      failureSignature(error("1 s"), "/r", verdict),
+    );
+    // Act / Assert: 既定の超過量は単位を基本単位 (bytes, ms) に換算し、単位のない数はそのまま。
+    expect(messageNumbers("slope 1.00 MiB, 900 KiB, 3 B, 2 s, R²=0.5")).toEqual(
+      [1024 ** 2, 900 * 1024, 3, 2000, 0.5],
+    );
+    // Act / Assert: 単位の後に文字が続く語 (2 sockets) は単位として読まない。
+    expect(messageNumbers("2 sockets")).toEqual([2]);
+  });
+
+  test("the same form needs the same test and every observed cause", () => {
+    // Arrange: 2 つの原因を示した失敗と、その 1 つだけを示す比較元の実行。
+    const failure = {
+      id: "t seed 4",
+      kind: "test" as const,
+      forms: ["Error: A", "Error: B"],
+    };
+    const run = (id: string, signature: string) => ({
+      failed: [{ id, title: id, signature, statistical: false }],
+      outside: [],
+      signal: null,
+      reported: true,
+    });
+
+    // Act / Assert: 片方の原因だけでは同じ形ではなく、両方がそろえば同じ形。
+    expect(sameFailure(failure, [run("t seed 4", "Error: A")])).toBe(false);
+    expect(
+      sameFailure(failure, [
+        run("t seed 4", "Error: A"),
+        run("t seed 4", "Error: B"),
+      ]),
+    ).toBe(true);
+    // Act / Assert: 別のテストの同じ原因は同じ形ではない。
+    expect(
+      sameFailure({ ...failure, forms: ["Error: A"] }, [
+        run("t seed 5", "Error: A"),
+      ]),
+    ).toBe(false);
+    // Act / Assert: 比較できる原因がない失敗は同じ形にならない。
+    expect(
+      sameFailure({ ...failure, forms: [] }, [run("t seed 4", "Error: A")]),
+    ).toBe(false);
+  });
+
+  test("a statistical form is the same only when the baseline went at least as far past each threshold", () => {
+    // Arrange: 2 つの判定 (傾き・最終値) の超過量を持つ統計的な失敗と、比較元の同じ形の実行。
+    const form = "AssertionError: slope <n> and margin <n>";
+    const failure = {
+      id: "heap seed 4",
+      kind: "test" as const,
+      forms: [form],
+      excess: { [form]: [10, 2] },
+    };
+    const run = (excess?: number[]) => ({
+      failed: [
+        {
+          id: "heap seed 4",
+          title: "",
+          signature: form,
+          statistical: true,
+          excess,
+        },
+      ],
+      outside: [],
+      signal: null,
+      reported: true,
+    });
+
+    // Act / Assert: どちらの判定も比較元が同じかそれ以上に超えていれば同じ形。
+    expect(sameFailure(failure, [run([10, 5])])).toBe(true);
+    // Act / Assert: 片方でも比較元の超過量が小さければ同じ形ではない。
+    expect(sameFailure(failure, [run([30, 1])])).toBe(false);
+    // Act / Assert: 複数回の再生では判定ごとの最大で比べる。
+    expect(sameFailure(failure, [run([30, 1]), run([1, 5])])).toBe(true);
+    // Act / Assert: 超過量を読めない (NaN・なし・判定の数が違う) 比較元は同じ形ではない。
+    expect(sameFailure(failure, [run([Number.NaN, 5])])).toBe(false);
+    expect(sameFailure(failure, [run()])).toBe(false);
+    expect(sameFailure(failure, [run([30])])).toBe(false);
+    // Act / Assert: 現行の超過量を読めなければ同じ形ではない。
+    expect(
+      sameFailure({ ...failure, excess: { [form]: [Number.NaN, 2] } }, [
+        run([30, 5]),
+      ]),
+    ).toBe(false);
+  });
+
+  test("the baseline package is the same path relative to the worktree root", () => {
+    // Act / Assert: 作業ツリーの根からの相対パスを比較元の根に付ける。
+    expect(baselinePackageDir("/tmp/base", __dirname)).toBe(
+      "/tmp/base/packages/pbt/tests",
+    );
+  });
+});

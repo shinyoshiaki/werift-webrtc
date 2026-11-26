@@ -227,7 +227,7 @@ RTX SSRCs of [ridByRtxSsrc](#ridbyrtxssrc) per RID, oldest bound first.
 
 #### Index Signature
 
-\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)
+\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>
 
 ***
 
@@ -237,13 +237,13 @@ RTX SSRCs of [ridByRtxSsrc](#ridbyrtxssrc) per RID, oldest bound first.
 
 #### Index Signature
 
-\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)
+\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>
 
 ***
 
 ### tracks
 
-> `readonly` **tracks**: [`MediaStreamTrack`](MediaStreamTrack.md)[] = `[]`
+> `readonly` **tracks**: [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>[] = `[]`
 
 ***
 
@@ -335,11 +335,11 @@ Internal (router): every learned fallback SSRC, oldest first.
 
 #### Get Signature
 
-> **get** **track**(): [`MediaStreamTrack`](MediaStreamTrack.md)
+> **get** **track**(): [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>
 
 ##### Returns
 
-[`MediaStreamTrack`](MediaStreamTrack.md)
+[`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>
 
 ***
 
@@ -413,7 +413,7 @@ highest sequence number and, with `ownMid`, the last MID update.
 
 ### adoptDefaultTrack()
 
-> **adoptDefaultTrack**(`ssrc`, `codec?`): [`MediaStreamTrack`](MediaStreamTrack.md)
+> **adoptDefaultTrack**(`ssrc`, `codec?`): [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>
 
 Internal (router): the track a description's first SSRC binds when this
 m-line had neither an SSRC nor a RID and `ontrack` already announced the
@@ -432,7 +432,7 @@ and `ontrack` does not fire again for it.
 
 #### Returns
 
-[`MediaStreamTrack`](MediaStreamTrack.md)
+[`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>
 
 ***
 
@@ -574,7 +574,7 @@ Internal: RID → newest fallback SSRC that carried it.
 
 ##### selector?
 
-[`MediaStreamTrack`](MediaStreamTrack.md)
+[`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>
 
 #### Returns
 
@@ -699,7 +699,7 @@ tracks; the SSRCs the replacing offer gives take them over.
 
 ##### tracks
 
-[`MediaStreamTrack`](MediaStreamTrack.md)[]
+[`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>[]
 
 #### Returns
 
@@ -832,6 +832,30 @@ until the transaction commits, and rollback drops the staged value.
 #### Returns
 
 `void`
+
+***
+
+### readsRepairedRid()
+
+> **readsRepairedRid**(`ssrc`, `repairedRid`): `boolean`
+
+Internal (router): a packet of `ssrc` routed here is handled by its
+repaired RID `repairedRid`
+(tests/media/firefoxSimulcastRepairedRidRoute.test.ts "simulcast (RID) RTX routed by SSRC with a repaired RID (readsRepairedRid)").
+
+#### Parameters
+
+##### ssrc
+
+`number`
+
+##### repairedRid
+
+`string`
+
+#### Returns
+
+`boolean`
 
 ***
 
@@ -973,11 +997,15 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 
 ###### receiveTables
 
-\{ `codecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `ssrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; `stagedCodecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `stagedSsrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; \} = `...`
+\{ `codecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `ridFidMediaByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; `ssrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; `stagedCodecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `stagedRidFidTable`: \{\[`rtxSsrc`: `number`\]: `number`; \} \| `undefined`; `stagedSsrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; \} = `...`
 
 ###### receiveTables.codecs
 
 \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \} = `...`
+
+###### receiveTables.ridFidMediaByRtx
+
+\{\[`rtxSsrc`: `number`\]: `number`; \} = `...`
 
 ###### receiveTables.ssrcByRtx
 
@@ -986,6 +1014,10 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 ###### receiveTables.stagedCodecs
 
 \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \} = `...`
+
+###### receiveTables.stagedRidFidTable
+
+\{\[`rtxSsrc`: `number`\]: `number`; \} \| `undefined` = `...`
 
 ###### receiveTables.stagedSsrcByRtx
 
@@ -1005,19 +1037,19 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 
 ###### trackByRID
 
-\{\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \} = `...`
+\{\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>; \} = `...`
 
 ###### trackBySSRC
 
-\{\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \} = `...`
+\{\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>; \} = `...`
 
 ###### tracks
 
-[`MediaStreamTrack`](MediaStreamTrack.md)[] = `...`
+[`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>[] = `...`
 
 ###### unboundTracks
 
-[`MediaStreamTrack`](MediaStreamTrack.md)[] = `...`
+[`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>[] = `...`
 
 #### Returns
 
@@ -1039,6 +1071,10 @@ Internal: replace the decode tables with a rollback baseline.
 
 \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \} = `...`
 
+###### ridFidMediaByRtx
+
+\{\[`rtxSsrc`: `number`\]: `number`; \} = `...`
+
 ###### ssrcByRtx
 
 \{\[`rtxSsrc`: `number`\]: `number`; \} = `...`
@@ -1046,6 +1082,10 @@ Internal: replace the decode tables with a rollback baseline.
 ###### stagedCodecs
 
 \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \} = `...`
+
+###### stagedRidFidTable
+
+\{\[`rtxSsrc`: `number`\]: `number`; \} \| `undefined` = `...`
 
 ###### stagedSsrcByRtx
 
@@ -1183,6 +1223,14 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 
 \[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
 
+###### receiveTables.ridFidMediaByRtx
+
+> **ridFidMediaByRtx**: `object`
+
+###### Index Signature
+
+\[`rtxSsrc`: `number`\]: `number`
+
 ###### receiveTables.ssrcByRtx
 
 > **ssrcByRtx**: `object`
@@ -1198,6 +1246,10 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 ###### Index Signature
 
 \[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+
+###### receiveTables.stagedRidFidTable
+
+> **stagedRidFidTable**: \{\[`rtxSsrc`: `number`\]: `number`; \} \| `undefined`
 
 ###### receiveTables.stagedSsrcByRtx
 
@@ -1225,7 +1277,7 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 
 ###### Index Signature
 
-\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)
+\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>
 
 ##### trackBySSRC
 
@@ -1233,15 +1285,15 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 
 ###### Index Signature
 
-\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)
+\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>
 
 ##### tracks
 
-> **tracks**: [`MediaStreamTrack`](MediaStreamTrack.md)[]
+> **tracks**: [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>[]
 
 ##### unboundTracks
 
-> **unboundTracks**: [`MediaStreamTrack`](MediaStreamTrack.md)[]
+> **unboundTracks**: [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>[]
 
 ***
 
@@ -1263,6 +1315,14 @@ Internal: capture the decode tables for a negotiation rollback baseline.
 
 \[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
 
+##### ridFidMediaByRtx
+
+> **ridFidMediaByRtx**: `object`
+
+###### Index Signature
+
+\[`rtxSsrc`: `number`\]: `number`
+
 ##### ssrcByRtx
 
 > **ssrcByRtx**: `object`
@@ -1278,6 +1338,10 @@ Internal: capture the decode tables for a negotiation rollback baseline.
 ###### Index Signature
 
 \[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)
+
+##### stagedRidFidTable
+
+> **stagedRidFidTable**: \{\[`rtxSsrc`: `number`\]: `number`; \} \| `undefined`
 
 ##### stagedSsrcByRtx
 
@@ -1296,6 +1360,21 @@ Internal: capture the decode tables for a negotiation rollback baseline.
 #### Returns
 
 `void`
+
+***
+
+### takeDroppedFidRtxSsrcs()
+
+> **takeDroppedFidRtxSsrcs**(): `number`[]
+
+Internal (router): FID RTX SSRCs a commit removed that the description
+no longer describes otherwise; their description routes go
+(tests/media/firefoxSimulcastRepairedRidRoute.test.ts "確定で FID の組が外れた RTX SSRC を BUNDLE の別 m-line が MID と repaired RID 付きで使うと、その m-line の RID のトラックへ復元される";
+tests/media/firefoxSimulcastRepairedRidRoute.test.ts "RID の m-line が FID の組を外して SSRC で送る記述に変わっても、a=ssrc の RTX として記述された RTX SSRC は経路を失わず復元される").
+
+#### Returns
+
+`number`[]
 
 ***
 

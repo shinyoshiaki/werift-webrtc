@@ -89,7 +89,11 @@ export class MediaRecorder {
     const writerProps = { ...props, path: path!, stream: stream as any };
     switch (this.format) {
       case "webm":
-        this.writer = new WebmFactory(writerProps);
+        {
+          const writer = new WebmFactory(writerProps);
+          writer.onError.subscribe((error) => this.onError.execute(error));
+          this.writer = writer;
+        }
         break;
       case "ogg":
         if (props.numOfTracks !== undefined) {

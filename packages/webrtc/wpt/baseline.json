@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-13T00:39:14.540Z",
+  "generatedAt": "2026-11-17T13:08:10.688Z",
   "results": [
     {
       "file": "webrtc/getstats.html",
@@ -65,6 +65,42 @@
       "file": "webrtc/protocol/crypto-suite.https.html",
       "variant": "",
       "subtest": "dtlsCipher is acceptable on video-only",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/protocol/dtls-close.html",
+      "variant": "",
+      "subtest": "close() causes the other end's DTLS and SCTP transport and datachannels to close",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/protocol/dtls-fingerprint-validation.html",
+      "variant": "",
+      "subtest": "Connection fails if one side provides a wrong DTLS fingerprint",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/protocol/dtls-fingerprint-validation.html",
+      "variant": "",
+      "subtest": "SDP negotiation with a sha-1 fingerprint succeds",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/protocol/dtls-fingerprint-validation.html",
+      "variant": "",
+      "subtest": "SDP negotiation with a sha-256 fingerprint succeds",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/protocol/dtls-fingerprint-validation.html",
+      "variant": "",
+      "subtest": "SDP negotiation with a sha-384 fingerprint succeds",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/protocol/dtls-fingerprint-validation.html",
+      "variant": "",
+      "subtest": "SDP negotiation with a sha-512 fingerprint succeds",
       "status": "PASS"
     },
     {
@@ -356,9 +392,183 @@
       "status": "PASS"
     },
     {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "datachannel bufferedAmount initial value should be 0 for both peers",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "datachannel bufferedAmount should increase to byte length of buffer sent",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "datachannel bufferedAmount should increase to byte length of encodedunicode string sent",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "datachannel bufferedAmount should not decrease after closing the peer connection",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "datachannel bufferedAmount should not decrease immediately after initiating closure",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "datachannel bufferedAmount should stay at zero for empty buffer sent",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "datachannel bufferedAmount should stay at zero for empty string sent",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "datachannel bufferedamount is data.length on send(data)",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "datachannel bufferedamount returns the same amount if no more data is",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "datachannel bufferedamountlow event fires after each sent message",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "datachannel bufferedamountlow event fires after send() is complete",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "datachannel bufferedamountlow event fires only once after multiple consecutive send() calls",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "negotiated datachannel bufferedAmount initial value should be 0 for both peers",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "negotiated datachannel bufferedAmount should increase to byte length of buffer sent",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "negotiated datachannel bufferedAmount should increase to byte length of encodedunicode string sent",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "negotiated datachannel bufferedAmount should not decrease after closing the peer connection",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "negotiated datachannel bufferedAmount should not decrease immediately after initiating closure",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "negotiated datachannel bufferedAmount should stay at zero for empty buffer sent",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "negotiated datachannel bufferedAmount should stay at zero for empty string sent",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "negotiated datachannel bufferedamount is data.length on send(data)",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "negotiated datachannel bufferedamount returns the same amount if no more data is",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "negotiated datachannel bufferedamountlow event fires after each sent message",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "negotiated datachannel bufferedamountlow event fires after send() is complete",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "negotiated datachannel bufferedamountlow event fires only once after multiple consecutive send() calls",
+      "status": "PASS"
+    },
+    {
       "file": "webrtc/RTCDataChannel-close.html",
       "variant": "",
       "subtest": "Close peerconnection after datachannel close causes no events",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-close.html",
+      "variant": "",
+      "subtest": "Close peerconnection after negotiated datachannel close causes no events",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-close.html",
+      "variant": "",
+      "subtest": "Close datachannel causes closing and close event to be called",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-close.html",
+      "variant": "",
+      "subtest": "Close datachannel causes onclosing and onclose to be called",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-close.html",
+      "variant": "",
+      "subtest": "Close negotiated datachannel causes closing and close event to be called",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-close.html",
+      "variant": "",
+      "subtest": "Close negotiated datachannel causes onclosing and onclose to be called",
       "status": "PASS"
     },
     {
@@ -371,6 +581,30 @@
       "file": "webrtc/RTCDataChannel-iceRestart.html",
       "variant": "",
       "subtest": "Data channel remains usable after ICE restart",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-id.html",
+      "variant": "",
+      "subtest": "DTLS client uses odd data channel IDs",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-id.html",
+      "variant": "",
+      "subtest": "DTLS server uses even data channel IDs",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-id.html",
+      "variant": "",
+      "subtest": "In-band negotiation with a specific ID should not work",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-id.html",
+      "variant": "",
+      "subtest": "Odd/even role should not be violated when mixing with negotiated channels",
       "status": "PASS"
     },
     {
@@ -581,6 +815,24 @@
       "file": "webrtc/RTCDataChannelInit-maxRetransmits-enforce-range.html",
       "variant": "",
       "subtest": "maxRetransmits with value 65536 should throw TypeError",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDtlsTransport-state.html",
+      "variant": "",
+      "subtest": "close() causes the local transport to close immediately",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDtlsTransport-state.html",
+      "variant": "",
+      "subtest": "close() causes the other end's DTLS transport to close",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDtlsTransport-state.html",
+      "variant": "",
+      "subtest": "DTLS transport goes to connected state",
       "status": "PASS"
     },
     {
@@ -1130,6 +1382,12 @@
       "status": "PASS"
     },
     {
+      "file": "webrtc/RTCPeerConnection-addTransceiver-renegotiation.https.html",
+      "variant": "",
+      "subtest": "Video flows to RTCPeerConnection's second transceiver added through renegotiation, with first transceiver inactive",
+      "status": "PASS"
+    },
+    {
       "file": "webrtc/RTCPeerConnection-canTrickleIceCandidates.html",
       "variant": "",
       "subtest": "canTrickleIceCandidates property is false after setRemoteDescription without a=ice-options:trickle",
@@ -1450,6 +1708,12 @@
     {
       "file": "webrtc/RTCPeerConnection-ondatachannel.html",
       "variant": "",
+      "subtest": "Negotiated channel should not fire datachannel event on remote peer",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-ondatachannel.html",
+      "variant": "",
       "subtest": "Open event should be raised when closing the channel in the datachannel event after enqueuing a task",
       "status": "PASS"
     },
@@ -1457,6 +1721,18 @@
       "file": "webrtc/RTCPeerConnection-ondatachannel.html",
       "variant": "",
       "subtest": "Should be able to send data in a datachannel event handler",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-onicecandidateerror.https.html",
+      "variant": "",
+      "subtest": "icecandidateerror fires for each failing server",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-onicecandidateerror.https.html",
+      "variant": "",
+      "subtest": "Surfacing onicecandidateerror",
       "status": "PASS"
     },
     {
@@ -2428,6 +2704,12 @@
     {
       "file": "webrtc/RTCPeerConnection-setRemoteDescription-rollback.html",
       "variant": "?rest",
+      "subtest": "rollback of a remote offer should keep a transceiver without tracks",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnection-setRemoteDescription-rollback.html",
+      "variant": "?rest",
       "subtest": "removeTrack() with a sender being rolled back does not crash or throw",
       "status": "PASS"
     },
@@ -2813,6 +3095,12 @@
       "file": "webrtc/RTCPeerConnection-transceivers.https.html",
       "variant": "",
       "subtest": "transceiver.sender.track does not revert to an old state",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCPeerConnectionIceErrorEvent.html",
+      "variant": "",
+      "subtest": "RTCPeerConnectionIceErrorEvent constructed from init parameters",
       "status": "PASS"
     },
     {
@@ -3353,78 +3641,6 @@
       "file": "webrtc/protocol/codecs-subsequent-offer.https.html",
       "variant": "",
       "subtest": "A subsequent offer after a VP8-only negotiation includes at least all mandatory to implement codecs",
-      "status": "PASS"
-    },
-    {
-      "file": "webrtc/protocol/dtls-close.html",
-      "variant": "",
-      "subtest": "close() causes the other end's DTLS and SCTP transport and datachannels to close",
-      "status": "PASS"
-    },
-    {
-      "file": "webrtc/protocol/dtls-fingerprint-validation.html",
-      "variant": "",
-      "subtest": "Connection fails if one side provides a wrong DTLS fingerprint",
-      "status": "PASS"
-    },
-    {
-      "file": "webrtc/protocol/dtls-fingerprint-validation.html",
-      "variant": "",
-      "subtest": "SDP negotiation with a sha-1 fingerprint succeds",
-      "status": "PASS"
-    },
-    {
-      "file": "webrtc/protocol/dtls-fingerprint-validation.html",
-      "variant": "",
-      "subtest": "SDP negotiation with a sha-256 fingerprint succeds",
-      "status": "PASS"
-    },
-    {
-      "file": "webrtc/protocol/dtls-fingerprint-validation.html",
-      "variant": "",
-      "subtest": "SDP negotiation with a sha-384 fingerprint succeds",
-      "status": "PASS"
-    },
-    {
-      "file": "webrtc/protocol/dtls-fingerprint-validation.html",
-      "variant": "",
-      "subtest": "SDP negotiation with a sha-512 fingerprint succeds",
-      "status": "PASS"
-    },
-    {
-      "file": "webrtc/RTCDtlsTransport-state.html",
-      "variant": "",
-      "subtest": "close() causes the local transport to close immediately",
-      "status": "PASS"
-    },
-    {
-      "file": "webrtc/RTCDtlsTransport-state.html",
-      "variant": "",
-      "subtest": "close() causes the other end's DTLS transport to close",
-      "status": "PASS"
-    },
-    {
-      "file": "webrtc/RTCDtlsTransport-state.html",
-      "variant": "",
-      "subtest": "DTLS transport goes to connected state",
-      "status": "PASS"
-    },
-    {
-      "file": "webrtc/RTCPeerConnection-onicecandidateerror.https.html",
-      "variant": "",
-      "subtest": "Surfacing onicecandidateerror",
-      "status": "PASS"
-    },
-    {
-      "file": "webrtc/RTCPeerConnection-onicecandidateerror.https.html",
-      "variant": "",
-      "subtest": "icecandidateerror fires for each failing server",
-      "status": "PASS"
-    },
-    {
-      "file": "webrtc/RTCPeerConnectionIceErrorEvent.html",
-      "variant": "",
-      "subtest": "RTCPeerConnectionIceErrorEvent constructed from init parameters",
       "status": "PASS"
     }
   ]

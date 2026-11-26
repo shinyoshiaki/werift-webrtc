@@ -6,6 +6,7 @@ import {
 import {
   createSelfSignedCertificate,
   type DtlsKeys,
+  DtlsVersion,
   HashAlgorithm,
   type PeerConfig,
   SignatureAlgorithm,
@@ -73,6 +74,34 @@ export const peerConfig: Promise<Partial<PeerConfig>> = (async () => ({
   dtls: { keys: await DtlsKeysContext.get() },
   bundlePolicy: "max-bundle" as BundlePolicy,
 }))();
+
+export async function peerConfigWithDtls(options?: {
+  protocolVersions?: readonly string[];
+  helloRetryRequest?: boolean;
+  /** SPED + WARP `sendBeforeNomination` (application data before ICE nomination). */
+  sendBeforeNomination?: boolean;
+  /** PeerConfig.sped (DTLS 1.3 in ICE Binding; Chromium's SPED stays off). */
+  sped?: boolean;
+}): Promise<Partial<PeerConfig>> {
+  const base = await peerConfig;
+  const protocolVersions = options?.protocolVersions?.map((version) =>
+    version === DtlsVersion.V1_3 || version === "1.3"
+      ? DtlsVersion.V1_3
+      : DtlsVersion.V1_2,
+  );
+  return {
+    ...base,
+    ...(options?.sped ? { sped: true } : {}),
+    dtls: {
+      ...base.dtls,
+      protocolVersions,
+      helloRetryRequest: options?.helloRetryRequest,
+    },
+    ...(options?.sendBeforeNomination
+      ? { sped: true, warp: { sendBeforeNomination: true } }
+      : {}),
+  };
+}
 
 export const iceLitePeerConfig: Promise<Partial<PeerConfig>> = (async () => {
   const iceLiteInterfaceAddress = getIceLiteInterfaceAddress();

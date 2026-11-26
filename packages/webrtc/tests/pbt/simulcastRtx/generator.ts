@@ -1,4 +1,4 @@
-import type { SeededRandom } from "../shared/random";
+import type { SeededRandom } from "../../../../pbt/src";
 
 /**
  * Generators of the simulcast RTX property test

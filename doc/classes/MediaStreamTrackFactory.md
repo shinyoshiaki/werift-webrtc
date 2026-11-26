@@ -20,7 +20,7 @@
 
 ### rtpSource()
 
-> `static` **rtpSource**(`__namedParameters`): `Promise`\<readonly \[[`MediaStreamTrack`](MediaStreamTrack.md), `number`, () => `void`\]\>
+> `static` **rtpSource**(`__namedParameters`): `Promise`\<readonly \[[`MediaStreamTrack`](MediaStreamTrack.md)\<`"audio"` \| `"video"`\>, `number`, () => `void`\]\>
 
 #### Parameters
 
@@ -40,4 +40,4 @@
 
 #### Returns
 
-`Promise`\<readonly \[[`MediaStreamTrack`](MediaStreamTrack.md), `number`, () => `void`\]\>
+`Promise`\<readonly \[[`MediaStreamTrack`](MediaStreamTrack.md)\<`"audio"` \| `"video"`\>, `number`, () => `void`\]\>

@@ -35,6 +35,7 @@
     "doc": "rm -rf doc && typedoc --excludePrivate --disableSources --excludeInternal --plugin typedoc-plugin-markdown --out doc ./src/index.ts",
     "format": "biome check --write src tests",
     "test": "npm run type && npm run type:public && vitest run ./tests",
+    "pbt:deep": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs ../pbt/src/cli.ts tests/pbt/suites.ts",
     "test:browser": "cd browser-e2e && npm install && npm run ci:silent",
     "type": "tsc --noEmit -p . --rootDir ..",
     "type:public": "rm -rf .tmp-decl && tsc -p tsconfig.production.json --outDir .tmp-decl && tsc -p tools/publicTypes/tsconfig.json; r=$?; rm -rf .tmp-decl; exit $r",

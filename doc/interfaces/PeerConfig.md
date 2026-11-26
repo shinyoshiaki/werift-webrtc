@@ -43,7 +43,7 @@ Cannot be changed after construction. See [BundleCandidates](../type-aliases/Bun
 
 ### certificateScope
 
-> **certificateScope**: `"process"` \| `"standard"`
+> **certificateScope**: `"standard"` \| `"process"`
 
 Which default DTLS certificate is used when neither `certificates` nor `dtls.keys` is given
 (see [CompatibilityOptionValues](../variables/CompatibilityOptionValues.md)). Cannot be changed after construction.
@@ -67,7 +67,8 @@ Also accepts the v0.27.0 name `"peerConnection"` (= `"standard"`).
 > **compatibility**: `"standard"` \| `undefined`
 
 Sets every compatibility option (`certificateScope`, `mLineReuse`,
-`transceiverPairing`, `keyFrameRequestRouting`, see
+`transceiverPairing`, `keyFrameRequestRouting`,
+`dtlsHandshakeValidation`, see
 [CompatibilityOptionValues](../variables/CompatibilityOptionValues.md)) to the specification / browser behavior
 at once. Cannot be changed after construction.
 - `undefined` (default): each option keeps its own default.
@@ -82,10 +83,10 @@ option given as `undefined` counts as not given.
 
 ```ts
 new RTCPeerConnection({ compatibility: "standard" });
-// certificateScope, mLineReuse, transceiverPairing and
-// keyFrameRequestRouting are all "standard"
+// certificateScope, mLineReuse, transceiverPairing,
+// keyFrameRequestRouting and dtlsHandshakeValidation are all "standard"
 new RTCPeerConnection({ compatibility: "standard", certificateScope: "process" });
-// certificateScope is "process", the other three are "standard"
+// certificateScope is "process", the others are "standard"
 ```
 
 It does not change `iceServers` / `iceUseDefaultStunServer`, which are not
@@ -101,7 +102,24 @@ compatibility options.
 
 ### dtls
 
-> **dtls**: `Partial`\<\{ `keys`: [`DtlsKeys`](../type-aliases/DtlsKeys.md); \}\>
+> **dtls**: `Partial`\<\{ `helloRetryRequest?`: `boolean`; `keys`: [`DtlsKeys`](../type-aliases/DtlsKeys.md); `protocolVersions`: readonly [`DtlsVersion`](../enumerations/DtlsVersion.md)[]; \}\>
+
+***
+
+### dtlsHandshakeValidation
+
+> **dtlsHandshakeValidation**: `"standard"` \| `"lenient"`
+
+How strictly the DTLS 1.2 handshake validates the peer's messages (see
+[CompatibilityOptionValues](../variables/CompatibilityOptionValues.md)). Cannot be changed after construction.
+- `"lenient"` (default): a malformed `supported_versions` is ignored and
+  DTLS 1.2 negotiated, duplicate extensions are accepted and `use_srtp`
+  is read without length checks, as before the strict checks.
+- `"standard"`: RFC-strict; these fail the handshake (a malformed
+  `supported_versions` with a `protocol_version` alert).
+
+A `supported_versions` without an overlapping version fails either way,
+and DTLS 1.3 always validates strictly.
 
 ***
 
@@ -148,6 +166,20 @@ An address assigned to a local interface is bound like an enumerated one; any ot
 
 ***
 
+### iceFailover
+
+> **iceFailover**: [`IceFailoverOptions`](IceFailoverOptions.md) \| `undefined`
+
+werift extension. Thresholds of the failover of the selected candidate
+pair without an ICE restart (with semi-aggressive nomination or
+renomination): how soon a pair is unwritable (`unwritableMinChecks`,
+`unwritableTimeout`) and how soon a selected pair that stopped receiving
+moves to a backup (`receivingTimeout`, `receivingSwitchingDelay`). Maps
+to `IceOptions.failover`; each unset or invalid value keeps its default
+(libwebrtc's: 5 checks, 5000 ms, 2500 ms, 1000 ms).
+
+***
+
 ### iceFilterCandidatePair
 
 > **iceFilterCandidatePair**: ((`pair`) => `boolean`) \| `undefined`
@@ -160,6 +192,22 @@ An address assigned to a local interface is bound like an enumerated one; any ot
 
 If provided, is called on each STUN request.
 Return `true` if a STUN response should be sent, false if it should be skipped.
+
+***
+
+### iceIncomingCheckTimeout
+
+> **iceIncomingCheckTimeout**: `number` \| `undefined`
+
+Seconds ICE waits for a connectivity check from the peer when it has no
+candidate pair of its own to check after both sides ended their
+candidates (the peer offered only active TCP candidates, as Firefox does
+for ICE-TCP, or none werift can reach). Without a check in that time the
+ICE transport fails. With `iceLite`, which sends no checks, ICE waits the
+same time whenever it has no candidate pair, also while it still
+gathers. The deadline is fixed when the wait begins; once gathering ended
+without a socket that could receive a check, ICE fails at once. Defaults
+to 30 when undefined; 0 fails at once.
 
 ***
 
@@ -435,6 +483,22 @@ SCTP outbound packet MTU used for DATA chunk fragmentation.
 
 ***
 
+### sped?
+
+> `optional` **sped?**: `boolean`
+
+Opt-in SPED (DTLS handshake embedded in ICE Binding).
+Omit or false: ICE completes, then DTLS starts (current serial path).
+true: this PeerConnection only overlaps ICE checks with DTLS 1.3 handshake.
+Requires explicit DTLS 1.3 in `dtls.protocolVersions`
+(`dtls.protocolVersions` defaults to empty / DTLS 1.2 only).
+Cannot be combined with `dtls.helloRetryRequest: true`
+(SPED uses ICE-authenticated address validation, not a DTLS cookie).
+Both are validated by the constructor and `setConfiguration()`, which
+throw synchronously and leave the configuration unchanged.
+
+***
+
 ### transceiverPairing
 
 > **transceiverPairing**: `"standard"` \| `"byKind"`
@@ -480,3 +544,42 @@ after construction.
 Preferred IP family of the TURN/UDP socket, applied only when the TURN
 server is a hostname. Ignored for an IP literal server, whose own family
 always selects the socket. Defaults to 4 when undefined.
+
+***
+
+### warp?
+
+> `optional` **warp?**: `object`
+
+WARP early outbound and encrypted-media buffering policy.
+- `allowEarlyServerData` (default false): the DTLS server may send
+  application data / media before the SDP fingerprint is verified.
+  Requires [PeerConfig.sped](#sped) `true` and DTLS 1.3; the constructor
+  and `setConfiguration()` throw synchronously otherwise.
+- `earlyMediaPolicy` (default `"drop"`): `"buffer"` retains inbound
+  encrypted media received before authentication (bounded) instead of
+  dropping it. Inbound data is never delivered before authentication.
+- `sendBeforeNomination` (default false): once the DTLS handshake is
+  done on this side (the DTLS client right after its Finished) and the
+  peer is authenticated, send application data and media on a valid
+  candidate pair (its own connectivity check succeeded) instead of
+  waiting for ICE nomination and consent (RFC 8445 §12.1, SPED
+  draft-00 §3.1.2.2). Applies only until a selected pair exists; never
+  during an ICE restart or on relay pairs. A peer that drops data
+  arriving before its own nomination only loses it like any packet loss
+  (SCTP retransmits). Requires [PeerConfig.sped](#sped) `true`; the
+  constructor and `setConfiguration()` throw synchronously otherwise.
+`setConfiguration()` merges these fields and applies them to every open
+DTLS transport, including ones a pending description prepared.
+
+#### allowEarlyServerData?
+
+> `optional` **allowEarlyServerData?**: `boolean`
+
+#### earlyMediaPolicy?
+
+> `optional` **earlyMediaPolicy?**: `"buffer"` \| `"drop"`
+
+#### sendBeforeNomination?
+
+> `optional` **sendBeforeNomination?**: `boolean`

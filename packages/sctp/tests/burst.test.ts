@@ -9,6 +9,7 @@ import {
   createConnectedSctpPair,
   createMessages,
   dropDataPacketsAt,
+  outboundQueueOf,
   runBurstTransfer,
 } from "./utils";
 
@@ -29,7 +30,7 @@ describe("sctp burst transfer", () => {
     // Assert: 全件が送信順のまま欠落・破損なく届き、送信キューも空になる
     expect(received.length).toBe(messages.length);
     received.forEach((data, i) => expect(data.equals(messages[i])).toBe(true));
-    expect(pair.client.outboundQueue.length).toBe(0);
+    expect(outboundQueueOf(pair.client).length).toBe(0);
 
     await pair.stop();
   });
@@ -112,14 +113,14 @@ describe("sctp burst transfer", () => {
     await sends[0];
 
     // Assert: 先頭の完了時点では後続がまだキューに残っている (キュー全体の排出を待っていない)
-    expect(pair.client.outboundQueue.length).toBeGreaterThan(0);
+    expect(outboundQueueOf(pair.client).length).toBeGreaterThan(0);
 
     // Act: 残りの完了を待つ
     await Promise.all(sends);
     await done;
 
     // Assert: 最後にはキューが空になる
-    expect(pair.client.outboundQueue.length).toBe(0);
+    expect(outboundQueueOf(pair.client).length).toBe(0);
 
     await pair.stop();
   });
@@ -136,7 +137,7 @@ describe("sctp burst transfer", () => {
     await new Promise((r) => setImmediate(r));
 
     // Act: 送信待ちが残ったまま停止する
-    const pendingBeforeStop = pair.client.outboundQueue.length;
+    const pendingBeforeStop = outboundQueueOf(pair.client).length;
     await pair.stop();
     await Promise.all(sends);
 

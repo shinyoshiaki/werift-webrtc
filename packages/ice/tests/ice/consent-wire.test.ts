@@ -37,6 +37,62 @@ async function flushRequestStart() {
   await Promise.resolve();
 }
 
+/** The protocols consent runs on (UDP / ICE-TCP / TURN), with a way to inject a response. */
+const consentProtocolSetups = [
+  {
+    name: "StunProtocol (UDP)",
+    setup: () => {
+      const protocol = new StunProtocol();
+      (protocol as any).transport = {
+        closed: false,
+        socketType: "udp4",
+        type: "udp",
+        send: async () => undefined,
+      };
+      return {
+        protocol,
+        inject: (bytes: Buffer) =>
+          (protocol as any).datagramReceived(bytes, peerAddr),
+        transactions: () => protocol.transactions as Record<string, unknown>,
+      };
+    },
+  },
+  {
+    name: "TcpActiveProtocol (ICE-TCP)",
+    setup: () => {
+      const protocol = new TcpActiveProtocol();
+      protocol.sendStun = async () => undefined;
+      return {
+        protocol,
+        inject: (bytes: Buffer) =>
+          (protocol as any).handleFrame(bytes, peerAddr),
+        transactions: () => protocol.transactions as Record<string, unknown>,
+      };
+    },
+  },
+  {
+    name: "StunOverTurnProtocol (TURN)",
+    setup: () => {
+      const onData = new Event<[Buffer, readonly [string, number]]>();
+      const turnStub = {
+        transactions: {} as Record<string, any>,
+        onData,
+        onAllocationLost: new Event<[Error]>(),
+        sendData: async () => undefined,
+        close: async () => undefined,
+      };
+      const protocol = new StunOverTurnProtocol(turnStub as any);
+      protocol.sendStun = async () => undefined;
+      return {
+        protocol,
+        inject: (bytes: Buffer) =>
+          (protocol as any).handleStunMessage(bytes, peerAddr),
+        transactions: () => turnStub.transactions as Record<string, unknown>,
+      };
+    },
+  },
+];
+
 describe("consent wire-level protocol paths", () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -166,6 +222,7 @@ describe("consent wire-level protocol paths", () => {
     const turnStub = {
       transactions: {} as Record<string, any>,
       onData,
+      onAllocationLost: new Event<[Error]>(),
       sendData: vi.fn(async () => undefined),
       close: async () => undefined,
     };
@@ -206,6 +263,7 @@ describe("consent wire-level protocol paths", () => {
     const turnStub = {
       transactions: {} as Record<string, any>,
       onData,
+      onAllocationLost: new Event<[Error]>(),
       sendData: async () => undefined,
       close: async () => undefined,
     };
@@ -237,56 +295,7 @@ describe("consent wire-level protocol paths", () => {
     vi.useRealTimers();
   });
 
-  it.each([
-    {
-      name: "StunProtocol (UDP)",
-      setup: () => {
-        const protocol = new StunProtocol();
-        (protocol as any).transport = {
-          closed: false,
-          socketType: "udp4",
-          type: "udp",
-          send: async () => undefined,
-        };
-        return {
-          protocol,
-          inject: (bytes: Buffer) =>
-            (protocol as any).datagramReceived(bytes, peerAddr),
-        };
-      },
-    },
-    {
-      name: "TcpActiveProtocol (ICE-TCP)",
-      setup: () => {
-        const protocol = new TcpActiveProtocol();
-        protocol.sendStun = async () => undefined;
-        return {
-          protocol,
-          inject: (bytes: Buffer) =>
-            (protocol as any).handleFrame(bytes, peerAddr),
-        };
-      },
-    },
-    {
-      name: "StunOverTurnProtocol (TURN)",
-      setup: () => {
-        const onData = new Event<[Buffer, readonly [string, number]]>();
-        const turnStub = {
-          transactions: {} as Record<string, any>,
-          onData,
-          sendData: async () => undefined,
-          close: async () => undefined,
-        };
-        const protocol = new StunOverTurnProtocol(turnStub as any);
-        protocol.sendStun = async () => undefined;
-        return {
-          protocol,
-          inject: (bytes: Buffer) =>
-            (protocol as any).handleStunMessage(bytes, peerAddr),
-        };
-      },
-    },
-  ])(
+  it.each(consentProtocolSetups)(
     "$name: 未署名 response は integrityKey 付き transaction で受理されず timeout になる",
     async ({ setup }) => {
       // Arrange: integrityKey 付きの単発 request
@@ -314,6 +323,49 @@ describe("consent wire-level protocol paths", () => {
 
       // Assert: 認証必須のため timeout（consent を更新しない）
       expect(await pending).toBe("timeout");
+      vi.useRealTimers();
+    },
+  );
+
+  it.each(consentProtocolSetups)(
+    "$name: consent の長い responseTimeout（30 秒）では遅延応答を受理し、abort で transaction が消える",
+    async ({ setup }) => {
+      // Arrange: consent と同じ単発 request（retransmissions 0、30 秒保持）を 2 本
+      vi.useFakeTimers();
+      const { protocol, inject, transactions } = setup();
+      const sendStun = vi.spyOn(protocol, "sendStun");
+      const late = bindingRequest();
+      const lateResult = protocol.request(late, peerAddr, remotePassword, {
+        retransmissions: 0,
+        responseTimeout: 30_000,
+      });
+      const abort = new AbortController();
+      const aborted = bindingRequest();
+      const abortedResult = protocol
+        .request(aborted, peerAddr, remotePassword, {
+          retransmissions: 0,
+          responseTimeout: 30_000,
+          signal: abort.signal,
+        })
+        .then(
+          () => "ok" as const,
+          () => "rejected" as const,
+        );
+      await flushRequestStart();
+
+      // Act: 20 秒後に 1 本目への正しい応答が届き、2 本目は abort される
+      await vi.advanceTimersByTimeAsync(20_000);
+      inject(bindingResponse(late.transactionId, remotePassword).bytes);
+      abort.abort();
+
+      // Assert: 1 本目は受理、2 本目は失敗し、どちらの transaction も残らない
+      const [response] = await lateResult;
+      expect(response.messageClass).toBe(classes.RESPONSE);
+      expect(await abortedResult).toBe("rejected");
+      expect(Object.keys(transactions())).toHaveLength(0);
+      // Assert: wire 送信は request ごとに 1 回（20 秒待っても再送しない）
+      expect(sendStun).toHaveBeenCalledTimes(2);
+      expect(vi.getTimerCount()).toBe(0);
       vi.useRealTimers();
     },
   );
