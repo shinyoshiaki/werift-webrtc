@@ -2,11 +2,7 @@
 // defaults, input normalization (W3C RTCConfiguration compatibility) and the
 // validation `setConfiguration` applies before merging.
 import { DEFAULT_SCTP_MTU, validateSctpMtu } from "../../../sctp/src";
-import {
-  isRTCDataChannelBinaryType,
-  type RTCDataChannelBinaryType,
-  RTCDataChannelBinaryTypes,
-} from "../dataChannel";
+import type { RTCDataChannelBinaryType } from "../dataChannel";
 import { createWebRtcDomException, createWebRtcTypeError } from "../errors";
 import { enumerate } from "../helper";
 import type {
@@ -301,20 +297,24 @@ export interface PeerConfig {
   /** Advertised local SCTP max-message-size in SDP. Use 0 for unlimited. */
   maxMessageSize: number;
   /**
-   * werift extension. The initial `binaryType` of every data channel this
-   * connection creates, by `createDataChannel()` or announced by the remote
-   * peer (see {@link RTCDataChannelBinaryType}).
-   * - `"nodebuffer"` (default): binary messages arrive as a Node.js `Buffer`,
-   *   as before this option existed.
-   * - `"arraybuffer"`: the W3C default (`werift/polyfill` uses it).
-   * - `"blob"`: binary messages arrive as a `Blob`.
+   * The initial `binaryType` of every data channel this connection creates,
+   * by `createDataChannel()` or announced by the remote peer (a compatibility
+   * option, see {@link CompatibilityOptionValues} and
+   * {@link RTCDataChannelBinaryType}).
+   * - `"nodebuffer"` (default, werift's own value): binary messages arrive as
+   *   a Node.js `Buffer`, as before this option existed.
+   * - `"standard"`: the browser default, `"arraybuffer"` (W3C); the channel's
+   *   `binaryType` reads `"arraybuffer"`.
+   * - `"arraybuffer"` / `"blob"`: binary messages arrive as an `ArrayBuffer`
+   *   / a `Blob` (`werift/polyfill` uses `"arraybuffer"`).
    *
-   * Another value is a `TypeError`. `setConfiguration()` may change it; the
+   * Another value is a `TypeError`. `compatibility: "standard"` sets it to
+   * `"standard"` when it is not given. `setConfiguration()` may change it; the
    * new value applies to channels created afterwards, and an existing
-   * channel changes with its own `binaryType` setter. Not a compatibility
-   * option: `compatibility: "standard"` leaves it unchanged.
+   * channel changes with its own `binaryType` setter.
+   * @see tests/datachannel/binaryType.test.ts "dataChannelBinaryType: standard gives channels the W3C default arraybuffer"
    */
-  dataChannelBinaryType: RTCDataChannelBinaryType;
+  dataChannelBinaryType: DataChannelBinaryTypeOption;
   /**
    * When true, padding-only RTP is omitted from onReceiveRtp and later media
    * sequence numbers are compacted. Default false preserves wire RTP events.
@@ -399,7 +399,7 @@ export interface PeerConfig {
   /**
    * Sets every compatibility option (`certificateScope`, `mLineReuse`,
    * `transceiverPairing`, `keyFrameRequestRouting`,
-   * `dtlsHandshakeValidation`, see
+   * `dtlsHandshakeValidation`, `dataChannelBinaryType`, see
    * {@link CompatibilityOptionValues}) to the specification / browser behavior
    * at once. Cannot be changed after construction.
    * - `undefined` (default): each option keeps its own default.
@@ -409,20 +409,22 @@ export interface PeerConfig {
    * An option given explicitly always takes precedence over `compatibility`:
    * a value given in the same configuration (an old name included) is kept,
    * and `setConfiguration()` treats the options as if `compatibility` were
-   * not set (`keyFrameRequestRouting` may change, the others cannot). An
+   * not set (`keyFrameRequestRouting` and `dataChannelBinaryType` may
+   * change, the others cannot). An
    * option given as `undefined` counts as not given.
    *
    * ```ts
    * new RTCPeerConnection({ compatibility: "standard" });
    * // certificateScope, mLineReuse, transceiverPairing,
-   * // keyFrameRequestRouting and dtlsHandshakeValidation are all "standard"
+   * // keyFrameRequestRouting, dtlsHandshakeValidation and
+   * // dataChannelBinaryType are all "standard"
    * new RTCPeerConnection({ compatibility: "standard", certificateScope: "process" });
    * // certificateScope is "process", the others are "standard"
    * ```
    *
-   * It does not change `iceServers` / `iceUseDefaultStunServer` /
-   * `dataChannelBinaryType`, which are not compatibility options.
-   * @see tests/datachannel/binaryType.test.ts "compatibility: standard does not change dataChannelBinaryType (not a compatibility option)"
+   * It does not change `iceServers` / `iceUseDefaultStunServer`, which are not
+   * compatibility options.
+   * @see tests/datachannel/binaryType.test.ts "compatibility: standard makes data channels deliver ArrayBuffer unless dataChannelBinaryType is given"
    */
   compatibility: CompatibilityPreset | undefined;
 }
@@ -446,6 +448,31 @@ export type DtlsHandshakeValidation =
   CompatibilityOptionValue<"dtlsHandshakeValidation">;
 export const DtlsHandshakeValidationModes: readonly DtlsHandshakeValidation[] =
   CompatibilityOptionValues.dtlsHandshakeValidation;
+
+/** The initial `binaryType` of new data channels. See {@link PeerConfig.dataChannelBinaryType}. */
+export type DataChannelBinaryTypeOption =
+  CompatibilityOptionValue<"dataChannelBinaryType">;
+export const DataChannelBinaryTypeModes: readonly DataChannelBinaryTypeOption[] =
+  CompatibilityOptionValues.dataChannelBinaryType;
+
+/**
+ * @internal
+ * The `binaryType` a {@link PeerConfig.dataChannelBinaryType} gives a new
+ * channel: `"standard"` is the W3C default `"arraybuffer"`.
+ */
+export function resolveDataChannelBinaryType(
+  option: DataChannelBinaryTypeOption,
+): RTCDataChannelBinaryType {
+  return option === "standard" ? "arraybuffer" : option;
+}
+
+/** The compatibility options `setConfiguration()` may change. */
+const CHANGEABLE_COMPATIBILITY_OPTIONS: readonly CompatibilityOption[] = [
+  // the router uses the new value from the next request
+  "keyFrameRequestRouting",
+  // channels created afterwards take the new value
+  "dataChannelBinaryType",
+];
 
 /** The values of {@link PeerConfig.compatibility}. */
 export type CompatibilityPreset = "standard";
@@ -886,10 +913,9 @@ export function mergePeerConfiguration(
         `${option} must be one of ${values.join(", ")}`,
       );
     }
-    // keyFrameRequestRouting は接続中に切り替えられる (router が次の要求から使う)
     if (
       isReconfiguration &&
-      option !== "keyFrameRequestRouting" &&
+      !CHANGEABLE_COMPATIBILITY_OPTIONS.includes(option) &&
       value !== config[option]
     ) {
       throw createWebRtcDomException(
@@ -916,15 +942,6 @@ export function mergePeerConfiguration(
     throw createWebRtcDomException(
       "InvalidModificationError",
       "bundleCandidates cannot be changed",
-    );
-  }
-
-  if (
-    normalizedConfig.dataChannelBinaryType !== undefined &&
-    !isRTCDataChannelBinaryType(normalizedConfig.dataChannelBinaryType)
-  ) {
-    throw createWebRtcTypeError(
-      `dataChannelBinaryType must be one of ${RTCDataChannelBinaryTypes.join(", ")}`,
     );
   }
 

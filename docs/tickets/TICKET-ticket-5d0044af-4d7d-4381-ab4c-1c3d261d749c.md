@@ -103,14 +103,14 @@ if (channel.onmessage) channel.onmessage({ data: msg });
 - 既定値:
   - **コア**（`werift` から直接 `new RTCPeerConnection()`）: `"nodebuffer"`。受信バイナリは現行どおり `Buffer`。
   - **polyfill**（`installPolyfill()` が入れたグローバル `RTCPeerConnection`）: `"arraybuffer"`（W3C 既定）。
-  - **WPT runner**: `WptRTCPeerConnection` が config に `dataChannelBinaryType: "arraybuffer"` を補う。
+  - **WPT runner**: `compatibility: "standard"` により `dataChannelBinaryType: "standard"`（= `"arraybuffer"`）になる（下の改訂を参照）。
 - 既定値はローカル作成（`createDataChannel`）とリモート作成（`ondatachannel`）の両方に効く。
 - 公開 API として次を追加する。
   - `RTCDataChannel.binaryType`（getter/setter）。
   - `PeerConfig.dataChannelBinaryType`（`RTCPeerConnectionConfig` から指定可、`generateDefaultPeerConfig()` の既定は `"nodebuffer"`、`getConfiguration()` が返す）。
 - 不正値の扱い:
   - `RTCDataChannel.binaryType` の setter は、3 値以外を**無視して前の値を保持**する（WebIDL の enum 属性の挙動、WPT 準拠）。
-  - `PeerConfig.dataChannelBinaryType` に 3 値以外を渡すと `createWebRtcTypeError` を投げる（`certificateScope` / `mLineReuse` と同じ werift 設定値の検証方式）。
+  - `PeerConfig.dataChannelBinaryType` に 4 値（`"standard"` と 3 値、下の改訂を参照）以外を渡すと `createWebRtcTypeError` を投げる（`certificateScope` / `mLineReuse` と同じ互換性オプションの検証方式）。
 - `setConfiguration()` での変更は許可し、変更後に作られるチャネルにだけ効く。既存チャネルの `binaryType` は変えない。チャネル単位では setter で切り替える。
 
 **理由**
@@ -120,7 +120,9 @@ if (channel.onmessage) channel.onmessage({ data: msg });
 - リモート作成チャネルにも既定を効かせる経路が要る。チャネル生成後にハンドラで書き換える方式だと、`ondatachannel` 前後のタイミングに依存する。生成時に `RTCSctpTransport` が持つ既定を渡す config キーなら、両経路を一律に扱える。
 - 非標準 config キーには `bandwidthEstimator` / `filterProbePaddingOnReceiveRtp` / `mLineReuse` の前例がある。isomorphic なコードを書く Node 利用者も、コアのまま `"arraybuffer"` を選べる。
 - コア既定を将来 `"arraybuffer"` に切り替えるかは本チケットの範囲外とする。切り替えるなら別チケットで、メジャー相当の告知を伴って行う。
-- develop で追加された `compatibility: "standard"` プリセット（v0.28.0 でリリース済み）は `dataChannelBinaryType` を変えない。互換性オプション（`CompatibilityOptionValues`）は `"standard"` と werift 独自値の 2 値で構成される。3 値の `dataChannelBinaryType` はこの構成に合わず、`iceServers` / `iceUseDefaultStunServer` と同じく互換性オプションではない。プリセットに含めると、リリース済みのプリセット利用者の受信データが `Buffer` から `ArrayBuffer` に無言で変わる。ブラウザ互換の構成は README・WPT runner（`browserConfig.ts`）と同じく、`dataChannelBinaryType: "arraybuffer"` を明示して作る。`PeerConfig.compatibility` の TSDoc と `tests/datachannel/binaryType.test.ts` の "compatibility: standard does not change dataChannelBinaryType (not a compatibility option)" にこの判断を記録する。
+- **改訂（ユーザー判断、2026-11-26）**: `PeerConfig.dataChannelBinaryType` を互換性オプション（`CompatibilityOptionValues`）に含める。値は `"standard"`（ブラウザと一致する挙動 = W3C 既定の `"arraybuffer"`。channel の `binaryType` は `"arraybuffer"` を返し、`getConfiguration()` は `"standard"` を返す）、`"nodebuffer"`（werift 独自値、既定）、`"arraybuffer"` / `"blob"`（その値の指す `binaryType`）の 4 つ。`compatibility: "standard"` は未指定の `dataChannelBinaryType` を `"standard"` にし、明示値はプリセットより優先する。`setConfiguration()` での変更は `keyFrameRequestRouting` と同じく許可し、変更後に作られるチャネルにだけ効く。不正値は互換性オプション共通の `TypeError`（`dataChannelBinaryType must be one of standard, nodebuffer, arraybuffer, blob`）。WPT runner（`browserConfig.ts`）は個別指定をやめ、`compatibility: "standard"` から得る。polyfill の既定は従来どおり `"arraybuffer"`。
+  - v0.28.0 でリリース済みのプリセット利用者は、受信バイナリが `Buffer` から `ArrayBuffer` に変わる。プリセットの契約（互換性オプションをすべて仕様・ブラウザの挙動にする）どおりで、Unreleased の `dtlsHandshakeValidation` も同じ形でプリセット利用者の実行時挙動を変えている。changelog の Breaking changes に移行方法（`dataChannelBinaryType: "nodebuffer"` の明示、または `onMessage`）付きで記載する。
+  - テスト: `tests/datachannel/binaryType.test.ts` の "dataChannelBinaryType: standard gives channels the W3C default arraybuffer" と "compatibility: standard makes data channels deliver ArrayBuffer unless dataChannelBinaryType is given"、`tests/integrate/compatibilityOptions.test.ts` の表。
 
 **型互換への影響**: werift の `binaryType` 型は `"nodebuffer"` を含むため、lib.dom の `RTCDataChannel.binaryType`（`BinaryType`）へは代入できない。逆方向（DOM の値 → werift）は代入できる。`werift/polyfill/dom` 利用者はグローバルを DOM 型で見るので影響を受けない。この非対称は `docs/browser-api-compatibility.md` に明記する。
 
@@ -351,7 +353,7 @@ package-local の変換ヘルパー（`src/webidl.ts`、index からは export �
 
 - 辞書メンバーは名前の辞書順（`sdp` → `type`、IDL の宣言順ではない。§9.1）に 1 回ずつ読む。`type` が無くても `sdp` は先に読む。`undefined` / `null` は空辞書、それ以外の非オブジェクトは `TypeError`。
 - 旧 2 引数形式は第 1 引数が string のときだけ選ぶ（辞書 + 余分な第 2 引数は辞書として扱い、第 2 引数は無視）。旧形式の利便挙動（検証なし）は残す。
-- 仕様上の変換なので、WPT wrapper ではなくコアに置く。`PeerConfig.dataChannelBinaryType` は werift 独自の設定なので、従来どおり不正値は `TypeError`。
+- 仕様上の変換なので、WPT wrapper ではなくコアに置く。`PeerConfig.dataChannelBinaryType` は werift の互換性オプションなので、従来どおり不正値は `TypeError`。
 
 ### 9.3 Event の形の範囲（D7）
 

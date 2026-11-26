@@ -274,24 +274,24 @@ Where werift's own behavior differs from the specifications and browsers, a cons
 | `mLineReuse` | `"standard"` | `"aggressive"`: an accepted `inactive` m-line uses port 0, so its position is reused | an accepted `inactive` m-line keeps its port | fixed | `"compatible"` (= `"standard"`) |
 | `transceiverPairing` | `"byKind"` | `"byKind"`: a remote offer takes any unassociated transceiver of its kind | JSEP 5.10: only one `addTrack()` created | fixed | — |
 | `keyFrameRequestRouting` | `"fallback"` | `"fallback"`: a PLI / FIR for an unknown SSRC falls back to the RTX owner or the only video sender of the transport it arrived on | not delivered (RFC 4585 / RFC 5104) | changeable | `"compatible"` (= `"fallback"`), `"strict"` (= `"standard"`) |
+| `dataChannelBinaryType` | `"nodebuffer"` | `"nodebuffer"`: a new data channel delivers binary messages as Node.js `Buffer`s; `"arraybuffer"` / `"blob"` select those `binaryType` values | the W3C `binaryType` default, `"arraybuffer"` | changeable (channels created afterwards) | — |
 
 Any other value is a `TypeError`, and changing a fixed option is an `InvalidModificationError`. An old name is read as its current name (`getConfiguration()` returns the current name). `CompatibilityOptionValues` lists the values of every option.
 
-`compatibility: "standard"` sets all of them to `"standard"` at once, and `compatibility` cannot be changed after construction. An option given explicitly always takes precedence over it: a value given in the same configuration (an old name included) is kept, and `setConfiguration()` handles the options as without `compatibility` (only `keyFrameRequestRouting` may change). An option given as `undefined` is filled with `"standard"`:
+`compatibility: "standard"` sets all of them to `"standard"` at once, and `compatibility` cannot be changed after construction. An option given explicitly always takes precedence over it: a value given in the same configuration (an old name included) is kept, and `setConfiguration()` handles the options as without `compatibility` (only `keyFrameRequestRouting` and `dataChannelBinaryType` may change). An option given as `undefined` is filled with `"standard"`:
 
 ```ts
 new RTCPeerConnection({ compatibility: "standard" }); // every option above is "standard"
 new RTCPeerConnection({ compatibility: "standard", certificateScope: "process" }); // all but certificateScope
 ```
 
-Two more defaults differ from a browser: the default `iceServers` is a public STUN server (`stun:stun.l.google.com:19302`, a browser's default is `[]`), and `iceUseDefaultStunServer: true` (default) also uses that server when `iceServers` has no STUN URL. `bundlePolicy: "balanced"` is read as `"max-compat"` (no browser-equivalent value). Data channels deliver binary messages as Node.js `Buffer`s (`dataChannelBinaryType: "nodebuffer"`, a werift value); a browser's `binaryType` default is `"arraybuffer"`, which `werift/polyfill` uses. For code written for browsers (for example with `werift/polyfill` and its `peerConnectionConfig`), create connections with:
+Two more defaults differ from a browser: the default `iceServers` is a public STUN server (`stun:stun.l.google.com:19302`, a browser's default is `[]`), and `iceUseDefaultStunServer: true` (default) also uses that server when `iceServers` has no STUN URL. `bundlePolicy: "balanced"` is read as `"max-compat"` (no browser-equivalent value). For code written for browsers (for example with `werift/polyfill` and its `peerConnectionConfig`), create connections with:
 
 ```ts
 new RTCPeerConnection({
   compatibility: "standard",
   iceServers: [], // or your own STUN / TURN servers
   iceUseDefaultStunServer: false,
-  dataChannelBinaryType: "arraybuffer", // binary messages as ArrayBuffer
 });
 ```
 

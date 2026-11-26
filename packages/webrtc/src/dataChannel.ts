@@ -62,13 +62,6 @@ export type RTCDataChannelBinaryType =
 export const RTCDataChannelBinaryTypes: readonly RTCDataChannelBinaryType[] =
   Object.values(RTCDataChannelBinaryType);
 
-/** @internal */
-export function isRTCDataChannelBinaryType(
-  value: unknown,
-): value is RTCDataChannelBinaryType {
-  return RTCDataChannelBinaryTypes.includes(value as RTCDataChannelBinaryType);
-}
-
 /** What `onmessage` / the `"message"` event carries, by `binaryType`. */
 export type RTCDataChannelMessageData = string | Buffer | ArrayBuffer | Blob;
 

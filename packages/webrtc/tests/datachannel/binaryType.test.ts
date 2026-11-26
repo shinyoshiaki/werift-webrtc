@@ -55,29 +55,73 @@ describe("datachannel/binaryType: defaults", () => {
     },
   );
 
-  test.each(["jellyfish", "", null, "Blob"])(
+  test.each(["jellyfish", "", null, "Blob", "Standard"])(
     "an invalid dataChannelBinaryType %j is a TypeError",
     (value) => {
-      // Act / Assert: werift の設定値として検証され TypeError になる
+      // Act / Assert: 互換性オプションとして検証され TypeError になる
       expect(
         () => new RTCPeerConnection({ dataChannelBinaryType: value as never }),
-      ).toThrow(TypeError);
+      ).toThrow(
+        new TypeError(
+          "dataChannelBinaryType must be one of standard, nodebuffer, arraybuffer, blob",
+        ),
+      );
     },
   );
 
-  test("compatibility: standard does not change dataChannelBinaryType (not a compatibility option)", async () => {
-    // Act: compatibility プリセットだけを指定して channel を作る
-    const pc = new RTCPeerConnection({ compatibility: "standard" });
+  test("dataChannelBinaryType: standard gives channels the W3C default arraybuffer", async () => {
+    // Act: standard を指定した PeerConnection 同士でローカル作成・リモート作成の channel を開く
+    const pair = await openDataChannelPair({
+      config: { dataChannelBinaryType: "standard" },
+    });
 
     try {
-      const channel = pc.createDataChannel("preset");
+      // Assert: 設定値は standard のまま、channel の binaryType は W3C 既定の arraybuffer
+      expect(pair.offerer.getConfiguration().dataChannelBinaryType).toBe(
+        "standard",
+      );
+      expect(pair.local.binaryType).toBe("arraybuffer");
+      expect(pair.remote.binaryType).toBe("arraybuffer");
 
-      // Assert: プリセットは互換性オプションだけを変え、binaryType は werift 既定の nodebuffer のまま
-      expect(pc.getConfiguration().certificateScope).toBe("standard");
-      expect(pc.getConfiguration().dataChannelBinaryType).toBe("nodebuffer");
-      expect(channel.binaryType).toBe("nodebuffer");
+      // Act: バイナリを送る
+      const received = nextMessageOnEverySurface(pair.remote);
+      pair.local.send(Buffer.from([1, 2, 3]));
+      const { onmessage } = await received;
+
+      // Assert: ArrayBuffer で届く
+      expect(onmessage).toBeInstanceOf(ArrayBuffer);
     } finally {
-      await pc.close();
+      await pair.close();
+    }
+  });
+
+  test("compatibility: standard makes data channels deliver ArrayBuffer unless dataChannelBinaryType is given", async () => {
+    // Act: プリセットだけ / プリセットと明示値を指定して channel を作る
+    const preset = new RTCPeerConnection({ compatibility: "standard" });
+    const explicit = new RTCPeerConnection({
+      compatibility: "standard",
+      dataChannelBinaryType: "nodebuffer",
+    });
+
+    try {
+      // Assert: プリセットは dataChannelBinaryType も standard にし、channel は arraybuffer になる
+      expect(preset.getConfiguration().dataChannelBinaryType).toBe("standard");
+      expect(preset.createDataChannel("preset").binaryType).toBe("arraybuffer");
+      // Assert: 明示した値はプリセットより優先される
+      expect(explicit.getConfiguration().dataChannelBinaryType).toBe(
+        "nodebuffer",
+      );
+      expect(explicit.createDataChannel("explicit").binaryType).toBe(
+        "nodebuffer",
+      );
+
+      // Act: プリセット付きでも setConfiguration() で変更できる
+      preset.setConfiguration({ dataChannelBinaryType: "blob" });
+
+      // Assert: 後から作る channel に効く
+      expect(preset.createDataChannel("later").binaryType).toBe("blob");
+    } finally {
+      await Promise.all([preset.close(), explicit.close()]);
     }
   });
 

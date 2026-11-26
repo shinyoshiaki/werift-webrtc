@@ -11,6 +11,8 @@ const compatibilityOptions = [
   "mLineReuse",
   "transceiverPairing",
   "keyFrameRequestRouting",
+  "dtlsHandshakeValidation",
+  "dataChannelBinaryType",
 ] as const;
 
 test("the WPT configuration sets every compatibility option to standard", async () => {
@@ -28,8 +30,8 @@ test("the WPT configuration sets every compatibility option to standard", async 
     expect(BROWSER_COMPATIBLE_PEER_CONFIG.compatibility).toBe("standard");
     expect(config.iceServers).toEqual([]);
     expect(config.iceUseDefaultStunServer).toBe(false);
-    // Assert: DataChannel の binaryType 既定は W3C と同じ arraybuffer
-    expect(config.dataChannelBinaryType).toBe("arraybuffer");
+    // Assert: dataChannelBinaryType も standard で、DataChannel の binaryType は W3C 既定の arraybuffer
+    expect(pc.createDataChannel("wpt").binaryType).toBe("arraybuffer");
   } finally {
     await pc.close();
   }
