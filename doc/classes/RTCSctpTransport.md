@@ -361,20 +361,7 @@ tests/datachannel/bufferedAmount.test.ts "empty string and empty Buffer arrive i
 
 ### stop()
 
-> **stop**(`__namedParameters?`): `Promise`\<`void`\>
-
-`closingChannels`: the caller closes every channel next
-(`RTCPeerConnection.close()`), so their unsent bytes stay in
-`bufferedAmount`; otherwise (rollback, association reset) a channel that
-outlives the transport releases them (see discardUnsentMessages).
-
-#### Parameters
-
-##### \_\_namedParameters?
-
-###### closingChannels?
-
-`boolean` = `false`
+> **stop**(): `Promise`\<`void`\>
 
 #### Returns
 

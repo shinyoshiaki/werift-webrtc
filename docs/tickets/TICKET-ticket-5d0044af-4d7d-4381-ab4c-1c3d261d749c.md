@@ -207,6 +207,8 @@ if (channel.onmessage) channel.onmessage({ data: msg });
   - werift の他の DataChannel イベント（open / close / message）はすべて同期なので、一貫性も崩れる。
 - 仕様の発火条件は「送信した結果」である。破棄経路で発火を止めると仕様に沿う。さらに、ハンドラが closing/closed チャネルへ `send()` し直した場合の「再キュー → 破棄 → 再発火」の無限ループも防げる。
 
+- **改訂（develop の取り込み）**: develop に入ったチケット `4b9e1b10`（SCTP/DataChannel の送信待ち量）が `bufferedAmount` と `close()` の意味論を定めたので、上の発火条件・破棄経路の記述より次を優先する。(1) 送らずに捨てた分は、rollback でチャネルが存続する場合も含めて減算しない（rollback の例外と `stop({ closingChannels })` は取り下げ）。(2) `closing` 中のチャネルは積み残しを送ってから閉じ、実際に送った分は減算する。`closed` では `bufferedamountlow` を発火しない。(3) `closing` / `closed` への `send()` は無視する。(4) `bufferedAmount` は readonly。`onbufferedamountlow` の型は `EventHandler<Event>`。通知順（`bufferedAmountLow` → `onbufferedamountlow` → listener）と D7 の `target` / `currentTarget` は変えない。
+
 **ブラウザとの差分**: ブラウザはタスクをキューして発火するが、werift は送信完了時に同期で発火する。この差分を互換表に記載する。破棄経路で発火しなくなる変更は changelog の Fixes に記載する。
 
 ## 4. 実装すべき変更

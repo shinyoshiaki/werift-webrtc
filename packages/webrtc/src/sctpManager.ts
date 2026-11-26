@@ -453,9 +453,7 @@ export class SctpTransportManager {
     const transport = this.sctpTransport;
     if (transport) {
       try {
-        // Every channel closes, so unsent messages stay in bufferedAmount.
-        // Test: tests/datachannel/bufferedAmountLow.test.ts "pc.close() keeps the unsent bytes in bufferedAmount"
-        await transport.stop({ closingChannels: true });
+        await transport.stop();
       } finally {
         // Test: tests/issue/815.test.ts "pc.close() notifies close of a channel without an ID after SCTP / DTLS / the PeerConnection closed"
         transport.closeUnannouncedChannels();
