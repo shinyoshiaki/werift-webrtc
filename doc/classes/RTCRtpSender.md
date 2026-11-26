@@ -16,7 +16,7 @@
 
 ##### trackOrKind
 
-[`Kind`](../type-aliases/Kind.md) \| [`MediaStreamTrack`](MediaStreamTrack.md)
+[`Kind`](../type-aliases/Kind.md) \| [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>
 
 ##### options?
 
@@ -158,7 +158,7 @@ Probe cluster configs (target bps / min packets). Bridged from the active
 
 ### track
 
-> **track**: [`MediaStreamTrack`](MediaStreamTrack.md) \| `null` = `null`
+> **track**: [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\> \| `null` = `null`
 
 ***
 
@@ -170,7 +170,7 @@ Probe cluster configs (target bps / min packets). Bridged from the active
 
 ### trackOrKind
 
-> **trackOrKind**: [`Kind`](../type-aliases/Kind.md) \| [`MediaStreamTrack`](MediaStreamTrack.md)
+> **trackOrKind**: [`Kind`](../type-aliases/Kind.md) \| [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>
 
 ***
 
@@ -505,7 +505,7 @@ without `RTCRtpSender` (for example through `SrtpSession`) can use
 
 ##### track
 
-[`MediaStreamTrack`](MediaStreamTrack.md) \| `null`
+[`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\> \| `null`
 
 #### Returns
 
@@ -569,7 +569,7 @@ Internal: return to a negotiation baseline's send parameters.
 
 ###### track
 
-[`MediaStreamTrack`](MediaStreamTrack.md) \| `null` = `...`
+[`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\> \| `null` = `...`
 
 ###### trackCodec
 
@@ -767,7 +767,7 @@ Internal: the negotiated send parameters, for a negotiation baseline.
 
 ##### track
 
-> **track**: [`MediaStreamTrack`](MediaStreamTrack.md) \| `null`
+> **track**: [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\> \| `null`
 
 ##### trackCodec
 

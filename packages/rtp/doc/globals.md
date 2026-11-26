@@ -96,6 +96,7 @@
 
 ## Interfaces
 
+- [DatagramRxMeta](interfaces/DatagramRxMeta.md)
 - [DebugFactory](interfaces/DebugFactory.md)
 - [Debugger](interfaces/Debugger.md)
 - [Extensions](interfaces/Extensions.md)
@@ -114,6 +115,7 @@
 - [RtpTimelineSwitch](interfaces/RtpTimelineSwitch.md)
 - [StreamTransportOptions](interfaces/StreamTransportOptions.md)
 - [Transport](interfaces/Transport.md)
+- [TransportSendOptions](interfaces/TransportSendOptions.md)
 - [UdpTransportOptions](interfaces/UdpTransportOptions.md)
 - [videoOrientationPayload](interfaces/videoOrientationPayload.md)
 

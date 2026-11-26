@@ -160,11 +160,8 @@ export function errnoError(code: string) {
   return Object.assign(new Error(`${code} test`), { code });
 }
 
-/**
- * Two IPv4 host addresses (the host address and loopback), plus the default
- * wildcard STUN socket used by the normal interface-discovery path.
- */
-export const twoIpv4Sockets: Partial<IceOptions> = {
+/** Enumerated IPv4 sockets plus the loopback address used by these STUN tests. */
+export const enumeratedIpv4Sockets: Partial<IceOptions> = {
   useIpv6: false,
   interfaceAddresses: undefined,
   additionalHostAddresses: ["127.0.0.1"],

@@ -25,6 +25,8 @@
     "format": "biome check --write src tests examples",
     "start": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs ./example/cli/index.ts",
     "test": "vitest run ./tests",
+    "test:pion-sped": "WERIFT_PION_SPED_REQUIRED=1 vitest run ./tests/sped/pion-sped.integration.test.ts",
+    "pbt:deep": "node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs ../pbt/src/cli.ts tests/pbt/suites.ts",
     "test:pion-turn": "bash ./scripts/run-pion-turn.sh --run -- npm test -- pion-turn",
     "type": "tsc --noEmit --project ./tsconfig.json --rootDir ..",
     "upgrade-interactive": "npx npm-check-updates -i"

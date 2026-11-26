@@ -1,12 +1,15 @@
 import { describe, expect, test } from "vitest";
 import {
+  propertyOptions,
+  propertySeeds,
+  seededRandom,
+} from "../../../../pbt/src";
+import {
   createSimulcastMediaPacket,
   createSimulcastRtxPacket,
   createSimulcastRtxReceiver,
   getReceiverNack,
 } from "../../media/rtpReceiverTestUtils";
-import { seededRandom } from "../shared/random";
-import { propertySeeds } from "../shared/seeds";
 import {
   randomSimulcastRtxTraffic,
   type SimulcastArrival,
@@ -136,7 +139,7 @@ function retransmitted(
   return deliveredBySsrc.get(arrival.stream.ssrc)!.has(arrival.index);
 }
 
-describe("simulcast RTX property", () => {
+describe("simulcast RTX property", propertyOptions(), () => {
   test.each(cases)(
     title(
       "復元パケットは常に元の SSRC / seq / timestamp / payload で元の RID の track に届き、NACK に応える RTX は必ず復元される",

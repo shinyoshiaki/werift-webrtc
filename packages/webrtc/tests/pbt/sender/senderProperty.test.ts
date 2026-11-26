@@ -1,6 +1,11 @@
 import { setTimeout } from "node:timers/promises";
 import { describe, expect, test, vi } from "vitest";
 import {
+  propertyOptions,
+  propertySeeds,
+  seededRandom,
+} from "../../../../pbt/src";
+import {
   GccBandwidthEstimator,
   kProbePaddingPacketBytes,
   MediaStreamTrack,
@@ -13,8 +18,6 @@ import {
   prepareConnectedSender,
   startGccProbing,
 } from "../../media/twccTestUtils";
-import { seededRandom } from "../shared/random";
-import { propertySeeds } from "../shared/seeds";
 import { type ForwardStep, randomForwardScript } from "./generator";
 
 /**
@@ -90,7 +93,7 @@ async function forward(script: ForwardStep[], path: "lightweight" | "paced") {
   return { sender, sentPackets, epochs };
 }
 
-describe("rtp sender property", () => {
+describe("rtp sender property", propertyOptions(), () => {
   test.each(cases)(
     title(
       "forward ($path): media 番号は source の差を保ち、切替では連続し、padding は RTX の連番だけ",

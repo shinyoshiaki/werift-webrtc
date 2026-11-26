@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
-
+import { propertyOptions } from "../../../../pbt/src";
 import { detectLeak } from "../../memleak/heapUtils";
 import { NegotiationCase } from "../../negotiation/harness/negotiationCase";
 import { CLOSE_TIMING_OPERATIONS } from "../../negotiation/harness/negotiationTransactionUtils";
@@ -80,7 +80,7 @@ const heapCycles = Number(env.WERIFT_NEGOTIATION_LEAK_HEAP_CYCLES ?? 200);
 const seeds = [...Array(seedCount).keys()].map((i) => firstSeed + i);
 const replay = (seed: number) =>
   `WERIFT_NEGOTIATION_LEAK_SEED=${seed} WERIFT_NEGOTIATION_LEAK_SEEDS=1 WERIFT_NEGOTIATION_LEAK_STEPS=${stepCount} WERIFT_NEGOTIATION_LEAK_CYCLES=${cycleCount}`;
-const options = (timeout: number) => ({ retry: 0, timeout });
+const options = (timeout: number) => propertyOptions(timeout);
 const unsupported = leakSupport();
 if (unsupported) {
   console.warn(`negotiation leak property skipped: ${unsupported}`);

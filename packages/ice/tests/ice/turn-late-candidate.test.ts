@@ -161,6 +161,7 @@ describe("TURN relay candidate gathered after the remote candidates", () => {
         turnServer: tlsServer.address,
         turnTransport: "tls",
         turnConnectTimeout: 0.5,
+        incomingCheckTimeout: 0.1,
       },
     });
     const order: string[] = [];
@@ -184,10 +185,10 @@ describe("TURN relay candidate gathered after the remote candidates", () => {
     }
   }, 30000);
 
-  test("a relay candidate gathered after nomination starts no check", async () => {
-    // Arrange: early は host-only。late の TURN allocation を保留したまま host ペアで接続する
+  test("a relay candidate gathered after nomination starts no check (regular nomination)", async () => {
+    // Arrange: early は host-only。late の TURN allocation を保留したまま host ペアで接続する (regular nomination は退避先を持たない)
     const { late, early, proxy, gathering, close } = await createLateRelaySetup(
-      { early: () => ({}) },
+      { late: { nomination: "regular" }, early: () => ({}) },
     );
     try {
       await deliverLocalCandidates(early, late, { endOfCandidates: true });
@@ -204,6 +205,38 @@ describe("TURN relay candidate gathered after the remote candidates", () => {
       // Assert: relay 候補は通知されるが、ペアは作られず nominate も変わらない
       expect(localRelayCandidates(late)).toHaveLength(1);
       expect(relayPairs(late)).toHaveLength(0);
+      expect(late.nominated).toBe(nominated);
+    } finally {
+      await close();
+    }
+  }, 30000);
+
+  test("a relay candidate gathered after nomination forms a backup pair that is checked but not selected (semi-aggressive)", async () => {
+    // Arrange: early は host-only。late の TURN allocation を保留したまま host ペアで接続する (既定の semi-aggressive)
+    const { late, early, proxy, gathering, close } = await createLateRelaySetup(
+      { early: () => ({}) },
+    );
+    try {
+      await deliverLocalCandidates(early, late, { endOfCandidates: true });
+      forwardLocalCandidates(late, early);
+      await Promise.all([late.connect(), early.connect()]);
+      const nominated = late.nominated;
+      expect(nominated?.localCandidate.type).toBe("host");
+
+      // Act: nominate 後に TURN allocation を完了させる
+      proxy.release();
+      await gathering;
+
+      // Assert: relay 候補は退避先のペアを作り、その check が成功する。選択は host ペアのまま変わらない
+      expect(localRelayCandidates(late)).toHaveLength(1);
+      await vi.waitFor(
+        () => {
+          const [backup] = relayPairs(late);
+          expect(backup?.state).toBe(CandidatePairState.SUCCEEDED);
+        },
+        { timeout: 5000 },
+      );
+      expect(relayPairs(late)).toHaveLength(1);
       expect(late.nominated).toBe(nominated);
     } finally {
       await close();

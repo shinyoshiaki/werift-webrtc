@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "vitest";
 
-import { RTCPeerConnection } from "../../src";
+import { DtlsVersion, RTCPeerConnection } from "../../src";
 import {
   connectPeerConnections,
   firstIceTransport,
@@ -150,4 +150,66 @@ describe("ice-options ice2 / iceMessageIntegrity", () => {
       expect(new Set(received)).toEqual(new Set([expected]));
     },
   );
+});
+
+describe("ice-options sped", () => {
+  const peers: RTCPeerConnection[] = [];
+  afterEach(async () => {
+    await Promise.allSettled(peers.splice(0).map((pc) => pc.close()));
+  });
+
+  test("sped: true の offer / answer は全 m-line に a=ice-options:trickle sped を出力し、sped なしでは出さない", async () => {
+    // Arrange: SPED の offerer と、SPED の answerer / 既定の answerer
+    const sped = {
+      iceServers: [],
+      sped: true,
+      dtls: { protocolVersions: [DtlsVersion.V1_3] },
+    };
+    const offerer = new RTCPeerConnection(sped);
+    const spedAnswerer = new RTCPeerConnection(sped);
+    const plainAnswerer = new RTCPeerConnection({ iceServers: [] });
+    peers.push(offerer, spedAnswerer, plainAnswerer);
+    offerer.addTransceiver("audio");
+    offerer.createDataChannel("dc");
+
+    // Act: offer を作り、両方の answerer で answer を作る
+    const offer = await offerer.createOffer();
+    await offerer.setLocalDescription(offer);
+    const answers: { sdp: string }[] = [];
+    for (const answerer of [spedAnswerer, plainAnswerer]) {
+      await answerer.setRemoteDescription(offerer.localDescription!);
+      answers.push(await answerer.createAnswer());
+    }
+
+    // Assert: SPED の側だけ sped を宣言する (Chromium / Pion は offer に sped が
+    // ないと SPED を使わない)
+    expect(new Set(sdpIceOptionLines(offer.sdp))).toEqual(
+      new Set(["a=ice-options:trickle sped"]),
+    );
+    expect(new Set(sdpIceOptionLines(answers[0].sdp))).toEqual(
+      new Set(["a=ice-options:trickle sped"]),
+    );
+    expect(new Set(sdpIceOptionLines(answers[1].sdp))).toEqual(
+      new Set(["a=ice-options:trickle"]),
+    );
+  });
+
+  test("DTLS transport を作る前の setConfiguration({ sped: true }) は次の offer に反映される", async () => {
+    // Arrange: 既定 (sped なし) の PeerConnection
+    const pc = new RTCPeerConnection({
+      iceServers: [],
+      dtls: { protocolVersions: [DtlsVersion.V1_3] },
+    });
+    peers.push(pc);
+
+    // Act: transport を作る前に SPED を有効にしてから offer を作る
+    pc.setConfiguration({ sped: true });
+    pc.createDataChannel("dc");
+    const offer = await pc.createOffer();
+
+    // Assert: 変更後の設定で sped を宣言する
+    expect(sdpIceOptionLines(offer.sdp)).toEqual([
+      "a=ice-options:trickle sped",
+    ]);
+  });
 });

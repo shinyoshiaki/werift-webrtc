@@ -124,6 +124,30 @@ Resolves remote mDNS candidates; closed (pending lookups cancelled) by restart()
 
 ***
 
+### onGatheringError
+
+> `readonly` **onGatheringError**: `Event`\<\[[`IceGatheringErrorInfo`](../type-aliases/IceGatheringErrorInfo.md)\]\>
+
+The current generation's gathering reported an error (werift extension,
+see [IceGatheringErrorInfo](../type-aliases/IceGatheringErrorInfo.md)). New reasons may be added: handle
+unknown values.
+
+#### See
+
+ - packages/ice/tests/ice/interface-enumeration.test.ts「without servers or explicit addresses: ends with interface-enumeration-failed then no-candidates」
+ - packages/ice/tests/ice/interface-enumeration.test.ts「a STUN server still gives a server-reflexive candidate」
+ - packages/ice/tests/ice/interface-enumeration.test.ts「an unexpected exception reports gathering-failed, ends the generation and rejects」
+ - packages/ice/tests/ice/interface-enumeration.test.ts「restarting from the no-candidates listener leaves the new generation ungathered」
+ - packages/ice/tests/ice/interface-enumeration.test.ts「nothing is reported after close」
+ - packages/ice/tests/ice/interface-enumeration.test.ts「nothing is reported for a generation an ICE restart replaced」
+ - packages/ice/tests/ice/interface-enumeration.test.ts「a listener that throws does not stop the gathering or the later listeners」
+
+#### Implementation of
+
+[`IceConnection`](../interfaces/IceConnection.md).[`onGatheringError`](../interfaces/IceConnection.md#ongatheringerror)
+
+***
+
 ### onIceCandidate
 
 > `readonly` **onIceCandidate**: `Event`\<\[[`Candidate`](Candidate.md)\]\>

@@ -97,7 +97,7 @@ const session = async (
       recorder.addTrack(track);
     });
 
-    pc.createDataChannel("dataSendChannel", { id: 1 });
+    pc.createDataChannel("dataSendChannel");
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);

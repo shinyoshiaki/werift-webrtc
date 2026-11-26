@@ -1,4 +1,6 @@
-import { RTCDataChannel, RTCSctpTransport } from "../../src";
+import { vi } from "vitest";
+import { SCTP_STATE, SCTPSendPermissionRevokedError } from "../../../sctp/src";
+import { Event, RTCDataChannel, RTCSctpTransport } from "../../src";
 import { WEBRTC_BINARY } from "../../src/const";
 import { RTCDataChannelParameters } from "../../src/dataChannel";
 import { dtlsTransportPair } from "../fixture";
@@ -30,13 +32,14 @@ describe("RTCSctpTransportTest", () => {
     transport.setDtlsTransport(first);
     const channel = new RTCDataChannel(
       transport,
-      new RTCDataChannelParameters({ label: "unsent", id: 1 }),
+      new RTCDataChannelParameters({ label: "unsent" }),
     );
     transport.datachannelSend(channel, Buffer.from("stale-1"));
     transport.datachannelSend(channel, "stale-2");
     expect(channel.bufferedAmount).toBe(14);
 
-    // Act: 停止して別の DTLS transport で再接続する。
+    // Act: rollback と同じく予約 ID を返してから停止し、別の DTLS transport で再接続する。
+    transport.releaseUnannouncedStreamIds();
     await transport.stop();
     transport.setDtlsTransport(second);
     const sent: unknown[] = [];
@@ -49,7 +52,8 @@ describe("RTCSctpTransportTest", () => {
 
     // Assert: 古いメッセージは SCTP に渡されず、bufferedAmount は 0 に戻る。
     expect(sent).toHaveLength(0);
-    // DATA_CHANNEL_OPEN だけが残る (チャネルが存続する場合に備える)。
+    // 存続するチャネルの DATA_CHANNEL_OPEN だけが残る。
+    expect(channel.readyState).toBe("connecting");
     expect(transport["dataChannelQueue"].toArray().map((i) => i[1])).toEqual([
       50,
     ]);
@@ -64,11 +68,11 @@ describe("RTCSctpTransportTest", () => {
     client.setDtlsTransport(first);
     const closedChannel = new RTCDataChannel(
       client,
-      new RTCDataChannelParameters({ label: "closed-before-reconnect", id: 1 }),
+      new RTCDataChannelParameters({ label: "closed-before-reconnect" }),
     );
     const aliveChannel = new RTCDataChannel(
       client,
-      new RTCDataChannelParameters({ label: "alive", id: 3 }),
+      new RTCDataChannelParameters({ label: "alive" }),
     );
     await client.stop();
     closedChannel.setReadyState("closed");
@@ -157,13 +161,100 @@ describe("RTCSctpTransportTest", () => {
 
       const channel = new RTCDataChannel(
         client,
-        new RTCDataChannelParameters({ label: "chat", id: 1 }),
+        new RTCDataChannelParameters({ label: "chat" }),
       );
       channel.onMessage.subscribe((data) => {
         expect(data.toString()).toBe("ping");
         channel.send(Buffer.from("pong"));
       });
     }));
+
+  test("INIT 送信許可の取消しを reject し、次の start で association を再構築する", async () => {
+    // Arrange: DTLS bridge の最初の送信だけ送信許可の取消しで失敗させる
+    // (単なる送信失敗は損失として T1 が再送する)。
+    const sendData = vi
+      .fn<(...args: [Buffer]) => Promise<void>>()
+      .mockRejectedValueOnce(
+        new SCTPSendPermissionRevokedError("INIT send failed"),
+      )
+      .mockResolvedValue(undefined);
+    const dtls = {
+      id: "fake-dtls",
+      role: "server",
+      onStateChange: new Event<[string]>(),
+      onRoleChange: new Event<[]>(),
+      dataReceiver: () => {},
+      sendData,
+    } as any;
+    const transport = new RTCSctpTransport();
+    transport.setDtlsTransport(dtls);
+
+    // Act: 初回の INIT failure は接続待ちのまま残さず reject する。
+    await expect(transport.start(5001)).rejects.toThrow("INIT send failed");
+    const failedAssociation = transport.sctp;
+
+    // Assert: 失敗 association は CLOSED で、次回 start は新 association を使う。
+    expect(failedAssociation.associationState).toBe(SCTP_STATE.CLOSED);
+    await transport.start(5001);
+    expect(transport.sctp).not.toBe(failedAssociation);
+    expect(transport.sctp.associationState).toBe(SCTP_STATE.COOKIE_WAIT);
+
+    await transport.stop();
+  });
+
+  /** Arrange: DTLS server stand-in exposing the early-attempt lifecycle events. */
+  function createEarlyDtlsStub() {
+    return {
+      id: "fake-dtls-early",
+      role: "server",
+      state: "connecting",
+      onStateChange: new Event<[string]>(),
+      onRoleChange: new Event<[]>(),
+      onEarlyApplicationAttemptCancelled: new Event<[]>(),
+      onEarlyApplicationSendRevoked: new Event<[]>(),
+      dataReceiver: () => {},
+      sendData: vi.fn(async () => {}),
+    };
+  }
+
+  test.each([
+    { authenticatedBeforeCancel: false, cancelled: true },
+    { authenticatedBeforeCancel: true, cancelled: false },
+  ])(
+    "認証前に始めた early start は認証前だけ取り消され、認証後の SPED reset では維持される (authenticated=$authenticatedBeforeCancel)",
+    async ({ authenticatedBeforeCancel, cancelled }) => {
+      // Arrange: DTLS server が認証前 (connecting) に SCTP を開始し COOKIE_WAIT にいる
+      const dtls = createEarlyDtlsStub();
+      const transport = new RTCSctpTransport();
+      transport.setDtlsTransport(dtls as any);
+      await transport.start(5001);
+      const association = transport.sctp;
+      expect(association.associationState).toBe(SCTP_STATE.COOKIE_WAIT);
+
+      try {
+        if (authenticatedBeforeCancel) {
+          // Act: COOKIE_WAIT のまま DTLS が認証済み (connected) になる
+          dtls.state = "connected";
+          dtls.onStateChange.execute("connected");
+        }
+        // Act: SPED reset / ICE restart による early attempt の取消し通知
+        dtls.onEarlyApplicationAttemptCancelled.execute();
+
+        // Assert: 認証前なら early attempt として取り消し、認証後は同じ
+        // association のまま開始を続ける (T1 が INIT を再送する)
+        if (cancelled) {
+          expect(association.associationState).toBe(SCTP_STATE.CLOSED);
+          expect(association.startCancellationError).toBeDefined();
+        } else {
+          expect(transport.sctp).toBe(association);
+          expect(association.associationState).toBe(SCTP_STATE.COOKIE_WAIT);
+          expect(association.startCancellationError).toBeUndefined();
+        }
+      } finally {
+        await transport.stop();
+      }
+    },
+  );
 
   test.each(DCEP_CHANNEL_TYPE_CASES)(
     "DATA_CHANNEL_OPEN encodes $name",
@@ -176,7 +267,7 @@ describe("RTCSctpTransportTest", () => {
       // Act: 指定の ordered / 部分信頼性でチャネルを作成し OPEN を送らせる。
       new RTCDataChannel(
         client,
-        new RTCDataChannelParameters({ label: "dcep", id: 1, ...options }),
+        new RTCDataChannelParameters({ label: "dcep", ...options }),
       );
       const [received] = await remote;
 
@@ -205,7 +296,7 @@ describe("RTCSctpTransportTest", () => {
       const remote = server.onDataChannel.asPromise();
       const local = new RTCDataChannel(
         client,
-        new RTCDataChannelParameters({ label: "dcep", id: 1, ...options }),
+        new RTCDataChannelParameters({ label: "dcep", ...options }),
       );
       const [received] = await remote;
       const replies = local.onMessage.asPromise();
@@ -224,7 +315,7 @@ describe("RTCSctpTransportTest", () => {
           serverChunks
             .filter(
               (chunk) =>
-                chunk.streamId === 1 && chunk.protocol === WEBRTC_BINARY,
+                chunk.streamId === local.id && chunk.protocol === WEBRTC_BINARY,
             )
             .map((chunk) => [chunk.tsn, chunk]),
         ).values(),
@@ -257,7 +348,6 @@ describe("RTCSctpTransportTest", () => {
       client,
       new RTCDataChannelParameters({
         label: "lifetime",
-        id: 1,
         maxPacketLifeTime: 500,
       }),
     );
@@ -296,7 +386,7 @@ describe("RTCSctpTransportTest", () => {
       // Act: in-band negotiation でチャネルを作成し OPEN を送らせる。
       new RTCDataChannel(
         client,
-        new RTCDataChannelParameters({ label, protocol, id: 1 }),
+        new RTCDataChannelParameters({ label, protocol }),
       );
       const [received] = await remote;
 
@@ -326,33 +416,31 @@ describe("RTCSctpTransportTest", () => {
       parameters: { label: "ok", protocol: "あ".repeat(21846) },
     },
   ])(
-    "DATA_CHANNEL_OPEN rejects an over-long $name without registering the ID",
+    "DATA_CHANNEL_OPEN rejects an over-long $name without reserving a stream ID",
     async ({ parameters }) => {
       // Arrange: SCTP association を確立し、client が送る DCEP を記録する。
       const { client, server } = await connectedPair();
       const dcep = captureDcep(client);
 
-      // Act: UTF-8 で 65535 バイトを超える値を ID 指定で作成する。
+      // Act: UTF-8 で 65535 バイトを超える値で作成する。
       const create = () =>
-        new RTCDataChannel(
-          client,
-          new RTCDataChannelParameters({ ...parameters, id: 42 }),
-        );
+        new RTCDataChannel(client, new RTCDataChannelParameters(parameters));
 
       // Assert: TypeError で失敗し、OPEN は送られない。
       expect(create).toThrow(TypeError);
       expect(dcep).toHaveLength(0);
 
-      // Act: 同じ ID で有効な label を使って作り直す。
+      // Act: 有効な label で作り直す。
       const remote = server.onDataChannel.asPromise();
       const retry = new RTCDataChannel(
         client,
-        new RTCDataChannelParameters({ label: "retry", id: 42 }),
+        new RTCDataChannelParameters({ label: "retry" }),
       );
       const [received] = await remote;
 
-      // Assert: ID が解放されており、作り直したチャネルが相手側に届く。
-      expect(retry.id).toBe(42);
+      // Assert: 失敗した作成は ID を予約しておらず、DTLS client の最初の
+      // 偶数 ID 0 が割り当たり、作り直したチャネルが相手側に届く。
+      expect(retry.id).toBe(0);
       expect(received.label).toBe("retry");
 
       await Promise.all([client.stop(), server.stop()]);

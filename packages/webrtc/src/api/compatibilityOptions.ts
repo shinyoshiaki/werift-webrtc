@@ -13,8 +13,12 @@
  *   - `transceiverPairing: "byKind"`: a remote offer's m-section takes any
  *     unassociated transceiver of its kind (`"standard"`: JSEP 5.10).
  *   - `keyFrameRequestRouting: "fallback"`: a PLI / FIR for an unknown SSRC
- *     falls back to the RTX owner or the only video sender (`"standard"`: not
- *     delivered).
+ *     falls back to the RTX owner or the only video sender of the transport
+ *     it arrived on (`"standard"`: not delivered).
+ *   - `dtlsHandshakeValidation: "lenient"`: the DTLS 1.2 handshake ignores a
+ *     malformed `supported_versions`, accepts duplicate extensions and reads
+ *     `use_srtp` without length checks (`"standard"`: RFC-strict, these fail
+ *     the handshake).
  *
  * Each option documents its default and whether `setConfiguration()` may
  * change it. Any other value is a `TypeError`; the names used up to v0.27.0
@@ -26,6 +30,7 @@ export const CompatibilityOptionValues = {
   mLineReuse: ["standard", "aggressive"],
   transceiverPairing: ["standard", "byKind"],
   keyFrameRequestRouting: ["standard", "fallback"],
+  dtlsHandshakeValidation: ["standard", "lenient"],
 } as const;
 
 /** An option listed in {@link CompatibilityOptionValues}. */

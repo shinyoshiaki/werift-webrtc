@@ -139,6 +139,11 @@ export const LEAK_CYCLES: { name: string; ref: string; templates: string[] }[] =
       templates: ["transceiver added, stopped and its m-line reused", "glare"],
     },
     {
+      name: "a remote offer rolled back releases the transports it created",
+      ref: "property: leak L3; origin: SecureTransportManager kept the state subscription of every closed DTLS transport",
+      templates: ["BUNDLE split offer rolled back on both sides"],
+    },
+    {
       name: "renegotiation, pranswer, replacement and glare reach a steady state",
       ref: "property: leak L3",
       templates: [

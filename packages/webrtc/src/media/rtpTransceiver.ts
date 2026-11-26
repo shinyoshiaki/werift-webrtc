@@ -3,11 +3,7 @@ import type { RTCDtlsTransport } from "..";
 import { SenderDirections } from "../const";
 import { createWebRtcTypeError } from "../errors";
 import { Event } from "../imports/common";
-import {
-  getApplicationStopRevision,
-  noteApplicationStop,
-  type TransceiverNegotiationState,
-} from "../negotiation/internalState";
+import type { TransceiverNegotiationState } from "../negotiation/internalState";
 import type { Kind } from "../types/domain";
 import { cloneCodecParameters } from "./codec";
 import type {
@@ -86,6 +82,17 @@ export class RTCRtpTransceiver {
    * keeps such a change instead of restoring the baseline's resolved codecs.
    */
   private codecChangeRevision = 0;
+  /**
+   * Counts application `stop()` calls. An application operation: it is not
+   * restored by a rollback, which keeps a stop made during the rolled-back
+   * negotiation.
+   */
+  private _applicationStopRevision = 0;
+
+  /** @internal How many times the application called `stop()`. */
+  get applicationStopRevision() {
+    return this._applicationStopRevision;
+  }
 
   get codecPreferences(): readonly RTCRtpCodecParameters[] | undefined {
     return this._codecPreferences;
@@ -261,7 +268,7 @@ export class RTCRtpTransceiver {
       rejected: this.rejected,
       pendingRejection: this.pendingRejection,
       firedReceiving: this.firedReceiving,
-      applicationStopRevision: getApplicationStopRevision(this),
+      applicationStopRevision: this._applicationStopRevision,
       dtlsTransport: this.dtlsTransport,
       sender: this.sender.snapshotSendParams(),
       receiver: this.receiver.snapshotNegotiationState(),
@@ -298,7 +305,7 @@ export class RTCRtpTransceiver {
     // negotiation stays.
     this.stopping =
       state.stopping ||
-      getApplicationStopRevision(this) !== state.applicationStopRevision;
+      this._applicationStopRevision !== state.applicationStopRevision;
     this.stopped = state.stopped;
     this.rejected = state.rejected;
     this.pendingRejection = state.pendingRejection;
@@ -309,13 +316,23 @@ export class RTCRtpTransceiver {
   }
 
   /**
-   * Internal: the application sends on this transceiver (its sender has a
-   * track), so a rollback keeps it even if a remote offer created it. As in
-   * develop, only a track counts: stop(), a direction or codec preferences
-   * set on a remote-created transceiver do not keep it.
+   * Internal: the application uses this transceiver, so a rollback keeps it
+   * even if a remote offer created it. It is held once `addTrack()` attached a
+   * track to it (W3C rollback: only a transceiver addTrack never touched is
+   * removed), also after `replaceTrack(null)` / `removeTrack()` detached that
+   * track, or while its sender has a track (werift keeps one given a track by
+   * `replaceTrack()` alone). stop(), a direction or codec preferences set on a
+   * remote-created transceiver do not keep it. Only a remote-created
+   * transceiver can be removed, and `addTrack()` reusing one sets
+   * `reusedForAddTrack`; one `addTrack()` created has `createdBy: "addTrack"`.
+   * Both are instance state a rollback does not restore.
    */
   get heldByApplication() {
-    return !!this.sender.track;
+    return (
+      this.createdBy === "addTrack" ||
+      this.reusedForAddTrack ||
+      !!this.sender.track
+    );
   }
 
   get msid() {
@@ -346,7 +363,7 @@ export class RTCRtpTransceiver {
    * 冪等で、2 回目以降は何もしない。
    */
   stop() {
-    noteApplicationStop(this);
+    this._applicationStopRevision++;
     if (this.stopping) {
       return;
     }

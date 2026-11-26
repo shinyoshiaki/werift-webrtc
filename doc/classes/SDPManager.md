@@ -34,6 +34,13 @@
 
 Add `ice2` (RFC 8445 §10) to the local ice-options.
 
+###### iceOptionSped?
+
+() => `boolean`
+
+Add `sped` while it returns true (`PeerConfig.sped`, which may change
+until a DTLS transport exists).
+
 ###### iceRenomination?
 
 `boolean`
@@ -82,14 +89,6 @@ Add `ice2` (RFC 8445 §10) to the local ice-options.
 
 ***
 
-### iceOptions
-
-> `readonly` **iceOptions**: `string`
-
-Local `a=ice-options` tokens written on every m-line.
-
-***
-
 ### iceRenomination
 
 > `readonly` **iceRenomination**: `boolean`
@@ -121,6 +120,28 @@ Local `a=ice-options` tokens written on every m-line.
 > `optional` **pendingRemoteDescription?**: [`SessionDescription`](SessionDescription.md)
 
 ## Accessors
+
+### iceOptions
+
+#### Get Signature
+
+> **get** **iceOptions**(): `string`
+
+Local `a=ice-options` tokens written on every m-line. With SPED this
+includes `sped`: draft-hancke-webrtc-sped-00 negotiates SPED in band, but
+Chromium (`WebRTC-IceHandshakeDtls`) and Pion only keep it when the offer
+advertises `sped`, so a werift offer without it turns SPED off on them
+(`e2e/tests/sped`, `npm run sped:ci` in `e2e/`).
+
+##### See
+
+tests/integrate/iceOptions.test.ts "sped: true の offer / answer は全 m-line に a=ice-options:trickle sped を出力し、sped なしでは出さない"
+
+##### Returns
+
+`string`
+
+***
 
 ### inactiveRemoteMedia
 
@@ -358,6 +379,7 @@ codecs to describe; the transceiver's negotiated codecs by default
 
 拒否 / 停止した m-line を作成する (RFC 3264 §6 / RFC 8829 §5.3.1)。
 port は 0、proto と MID は元の m-line を保ち、fmt は少なくとも 1 token 残す。
+拒否 m-line は RTP/RTCP を流さないので `a=rtcp` / `a=rtcp-mux` を載せない (#705 以降の出力形式を保つ)。
 
 #### Parameters
 

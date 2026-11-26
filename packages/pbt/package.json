@@ -1,0 +1,15 @@
+{
+  "name": "werift-pbt",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Property-based testing base shared by the werift packages (seeded random stream, seeds, deep search runner). Test-only, not published.",
+  "license": "MIT",
+  "scripts": {
+    "format": "biome check --write src tests",
+    "test": "npm run type && vitest run ./tests",
+    "type": "tsc --noEmit -p . --rootDir .."
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

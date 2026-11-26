@@ -3,9 +3,7 @@
     "target": "ESNext",
     "module": "commonjs",
     "moduleResolution": "bundler",
-    "lib": [
-      "esnext"
-    ],
+    "lib": ["esnext"],
     "declaration": true,
     "outDir": "lib",
     "strict": true,
@@ -19,17 +17,12 @@
     "strictNullChecks": true,
     "noImplicitAny": false,
     "useDefineForClassFields": true,
-    "types": [
-      "node",
-      "vitest/globals"
-    ],
+    "types": ["node", "vitest/globals"],
     "rootDir": ".."
   },
-  "include": [
-    "src",
-    "tests"
-  ],
+  "include": ["src", "tests"],
   "exclude": [
+    "tests/nonstandard/acceptanceDomCompile",
     "tests/nonstandard/polyfillDomCompile",
     "tests/nonstandard/polyfillNodeCompile"
   ]

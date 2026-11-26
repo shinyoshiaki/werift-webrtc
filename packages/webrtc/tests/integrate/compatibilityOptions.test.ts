@@ -3,6 +3,7 @@ import {
   CompatibilityOptionValues,
   CompatibilityPresets,
   DeprecatedCompatibilityValues,
+  DtlsHandshakeValidationModes,
   KeyFrameRequestRoutingModes,
   MLineReuseModes,
   RTCPeerConnection,
@@ -44,6 +45,13 @@ const options = [
     changeable: true,
     aliases: { compatible: "fallback", strict: "standard" },
   },
+  {
+    option: "dtlsHandshakeValidation",
+    own: "lenient",
+    defaultValue: "lenient",
+    changeable: false,
+    aliases: {},
+  },
 ] as const;
 
 type CompatibilityOption = (typeof options)[number]["option"];
@@ -73,6 +81,7 @@ describe("compatibility options: standard and a named own behavior", () => {
     expect(MLineReuseModes).toEqual(["standard", "aggressive"]);
     expect(TransceiverPairingModes).toEqual(["standard", "byKind"]);
     expect(KeyFrameRequestRoutingModes).toEqual(["standard", "fallback"]);
+    expect(DtlsHandshakeValidationModes).toEqual(["standard", "lenient"]);
     expect(Object.keys(DeprecatedCompatibilityValues).sort()).toEqual(
       options
         .filter(({ aliases }) => Object.keys(aliases).length > 0)
@@ -184,11 +193,32 @@ describe("compatibility options: standard and a named own behavior", () => {
     },
   );
 
+  test.each([
+    [undefined, "lenient"],
+    ["standard", "standard"],
+    ["lenient", "lenient"],
+  ] as const)(
+    "dtlsHandshakeValidation %s reaches the DTLS transport as %s",
+    async (value, expected) => {
+      // Arrange: DataChannel の offer で DTLS transport を作る
+      const pc = createPc(
+        value === undefined ? {} : { dtlsHandshakeValidation: value },
+      );
+      pc.createDataChannel("dc");
+
+      // Act
+      await pc.setLocalDescription(await pc.createOffer());
+
+      // Assert: DTLS 1.2 の handshake 検証の厳密さが transport に渡る
+      expect(pc.dtlsTransports[0]?.config.handshakeValidation).toBe(expected);
+    },
+  );
+
   test('compatibility: "standard" sets every compatibility option to standard', async () => {
     // Act: compatibility だけを指定して作成する
     const pc = createPc({ compatibility: "standard" });
 
-    // Assert: 4 つの互換性オプションがすべて standard になり、compatibility も読み返せる
+    // Assert: 5 つの互換性オプションがすべて standard になり、compatibility も読み返せる
     for (const { option } of options) {
       expect(read(pc, option)).toBe("standard");
     }
