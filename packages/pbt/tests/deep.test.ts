@@ -2,12 +2,15 @@ import { describe, expect, test } from "vitest";
 
 import {
   abnormalExit,
+  baselinePackageDir,
   type DeepSearchConfig,
+  failureSignature,
   planDeepSearch,
   SEED_TITLE_PATTERN,
+  sameFailure,
   seedRanges,
 } from "../src";
-import { runFixtureDeepSearch } from "./utils";
+import { passingSource, runFixtureDeepSearch, throwingSource } from "./utils";
 
 const config: DeepSearchConfig = {
   cwd: "/tmp/pkg",
@@ -115,7 +118,7 @@ describe("deep search run", () => {
 
     // Assert: 終了コード 0 で、1 件通過・失敗なしと報告する。
     expect(exit).toBe(0);
-    expect(output).toContain("1 passed, 0 failed, 0 flaky");
+    expect(output).toContain("1 passed, 0 failed, 0 pre-existing, 0 flaky");
   }, 60_000);
 
   test("an unhandled error after the assertions passed fails the search", async () => {
@@ -128,7 +131,7 @@ describe("deep search run", () => {
     expect(lines).toContain(
       "  FAILED unhandled shard: vitest exited with code 1 (an error outside the test results, e.g. an unhandled rejection)",
     );
-    expect(lines.join("\n")).toContain("1 failed, 0 flaky");
+    expect(lines.join("\n")).toContain("1 failed, 0 pre-existing, 0 flaky");
   }, 60_000);
 
   test("a failing assertion fails the search under its test title", async () => {
@@ -162,5 +165,143 @@ describe("deep search run", () => {
     expect(
       abnormalExit({ exitCode: 0, signal: null, reported: true }),
     ).toBeUndefined();
+  });
+});
+
+describe("deep search against a baseline", () => {
+  test("a confirmed failure the baseline passes stays in the exit code", async () => {
+    // Act: 比較元では同じ題名のテストが通るようにして --baseline で動かす。
+    const { exit, lines, output } = await runFixtureDeepSearch(["failing"], {
+      baseline: { failing: passingSource("a failing fixture") },
+    });
+
+    // Assert: 変更起因の失敗として終了コード 1 で、比較元の結果を添えて報告する。
+    expect(exit).toBe(1);
+    expect(lines).toContain("  FAILED a failing fixture");
+    expect(lines).toContain("    baseline: passed");
+    expect(output).toContain(
+      "summary: 1 confirmed (exit code), 0 pre-existing",
+    );
+  }, 60_000);
+
+  test("a failure the baseline repeats in the same form is pre-existing and leaves the exit code", async () => {
+    // Act: 比較元も同じフィクスチャ (同じ題名・同じメッセージで失敗) のまま動かす。
+    const { exit, lines, output } = await runFixtureDeepSearch(
+      ["failing", "passing"],
+      { baseline: {} },
+    );
+
+    // Assert: 以前からの失敗として報告し、終了コードは 0。
+    expect(exit).toBe(0);
+    expect(lines).toContain("  pre-existing a failing fixture");
+    expect(output).toContain(
+      "failed the same way on the baseline (attempt 1): failed: AssertionError: expected <n> to be <n> // Object.is equality",
+    );
+    expect(output).toContain(
+      "failing: 1 shards, 1 tests, 0 passed, 0 failed, 1 pre-existing",
+    );
+    expect(output).toMatch(
+      /summary: 0 confirmed \(exit code\), 1 pre-existing \(same failure on .*\.baseline-/,
+    );
+  }, 60_000);
+
+  test("a failure the baseline shows in another form stays confirmed", async () => {
+    // Act: 比較元では同じ題名のテストが別のメッセージで失敗する。
+    const { exit, lines } = await runFixtureDeepSearch(["failing"], {
+      baseline: {
+        failing: throwingSource("a failing fixture", "another error"),
+      },
+    });
+
+    // Assert: 同じ形ではないので確定した失敗のまま終了コード 1。
+    expect(exit).toBe(1);
+    expect(lines).toContain("  FAILED a failing fixture");
+    expect(lines).toContain("    baseline: failed: Error: another error");
+  }, 60_000);
+
+  test("an abnormal exit the baseline repeats is pre-existing", async () => {
+    // Act: 未処理の rejection で終わるフィクスチャを、比較元も同じまま動かす。
+    const { exit, lines } = await runFixtureDeepSearch(["unhandled"], {
+      baseline: {},
+    });
+
+    // Assert: 同じ異常終了の理由なので以前からの失敗とし、終了コードは 0。
+    expect(exit).toBe(0);
+    expect(lines).toContain(
+      "  pre-existing unhandled shard: vitest exited with code 1 (an error outside the test results, e.g. an unhandled rejection)",
+    );
+  }, 60_000);
+
+  test("a statistical failure is not judged without a baseline and is judged against one", async () => {
+    // Act: 統計的な分割の失敗を --baseline なしで動かす。
+    const alone = await runFixtureDeepSearch(["failing"], {
+      statistical: ["failing"],
+    });
+
+    // Assert: statistical として示し、終了コードに含めない。
+    expect(alone.exit).toBe(0);
+    expect(alone.lines).toContain(
+      "  statistical (judged only with --baseline) a failing fixture",
+    );
+    expect(alone.output).toContain(
+      "1 statistical (not judged without --baseline)",
+    );
+
+    // Act: 比較元では通るようにして --baseline で動かす。
+    const compared = await runFixtureDeepSearch(["failing"], {
+      statistical: ["failing"],
+      baseline: { failing: passingSource("a failing fixture") },
+    });
+
+    // Assert: 比較元で通るので確定した失敗として終了コード 1。
+    expect(compared.exit).toBe(1);
+    expect(compared.lines).toContain("  FAILED a failing fixture");
+  }, 60_000);
+
+  test("a baseline without the package is an error before any shard runs", async () => {
+    // Act: パッケージのないディレクトリを比較元に渡す。
+    const { exit, output } = await runFixtureDeepSearch(["passing"], {
+      argv: ["--baseline", "/nonexistent-baseline"],
+    });
+
+    // Assert: 終了コード 2 で理由を示し、分割は実行しない。
+    expect(exit).toBe(2);
+    expect(output).toContain("has no package.json");
+    expect(output).not.toContain("passing: 1 shards");
+  });
+
+  test("the failure form ignores colors and numbers; the same form needs the same title", () => {
+    // Act / Assert: 色と数値の違いは同じ形、最初の空でない行だけを見る。
+    expect(
+      failureSignature(
+        "\u001b[31m\nheap seed 4: slope 16.01 KiB/cycle > 16.00\nat x.ts:3:1",
+      ),
+    ).toBe("heap seed <n>: slope <n> KiB/cycle > <n>");
+    const failure = {
+      title: "t seed 4",
+      kind: "test" as const,
+      signatures: ["Error: the transport did not settle"],
+    };
+    const run = {
+      failed: ["t seed 4"],
+      messages: { "t seed 4": "Error: the transport did not settle" },
+      exitCode: 1,
+      signal: null,
+      reported: true,
+    };
+    expect(sameFailure(failure, run)).toBe(true);
+    // Act / Assert: 題名が違えば同じメッセージでも同じ形ではない。
+    expect(sameFailure({ ...failure, title: "t seed 5" }, run)).toBe(false);
+    // Act / Assert: 比較元が通った (失敗の題名がない) なら同じ形ではない。
+    expect(
+      sameFailure(failure, { ...run, failed: [], messages: {}, exitCode: 0 }),
+    ).toBe(false);
+  });
+
+  test("the baseline package is the same path relative to the worktree root", () => {
+    // Act / Assert: 作業ツリーの根からの相対パスを比較元の根に付ける。
+    expect(baselinePackageDir("/tmp/base", __dirname)).toBe(
+      "/tmp/base/packages/pbt/tests",
+    );
   });
 });

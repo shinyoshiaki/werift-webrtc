@@ -44,3 +44,6 @@ report.*.json
 __pycache__/
 *.py[cod]
 .vitest/
+
+# pbt:deep --baseline test worktrees (packages/pbt/tests/utils.ts)
+packages/pbt/tests/fixtures/.baseline-*/

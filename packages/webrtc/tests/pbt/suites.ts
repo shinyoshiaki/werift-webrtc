@@ -17,6 +17,16 @@
  *   simulcastRtx tests/pbt/simulcastRtx/simulcastRtxProperty.test.ts, 300 seeds x 300 steps
  *
  *   npm run pbt:deep -- --suite twcc,bwe,sender,receiver,simulcastRtx
+ * P3 is statistical (`DeepShard.statistical`): its failure counts in the exit
+ * code only when the `--baseline` revision passes the same heap seed; without
+ * `--baseline` it is reported as statistical. P1 / P2 are deterministic and
+ * always count.
+ *
+ * Before review, compare with develop so failures develop also has are
+ * reported as pre-existing instead of failing the run:
+ *   git worktree add --detach /tmp/werift-develop origin/develop
+ *   # link or install the dependencies of the worktree (root and packages/*)
+ *   npm run pbt:deep -- --baseline /tmp/werift-develop
  * The fixed scenes and regression seeds run once in their own shard. Every
  * shard is its own vitest process running one file, so the leak property's
  * process-wide measurements (active resources, heap) never mix with another
@@ -59,6 +69,7 @@ const config: DeepSearchConfig = {
             },
           })),
           // P3 (heap slope) は 1 seed を 1 プロセスで実行する (heap を他の seed と混ぜない)。
+          // 閾値に対する統計的な判定なので statistical とし、--baseline の比較でだけ判定する。
           ...ranges(heapSeeds, 1).map(({ first }) => ({
             label: `leak heap seed ${first}`,
             file,
@@ -68,6 +79,7 @@ const config: DeepSearchConfig = {
               WERIFT_NEGOTIATION_LEAK_SEEDS: "1",
               WERIFT_NEGOTIATION_LEAK_HEAP: "1",
             },
+            statistical: true,
           })),
         ];
       },

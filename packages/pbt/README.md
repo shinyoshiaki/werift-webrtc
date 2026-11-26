@@ -26,6 +26,7 @@ npm run pbt:deep                                 # the default suites
 npm run pbt:deep -- --suite a,b --seeds 1000 --steps 50 --seed 1 --jobs 12
 npm run pbt:deep -- --list                       # suites and their defaults
 npm run pbt:deep -- --dry-run                    # the shards, without running them
+npm run pbt:deep -- --baseline /tmp/werift-develop [--baseline-runs 3]
 ```
 
 Each shard is its own vitest process (one file, `--retry=0`, the seed range in
@@ -34,7 +35,38 @@ its environment); the shards of every selected suite share one pool of
 code is 1 when it fails again. A vitest process that ends abnormally fails its
 shard even when every test in its report passed: an exit code other than 0
 (for example an unhandled rejection after the assertions), a signal, or no
-report (`abnormalExit`). Such a shard runs again alone too. A suite with a
+report (`abnormalExit`). Such a shard runs again alone too. 
+### Baseline comparison
+
+`--baseline <worktree root>` takes the root of another revision checked out
+with `git worktree add --detach <dir> <rev>` (never the active worktree; link
+or install its dependencies). Each confirmed failure (it failed again alone)
+is replayed in the same package of that worktree with the same file, title
+pattern and environment, up to `--baseline-runs` (default 3) times. It is
+**pre-existing** — listed with the baseline's result and left out of the exit
+code — when the baseline fails in the same form at least once:
+
+| Failure | Same form on the baseline |
+| --- | --- |
+| a failed test | a failed test with the same title (seed and replay environment included) and the same `failureSignature`: the first non-empty line of the error, colors removed, every number as `<n>` |
+| a shard that ended abnormally | the same `abnormalExit` reason |
+| a shard that ran no test | never compared (a wrong pattern of this revision) |
+
+A failure the baseline passes, or fails in another form, stays confirmed
+(exit 1). There is no known-flake list: a list outlives its evidence, while
+the baseline replay re-checks it in every run.
+
+A shard marked `statistical` (a threshold on a measured value, for example the
+webrtc leak heap slope P3) is judged only against a baseline: without
+`--baseline` its confirmed failure is reported as statistical and left out of
+the exit code. Thresholds are not loosened instead.
+
+The output ends with
+`summary: <n> confirmed (exit code), <n> pre-existing (...), <n> flaky (passed alone), <n> statistical (...)`.
+Exit code 1 when a confirmed failure remains, 2 when the baseline cannot be
+used (no package at the same path, vitest not resolvable).
+
+A suite with a
 `prefix` is split by seed range;
 one with fixed scenes or other parts gives its own `shards` (see
 `packages/webrtc/tests/pbt/suites.ts`).
@@ -45,4 +77,4 @@ one with fixed scenes or other parts gives its own `shards` (see
 - `propertySeeds(prefix, { seeds, steps? })`: `{ seeds, cases, steps, seedSelected, replay, title }`.
 - `propertyOptions(timeout?)`: `{ retry: 0, timeout? }`.
 - `SEED_TITLE_PATTERN`: the vitest `-t` pattern of the seed titles.
-- `runDeepSearch(config, argv)`, `abnormalExit`, `planDeepSearch`, `seedRanges`, `prefixShards`, `parseDeepArgs`; types `DeepSearchConfig`, `DeepSuite`, `DeepShard`, `DeepContext`.
+- `runDeepSearch(config, argv)`, `abnormalExit`, `failureSignature`, `sameFailure`, `baselinePackageDir`, `planDeepSearch`, `seedRanges`, `prefixShards`, `parseDeepArgs`; types `DeepSearchConfig`, `DeepSuite`, `DeepShard`, `DeepContext`.

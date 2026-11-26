@@ -37,7 +37,10 @@ import { CLOSED_SCENES, LEAK_CYCLES } from "./scenes";
  *   growth the cycle declares); bounded metrics stay within their bound.
  * - P3 (heap slope, statistical): `WERIFT_NEGOTIATION_LEAK_HEAP=1` repeats a
  *   P2 cycle `WERIFT_NEGOTIATION_LEAK_HEAP_CYCLES` (default 200) times and
- *   judges heapUsed with `detectLeak` of tests/memleak. Not run in CI.
+ *   judges heapUsed with `detectLeak` of tests/memleak. Not run in CI. The
+ *   threshold is not loosened for noise: `npm run pbt:deep` marks P3 as
+ *   statistical and counts its failure only when the `--baseline` revision
+ *   passes the same seed (tests/pbt/suites.ts).
  *
  * Fixed scenes and cycles are in `leak/scenes.ts`. Random scenes: CI runs
  * `WERIFT_NEGOTIATION_LEAK_SEEDS` (default 2) seeds from

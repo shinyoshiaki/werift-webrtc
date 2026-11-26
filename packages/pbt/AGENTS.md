@@ -31,7 +31,7 @@ Instructions for coding agents working in `packages/pbt`.
 
 ## Validation
 
-* Any change: `npm test` here, then `npm run pbt:deep -- --dry-run` in a package with custom shards (`packages/webrtc`) and the property tests of the packages it affects.
+* Any change: `npm test` here (the `--baseline` tests build a temporary baseline worktree under `tests/fixtures/.baseline-*`), then `npm run pbt:deep -- --dry-run` in a package with custom shards (`packages/webrtc`) and the property tests of the packages it affects.
 
 ## Maintenance
 

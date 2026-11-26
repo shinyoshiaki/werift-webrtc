@@ -13,7 +13,7 @@ async function main() {
   const [suitesFile, ...argv] = process.argv.slice(2);
   if (!suitesFile) {
     console.error(
-      "usage: cli.ts <tests/pbt/suites.ts> [--suite a,b] [--seeds n] [--steps n] [--seed n] [--jobs n] [--list] [--dry-run]",
+      "usage: cli.ts <tests/pbt/suites.ts> [--suite a,b] [--seeds n] [--steps n] [--seed n] [--jobs n] [--list] [--dry-run] [--baseline <worktree root>] [--baseline-runs n]",
     );
     process.exit(2);
   }
