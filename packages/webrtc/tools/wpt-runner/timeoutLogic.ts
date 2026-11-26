@@ -44,6 +44,8 @@ const ICE_SERVER_FAILURE_TIMEOUT_PROFILE: WptTimeoutProfile = {
 
 const LONG_TARGETS = [
   "webrtc/rtcrtptransceiver.https.html ?rest",
+  "webrtc/rtcdatachannel-bufferedamount.html",
+  "webrtc/rtcdatachannel-close.html",
   "webrtc/rtcpeerconnection-perfect-negotiation.https.html",
   "webrtc/rtcpeerconnection-perfect-negotiation-stress-glare.https.html",
   "webrtc/rtcpeerconnection-perfect-negotiation-stress-glare-linear.https.html",
@@ -89,6 +91,7 @@ function resolveBaseTimeoutProfile(
       "getstats",
       "transport-stats",
       "track-stats",
+      "ondatachannel",
     ])
   ) {
     return HEAVY_TIMEOUT_PROFILE;

@@ -202,6 +202,8 @@ A new association (renegotiation) starts again from `connecting`.
 
 > **dataChannelClose**(`channel`): `void`
 
+What [RTCDataChannel.close](RTCDataChannel.md#close) calls; use that instead.
+
 #### Parameters
 
 ##### channel
@@ -211,6 +213,13 @@ A new association (renegotiation) starts again from `connecting`.
 #### Returns
 
 `void`
+
+#### See
+
+ - tests/datachannel/closeDelivery.test.ts "close() right after a burst (%o): every message arrives in order before close fires on the sender"
+ - tests/datachannel/closeDelivery.test.ts "messages sent before close() while connecting reach the peer, then both ends close"
+ - tests/datachannel/closeDelivery.test.ts "pc.close() before the association is established closes the channel and drops its messages"
+ - tests/datachannel/closeDelivery.test.ts "an in-band channel closed before its DATA_CHANNEL_OPEN is sent closes at once and sends nothing"
 
 ***
 
@@ -234,6 +243,8 @@ A new association (renegotiation) starts again from `connecting`.
 
 > **datachannelSend**(`channel`, `data`): `number`
 
+What [RTCDataChannel.send](RTCDataChannel.md#send) calls; use that instead.
+
 #### Parameters
 
 ##### channel
@@ -247,6 +258,10 @@ A new association (renegotiation) starts again from `connecting`.
 #### Returns
 
 `number`
+
+#### See
+
+tests/datachannel/bufferedAmount.test.ts "empty string and empty Buffer arrive in order, bufferedAmount stays 0, stats count them"
 
 ***
 

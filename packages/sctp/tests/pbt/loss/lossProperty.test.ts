@@ -9,6 +9,7 @@ import {
   createLossyPrSctpPair,
   findFlightSizeViolation,
   flushImmediates,
+  outboundQueueOf,
   recordedForwardTsns,
 } from "../../utils";
 
@@ -103,7 +104,7 @@ describe(
           for (
             let i = 0;
             i < 60 &&
-            (client.outboundQueue.length > 0 ||
+            (outboundQueueOf(client).length > 0 ||
               client.sentQueue.length > 0 ||
               client.forwardTsnChunk);
             i++
@@ -118,7 +119,7 @@ describe(
           expect(messages.filter((m) => m.resolvedAt === undefined)).toEqual(
             [],
           );
-          expect(client.outboundQueue.length).toBe(0);
+          expect(outboundQueueOf(client).length).toBe(0);
           expect(client.sentQueue.length).toBe(0);
           expect(client.forwardTsnChunk).toBeUndefined();
           expect(client.flightSize).toBe(0);
