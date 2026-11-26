@@ -4,6 +4,7 @@ import { ProtectionProfileAeadAes128Gcm } from "../../../rtp/src/srtp/const";
 import { DtlsClient, DtlsServer, DtlsVersion } from "../../src";
 import {
   CipherSuite,
+  type CipherSuites,
   HashAlgorithm,
   SignatureAlgorithm,
 } from "../../src/cipher/const";
@@ -183,12 +184,14 @@ test("e2e/dual: CH-A and HVR-cookie ClientHello extension sets on the wire", asy
   await serverTransport.close();
 }, 20_000);
 
-function dtls12ServerHelloWithoutSupportedVersions(): Buffer {
+function dtls12ServerHelloWithoutSupportedVersions(
+  cipherSuite: CipherSuites,
+): Buffer {
   const sh = new ServerHello(
     WireVersion.DTLS_1_2,
     new DtlsRandom(),
     Buffer.alloc(0),
-    CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256_49199,
+    cipherSuite,
     0,
     [],
   );
@@ -230,7 +233,9 @@ test("e2e/dual: cookie-less 1.2 ServerHello park retransmits CH-A unchanged", as
     if (collectClientHellos(Buffer.from(buf)).length === 0) return;
     replied = true;
     void serverTransport.send(
-      dtls12ServerHelloWithoutSupportedVersions(),
+      dtls12ServerHelloWithoutSupportedVersions(
+        CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256_49199,
+      ),
       addr,
     );
   };
@@ -299,3 +304,117 @@ test("e2e/1.3-only: ClientHello does not offer EMS (only a ClientHello that also
   await clientTransport.close();
   await serverTransport.close();
 }, 10_000);
+
+test("e2e/dual: CH-A and HVR-cookie ClientHello offer the ChaCha20-Poly1305 1.2 suites", async () => {
+  // Arrange: dual client × 1.2-only server（本物の 1.2 Flight2 HVR）
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+  const sig = {
+    hash: HashAlgorithm.sha256_4,
+    signature: SignatureAlgorithm.rsa_1,
+  };
+  const server = new DtlsServer({
+    transport: serverTransport,
+    cert: certPem,
+    key: keyPem,
+    signatureHash: sig,
+    protocolVersions: [DtlsVersion.V1_2],
+  });
+  const client = new DtlsClient({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    signatureHash: sig,
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+  });
+  const hellos: ClientHello[] = [];
+  const origSend = clientTransport.send.bind(clientTransport);
+  clientTransport.send = async (buf: Buffer, addr?: any) => {
+    try {
+      hellos.push(...collectClientHellos(Buffer.from(buf)));
+    } catch {
+      // tap 失敗で TX を止めない
+    }
+    return origSend(buf, addr);
+  };
+
+  // Act: handshake を開始し、CH-A と HVR 後 CH の両方を tap するまで待つ
+  void client.connect().catch(() => {});
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    if (
+      hellos.some((ch) => ch.cookie.length === 0) &&
+      hellos.some((ch) => ch.cookie.length > 0)
+    ) {
+      break;
+    }
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  const chA = hellos.find((ch) => ch.cookie.length === 0);
+  const ch2 = hellos.find((ch) => ch.cookie.length > 0);
+
+  // Assert: 1.3 engine の CH-A も HVR cookie 付き CH も ChaCha20-Poly1305 の 1.2 suite を提示する
+  expect(chA).toBeDefined();
+  expect(ch2).toBeDefined();
+  for (const ch of [chA!, ch2!]) {
+    expect(ch.cipherSuites).toContain(
+      CipherSuite.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256_52393,
+    );
+    expect(ch.cipherSuites).toContain(
+      CipherSuite.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256_52392,
+    );
+  }
+
+  client.close();
+  server.close();
+  await clientTransport.close();
+  await serverTransport.close();
+}, 15_000);
+
+test("dual: 1.2 ServerHello selecting ChaCha20-Poly1305 is accepted by the probing classifier", async () => {
+  // Arrange: dual client と、SV 無しの 1.2 ServerHello（AES-GCM / ChaCha / 未知 suite）
+  const clientTransport = await UdpTransport.init("udp4");
+  const client = new DtlsClient({
+    transport: clientTransport,
+    cert: certPem,
+    key: keyPem,
+    signatureHash: {
+      hash: HashAlgorithm.sha256_4,
+      signature: SignatureAlgorithm.rsa_1,
+    },
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+  });
+  const classify = (cipherSuite: number) =>
+    (client as any).classifyProbingServerHello(
+      new ServerHello(
+        WireVersion.DTLS_1_2,
+        new DtlsRandom(),
+        Buffer.alloc(0),
+        cipherSuite as CipherSuites,
+        0,
+        [],
+      ).serialize(),
+    ).kind;
+
+  // Act: dual probing の ServerHello 判定を suite ごとに行う
+  const aesKind = classify(
+    CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256_49199,
+  );
+  const chachaRsaKind = classify(
+    CipherSuite.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256_52392,
+  );
+  const chachaEcdsaKind = classify(
+    CipherSuite.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256_52393,
+  );
+  const unknownKind = classify(0x1234);
+
+  // Assert: ChaCha の 1.2 SH は AES-GCM と同じく dtls12 として受理され、未知 suite は破棄される
+  expect(aesKind).toBe("dtls12");
+  expect(chachaRsaKind).toBe("dtls12");
+  expect(chachaEcdsaKind).toBe("dtls12");
+  expect(unknownKind).toBe("drop");
+
+  client.close();
+  await clientTransport.close();
+});
