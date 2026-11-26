@@ -49,7 +49,8 @@
  * threw, a timeout, a hook, an unhandled error, a crash) is a normal failure.
  *
  * The output ends with `summary:` (confirmed / pre-existing / flaky /
- * statistical). Exit code 1 when a confirmed failure remains, 2 when the
+ * statistical). Exit code 1 when a confirmed failure remains, 2 when
+ * `--baseline` has no path (checked before anything runs) or the
  * baseline cannot be used.
  *
  * A suite with a `prefix` is sharded by seed range: each shard sets
@@ -142,6 +143,24 @@ export function parseDeepArgs(argv: readonly string[]) {
     const index = argv.indexOf(`--${name}`);
     return index >= 0 ? argv[index + 1] : undefined;
   };
+}
+
+/**
+ * Why `--baseline` in `argv` names no path, or undefined when it is absent or
+ * has one. Such a run must not go on as one without a comparison (its
+ * statistical failures would leave the exit code): the option without a value,
+ * with an empty one (an unset shell variable) or followed by another option,
+ * and the `--baseline=<path>` form `parseDeepArgs` does not read.
+ */
+function baselineArgumentError(argv: readonly string[]) {
+  const invalid = argv.some((arg, index) => {
+    if (arg.startsWith("--baseline=")) return true;
+    const value = argv[index + 1];
+    return arg === "--baseline" && (!value || value.startsWith("--"));
+  });
+  return invalid
+    ? "pbt:deep --baseline: no path given (pass --baseline <worktree root>, as two arguments)"
+    : undefined;
 }
 
 /**
@@ -437,6 +456,11 @@ export async function runDeepSearch(
   config: DeepSearchConfig,
   argv: readonly string[] = process.argv.slice(2),
 ): Promise<number> {
+  const argumentError = baselineArgumentError(argv);
+  if (argumentError) {
+    console.error(argumentError);
+    return 2;
+  }
   const option = parseDeepArgs(argv);
   if (argv.includes("--list")) {
     for (const [name, suite] of Object.entries(config.suites)) {

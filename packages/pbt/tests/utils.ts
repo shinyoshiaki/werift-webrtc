@@ -148,9 +148,10 @@ export async function runFixtureDeepSearch(
 
 /**
  * Run `src/cli.ts` as `npm run pbt:deep` does (node with the type-stripping
- * hook) over one fixture in a temporary worktree.
+ * hook) over one fixture in a temporary worktree, with `argv` as the last
+ * arguments.
  */
-export function runFixtureCli(fixture: DeepFixture) {
+export function runFixtureCli(fixture: DeepFixture, argv: string[] = []) {
   const { root, dir } = makeWorktree({});
   const file = `${fixture}.fixture.ts`;
   writeFileSync(
@@ -167,6 +168,7 @@ export function runFixtureCli(fixture: DeepFixture) {
         join(__dirname, "../../../tools/node-ts/register.mjs"),
         join(__dirname, "../src/cli.ts"),
         "suites.mjs",
+        ...argv,
       ],
       { cwd: dir, encoding: "utf8" },
     );

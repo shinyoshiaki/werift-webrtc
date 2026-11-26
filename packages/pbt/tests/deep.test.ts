@@ -556,6 +556,27 @@ describe("deep search against a baseline", () => {
     );
   }, 60_000);
 
+  test.each([
+    { name: "as the last argument", argv: ["--baseline"] },
+    { name: "with an empty path", argv: ["--baseline", ""] },
+    { name: "followed by another option", argv: ["--baseline", "--jobs", "1"] },
+    { name: "written with =", argv: ["--baseline=/tmp/base"] },
+    { name: "with --dry-run", argv: ["--dry-run", "--baseline"] },
+  ])(
+    "--baseline $name is an error before any shard runs",
+    ({ argv }) => {
+      // Act: パスを欠いた --baseline を付けて CLI を起動する。
+      const { status, stdout, stderr } = runFixtureCli("passing", argv);
+
+      // Assert: 比較なしの成功にせず、理由を示して終了コード 2。
+      expect(status).toBe(2);
+      expect(stderr).toContain("pbt:deep --baseline: no path given");
+      // Assert: 分割の実行も計画の出力もしない。
+      expect(stdout).toBe("");
+    },
+    60_000,
+  );
+
   test("a baseline without the package is an error before any shard runs", async () => {
     // Act: パッケージのないディレクトリを比較元に渡す。
     const { exit, output } = await runFixtureDeepSearch(["passing"], {
