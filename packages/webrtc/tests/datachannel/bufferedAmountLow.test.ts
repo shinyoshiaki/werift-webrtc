@@ -3,15 +3,15 @@ import { describe, expect, test, vi } from "vitest";
 import { RTCPeerConnection } from "../../src";
 import {
   LOW_NOTIFICATIONS,
-  openDataChannelPair,
-  recordBufferedAmountLow,
-} from "./dataChannelTestUtils";
+  openChannelPair,
+  recordBufferedAmountLowOrder,
+} from "./dataChannelFlowUtils";
 
 describe("datachannel/bufferedAmountLow", () => {
   test("every surface is notified once per crossing, in the order of the other channel events", async () => {
     // Arrange: open の channel と、3 つの通知面の記録
-    const pair = await openDataChannelPair();
-    const calls = recordBufferedAmountLow(pair.local);
+    const pair = await openChannelPair();
+    const calls = recordBufferedAmountLowOrder(pair.local);
 
     try {
       // Act: 1 通送り、送信完了で buffer が 0 (閾値 0) に戻るのを待つ
@@ -57,10 +57,10 @@ describe("datachannel/bufferedAmountLow", () => {
     },
   ])("$name", async ({ threshold, start, decrease, fires }) => {
     // Arrange: bufferedAmount を start にした open の channel
-    const pair = await openDataChannelPair();
+    const pair = await openChannelPair();
     pair.local.bufferedAmountLowThreshold = threshold;
     pair.local.addBufferedAmount(start);
-    const calls = recordBufferedAmountLow(pair.local);
+    const calls = recordBufferedAmountLowOrder(pair.local);
 
     try {
       // Act: 送信完了として decrease だけ減らす
@@ -76,7 +76,7 @@ describe("datachannel/bufferedAmountLow", () => {
 
   test("several sends fire once; a send after each drain fires again (WPT RTCDataChannel-bufferedAmount)", async () => {
     // Arrange: open の channel
-    const pair = await openDataChannelPair();
+    const pair = await openChannelPair();
     let lows = 0;
     pair.local.onbufferedamountlow = () => lows++;
 
@@ -105,7 +105,7 @@ describe("datachannel/bufferedAmountLow", () => {
 
   test("onbufferedamountlow receives the same bufferedamountlow Event as the listeners", async () => {
     // Arrange: ハンドラと addEventListener がそれぞれ受け取る event を記録する
-    const pair = await openDataChannelPair();
+    const pair = await openChannelPair();
     const seen: Event[] = [];
     pair.local.onbufferedamountlow = (event) => {
       // ブラウザ向けコードは event.type を参照する
@@ -140,7 +140,7 @@ describe("datachannel/bufferedAmountLow", () => {
 
   test("a throwing onbufferedamountlow skips no other surface and sending continues", async () => {
     // Arrange: 先に呼ばれる 2 面が例外を投げる
-    const pair = await openDataChannelPair();
+    const pair = await openChannelPair();
     pair.local.bufferedAmountLow.subscribe(() => {
       throw new Error("bufferedAmountLow");
     });
@@ -173,7 +173,7 @@ describe("datachannel/bufferedAmountLow", () => {
     const channel = pc.createDataChannel("unsent");
     channel.send("abc");
     channel.send(Buffer.from([1, 2]));
-    const calls = recordBufferedAmountLow(channel);
+    const calls = recordBufferedAmountLowOrder(channel);
 
     try {
       // Act: 未確立のまま close する
@@ -195,7 +195,7 @@ describe("datachannel/bufferedAmountLow", () => {
     const pc = new RTCPeerConnection();
     const channel = pc.createDataChannel("unsent");
     channel.send("abcdef");
-    const calls = recordBufferedAmountLow(channel);
+    const calls = recordBufferedAmountLowOrder(channel);
 
     // Act: PeerConnection を閉じる (transport stop の破棄経路)
     await pc.close();
@@ -208,7 +208,7 @@ describe("datachannel/bufferedAmountLow", () => {
 
   test("a low listener sending on the channel it closed does not loop", async () => {
     // Arrange: low ハンドラで close し、その後も send し続ける channel
-    const pair = await openDataChannelPair();
+    const pair = await openChannelPair();
     let lows = 0;
     pair.local.onbufferedamountlow = () => {
       lows++;

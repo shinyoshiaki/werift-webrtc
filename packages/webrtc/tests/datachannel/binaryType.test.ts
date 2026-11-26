@@ -15,9 +15,9 @@ import { installPolyfill } from "../../src/polyfill";
 import {
   bytesOf,
   nextMessageOnEverySurface,
-  openDataChannelPair,
+  openChannelPair,
   receiveRawMessage,
-} from "./dataChannelTestUtils";
+} from "./dataChannelFlowUtils";
 
 describe("datachannel/binaryType: defaults", () => {
   test.each<{
@@ -40,13 +40,13 @@ describe("datachannel/binaryType: defaults", () => {
     "$name applies to local and remote channels",
     async ({ config, expected }) => {
       // Act: config 付きの PeerConnection 同士でローカル作成・リモート作成の channel を開く
-      const pair = await openDataChannelPair({ config });
+      const pair = await openChannelPair({}, { config });
 
       try {
         // Assert: どちらの channel も既定値を持ち、getConfiguration() に反映される
         expect(pair.local.binaryType).toBe(expected);
         expect(pair.remote.binaryType).toBe(expected);
-        expect(pair.offerer.getConfiguration().dataChannelBinaryType).toBe(
+        expect(pair.pc1.getConfiguration().dataChannelBinaryType).toBe(
           expected,
         );
       } finally {
@@ -71,13 +71,16 @@ describe("datachannel/binaryType: defaults", () => {
 
   test("dataChannelBinaryType: standard gives channels the W3C default arraybuffer", async () => {
     // Act: standard を指定した PeerConnection 同士でローカル作成・リモート作成の channel を開く
-    const pair = await openDataChannelPair({
-      config: { dataChannelBinaryType: "standard" },
-    });
+    const pair = await openChannelPair(
+      {},
+      {
+        config: { dataChannelBinaryType: "standard" },
+      },
+    );
 
     try {
       // Assert: 設定値は standard のまま、channel の binaryType は W3C 既定の arraybuffer
-      expect(pair.offerer.getConfiguration().dataChannelBinaryType).toBe(
+      expect(pair.pc1.getConfiguration().dataChannelBinaryType).toBe(
         "standard",
       );
       expect(pair.local.binaryType).toBe("arraybuffer");
@@ -127,24 +130,23 @@ describe("datachannel/binaryType: defaults", () => {
 
   test("setConfiguration() applies to channels created afterwards only", async () => {
     // Arrange: 既定 (nodebuffer) で開いた channel
-    const pair = await openDataChannelPair();
+    const pair = await openChannelPair();
 
     try {
       // Act: 両端の既定を arraybuffer に変え、新しい channel を作る
-      pair.offerer.setConfiguration({ dataChannelBinaryType: "arraybuffer" });
-      pair.answerer.setConfiguration({ dataChannelBinaryType: "arraybuffer" });
+      pair.pc1.setConfiguration({ dataChannelBinaryType: "arraybuffer" });
+      pair.pc2.setConfiguration({ dataChannelBinaryType: "arraybuffer" });
       const announced = new Promise<RTCDataChannelBinaryType>((resolve) => {
-        pair.answerer.ondatachannel = ({ channel }) =>
-          resolve(channel.binaryType);
+        pair.pc2.ondatachannel = ({ channel }) => resolve(channel.binaryType);
       });
-      const later = pair.offerer.createDataChannel("later");
+      const later = pair.pc1.createDataChannel("later");
 
       // Assert: 既存 channel は変わらず、後から作った channel (ローカル / リモート) だけに効く
       expect(pair.local.binaryType).toBe("nodebuffer");
       expect(pair.remote.binaryType).toBe("nodebuffer");
       expect(later.binaryType).toBe("arraybuffer");
       expect(await announced).toBe("arraybuffer");
-      expect(pair.offerer.getConfiguration().dataChannelBinaryType).toBe(
+      expect(pair.pc1.getConfiguration().dataChannelBinaryType).toBe(
         "arraybuffer",
       );
     } finally {
@@ -168,9 +170,12 @@ describe("datachannel/binaryType: defaults", () => {
 
     try {
       // Act: polyfill の RTCPeerConnection 同士で channel を開く
-      const pair = await openDataChannelPair({
-        create: (config) => new plain.RTCPeerConnection(config),
-      });
+      const pair = await openChannelPair(
+        {},
+        {
+          create: (config) => new plain.RTCPeerConnection(config),
+        },
+      );
       const install = new configured.RTCPeerConnection();
       const constructed = new plain.RTCPeerConnection({
         dataChannelBinaryType: "nodebuffer",
@@ -230,7 +235,7 @@ describe("datachannel/binaryType: setter", () => {
   });
 });
 
-type Pair = Awaited<ReturnType<typeof openDataChannelPair>>;
+type Pair = Awaited<ReturnType<typeof openChannelPair>>;
 
 describe("datachannel/binaryType: received data", () => {
   // 空メッセージは RFC 8831 の PPID 57 / 56 (ペイロード 1 byte) で届く。
@@ -264,7 +269,7 @@ describe("datachannel/binaryType: received data", () => {
     "$binaryType: $name arrives byte for byte",
     async ({ binaryType, bytes, deliver }) => {
       // Arrange: 受信側の binaryType を設定した channel
-      const pair = await openDataChannelPair();
+      const pair = await openChannelPair();
       pair.remote.binaryType = binaryType;
       const received = nextMessageOnEverySurface(pair.remote);
 
@@ -312,7 +317,7 @@ describe("datachannel/binaryType: received data", () => {
     "a text message $text is a string whatever the binaryType",
     async ({ text, deliver }) => {
       // Arrange: binaryType が blob の受信 channel
-      const pair = await openDataChannelPair();
+      const pair = await openChannelPair();
       pair.remote.binaryType = "blob";
       const received = nextMessageOnEverySurface(pair.remote);
 
