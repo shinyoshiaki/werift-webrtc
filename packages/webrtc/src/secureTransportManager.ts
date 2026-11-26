@@ -676,6 +676,16 @@ export class SecureTransportManager {
     this.updateIceGatheringState();
   }
 
+  /**
+   * The ICE and DTLS roles of an applied local description. The ICE role is
+   * the offer/answer role of a generation that has not started its checks
+   * (offer: controlling, answer: controlled, RFC 8445 §6.1.1); a later
+   * description of the same generation keeps it (the ICE agent ignores the
+   * assignment once checks began or a pair is selected; test:
+   * tests/negotiation/cases/negotiationTransactionCoverageIce.test.ts
+   * "[2.8] a re-offer without an ICE restart keeps the ICE roles of checks
+   * still in progress (RFC 8445 §6.1.1)").
+   */
   setLocalRole({
     type,
     role,

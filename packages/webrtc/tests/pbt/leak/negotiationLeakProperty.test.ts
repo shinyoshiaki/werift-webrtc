@@ -66,12 +66,14 @@ import { CLOSED_SCENES, LEAK_CYCLES } from "./scenes";
  * that runs a scene. A surplus `Timeout` is reported with the creation stack
  * of every live timer (`live timer created at:`).
  *
- * Known flakes of the model property that predate this property (not leak
- * findings): leak seed 57 (10 steps) sometimes ends with "added DataChannel
- * did not reach the peer" (both SCTP associations stay in their handshake
- * over a connected DTLS transport); model seed 275 (10 steps) sometimes ends
- * with "the transport did not settle", also when replayed alone. Both fail
- * the same way before the leak property was added.
+ * Known flake of the model property that predates this property (not a
+ * leak finding): leak seed 57 (10 steps) sometimes ends with "added
+ * DataChannel did not reach the peer" (both SCTP associations stay in their
+ * handshake over a connected DTLS transport). It failed the same way before
+ * the leak property was added. (Model seed 275, "the transport did not
+ * settle", was a bug: a later offer or answer redetermined the ICE roles
+ * while the first checks ran, so nobody nominated. Fixed in the ICE agent;
+ * fixed scene in `model/scenes.ts`.)
  *
  * `npm run leak:verify` (`tools/leak-verify/run.sh`) repeats this file and
  * injects artificial leaks to show each is detected.

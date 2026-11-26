@@ -22,6 +22,8 @@ import {
   exchangeTcpOnlyCandidates,
   getSelectedTcpSocket,
   inviteAccept,
+  startConnectingPair,
+  waitUntil,
 } from "../utils";
 
 class ProtocolMock implements Protocol {
@@ -1043,6 +1045,49 @@ describe("ice", () => {
     expect(a.iceControlling).toBe(true);
 
     await a.close();
+  });
+
+  test("an offer/answer without an ICE restart keeps the roles of the checks in progress (RFC 8445 §6.1.1)", async () => {
+    // Arrange: controlling の a と controlled の b が host pair の check を始める。
+    // regular nomination で end-of-candidates がないので、a の nomination は
+    // 待ち時間 (nominationDelayMs) の間まだ送られない。
+    const options = { nomination: "regular", nominationDelayMs: 1000 } as const;
+    const { a, b, connecting } = await startConnectingPair(options, options, {
+      endOfCandidates: false,
+    });
+    try {
+      await waitUntil(
+        () =>
+          [a, b].every((agent) =>
+            agent.checkList.some(
+              (pair) => pair.state === CandidatePairState.SUCCEEDED,
+            ),
+          ),
+        5000,
+      );
+      expect(a.nominated).toBeUndefined();
+
+      // Act: nominate 前に、ICE restart のない後続の交渉 (b の offer と a の answer) が
+      // offer/answer のロールを設定する。
+      b.iceControlling = true;
+      a.iceControlling = false;
+
+      // Assert: ロールは check を始めた時のまま変わらず、a が nominate して両者が同じ pair を選ぶ。
+      expect(a.iceControlling).toBe(true);
+      expect(b.iceControlling).toBe(false);
+      await Promise.race([
+        connecting,
+        setTimeout(3000).then(() => {
+          throw new Error("no pair was selected");
+        }),
+      ]);
+      expect(a.nominated?.localCandidate.port).toBe(
+        b.nominated?.remoteCandidate.port,
+      );
+    } finally {
+      await a.close();
+      await b.close();
+    }
   });
 
   test(
