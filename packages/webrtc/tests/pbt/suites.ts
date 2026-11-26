@@ -17,10 +17,11 @@
  *   simulcastRtx tests/pbt/simulcastRtx/simulcastRtxProperty.test.ts, 300 seeds x 300 steps
  *
  *   npm run pbt:deep -- --suite twcc,bwe,sender,receiver,simulcastRtx
- * P3 is statistical (`DeepShard.statistical`): its failure counts in the exit
- * code only when the `--baseline` revision passes the same heap seed; without
- * `--baseline` it is reported as statistical. P1 / P2 are deterministic and
- * always count.
+ * The heap slope verdict of P3 is statistical (`DeepShard.statistical` and
+ * `STATISTICAL_FAILURE_MARKER`): its failure counts in the exit code only when
+ * the `--baseline` revision does not fail the same way; without `--baseline`
+ * it is reported as statistical. Other failures of P3 (an operation that
+ * threw, a timeout, a crash) and P1 / P2 always count.
  *
  * Before review, compare with develop so failures develop also has are
  * reported as pre-existing instead of failing the run:
@@ -69,7 +70,8 @@ const config: DeepSearchConfig = {
             },
           })),
           // P3 (heap slope) は 1 seed を 1 プロセスで実行する (heap を他の seed と混ぜない)。
-          // 閾値に対する統計的な判定なので statistical とし、--baseline の比較でだけ判定する。
+          // 閾値の判定 (STATISTICAL_FAILURE_MARKER の assertion) の失敗だけは
+          // 統計的なものとして、--baseline の比較でだけ判定する。
           ...ranges(heapSeeds, 1).map(({ first }) => ({
             label: `leak heap seed ${first}`,
             file,

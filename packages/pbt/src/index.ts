@@ -5,7 +5,6 @@ export {
   type DeepSearchConfig,
   type DeepShard,
   type DeepSuite,
-  failureSignature,
   parseDeepArgs,
   planDeepSearch,
   prefixShards,
@@ -13,6 +12,12 @@ export {
   sameFailure,
   seedRanges,
 } from "./deep";
+export {
+  failureSignature,
+  isStatisticalError,
+  type ReportedError,
+  STATISTICAL_FAILURE_MARKER,
+} from "./failureForm";
 export { type SeededRandom, seededRandom } from "./random";
 export {
   propertyOptions,

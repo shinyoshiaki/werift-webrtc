@@ -1,13 +1,13 @@
+import { spawnSync } from "node:child_process";
 import {
   cpSync,
-  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { join } from "node:path";
 
 import { vi } from "vitest";
 
@@ -19,34 +19,48 @@ export type DeepFixture = "passing" | "failing" | "unhandled";
 /** The directory of the fixtures, with their own vitest config. */
 const fixtureDir = join(__dirname, "fixtures", "deep");
 
-/** The worktree root of this checkout (the nearest directory with `.git`). */
-const worktreeRoot = () => {
-  let dir = fixtureDir;
-  while (!existsSync(join(dir, ".git"))) dir = dirname(dir);
-  return dir;
-};
-
-/** Fixture sources of a baseline revision; a fixture not listed keeps this revision's file. */
-export type BaselineFixtures = Partial<Record<DeepFixture, string>>;
+/** Fixture sources replacing files of a revision; a fixture not listed keeps this checkout's file. */
+export type FixtureSources = Partial<Record<DeepFixture, string>>;
 
 /** A fixture whose single test passes. */
 export const passingSource = (title: string) =>
   `import { expect, test } from "vitest";\n\ntest(${JSON.stringify(title)}, () => {\n  expect(1 + 1).toBe(2);\n});\n`;
 
+/**
+ * A fixture with one test (default title: `a failing fixture`) running `body`.
+ * `setup` is module-level code (hooks, helpers).
+ */
+export const testSource = (
+  body: string,
+  { title = "a failing fixture", setup = "", timeout = 5_000 } = {},
+) =>
+  `import { existsSync, writeFileSync } from "node:fs";
+import { afterAll, expect, test } from "vitest";
+
+${setup}
+test(${JSON.stringify(title)}, async () => {
+  ${body}
+}, ${timeout});
+`;
+
 /** A fixture whose single test fails by throwing `message`. */
 export const throwingSource = (title: string, message: string) =>
-  `import { test } from "vitest";\n\ntest(${JSON.stringify(title)}, () => {\n  throw new Error(${JSON.stringify(message)});\n});\n`;
+  testSource(`throw new Error(${JSON.stringify(message)});`, { title });
+
+/** A statement leaving an unhandled rejection with `message` behind. */
+export const rejection = (message: string) =>
+  `void Promise.reject(new Error(${JSON.stringify(message)}));`;
 
 /**
- * A baseline worktree for `--baseline`: a temporary directory (inside the
- * package, so the fixtures resolve vitest from the same node_modules) holding
- * the fixture directory at the same path relative to its root, with
- * `overrides` replacing fixture files.
+ * A temporary worktree (inside the package, so the fixtures resolve vitest
+ * from the same node_modules): its root holds a `.git` marker and the fixtures
+ * in `deep/`, with `overrides` replacing fixture files.
  */
-function makeBaselineWorktree(overrides: BaselineFixtures) {
-  const root = mkdtempSync(join(__dirname, "fixtures", ".baseline-"));
-  const dir = join(root, relative(worktreeRoot(), fixtureDir));
-  mkdirSync(dir, { recursive: true });
+function makeWorktree(overrides: FixtureSources) {
+  const root = mkdtempSync(join(__dirname, "fixtures", ".worktree-"));
+  const dir = join(root, "deep");
+  mkdirSync(dir);
+  writeFileSync(join(root, ".git"), "");
   // フィクスチャと vitest の設定だけを写す (vitest のキャッシュは写さない)。
   for (const file of readdirSync(fixtureDir).filter((f) => /\.m?ts$/.test(f))) {
     cpSync(join(fixtureDir, file), join(dir, file));
@@ -56,30 +70,34 @@ function makeBaselineWorktree(overrides: BaselineFixtures) {
   for (const [name, source] of Object.entries(overrides)) {
     writeFileSync(join(dir, `${name}.fixture.ts`), source);
   }
-  return root;
+  return { root, dir };
 }
 
 /**
  * Run `runDeepSearch` over real vitest processes: one suite per fixture, each
  * one shard running its file. Resolves the exit code and the lines the runner
- * printed (captured, not shown). `baseline` creates a baseline worktree and
- * passes it with `--baseline` (`--baseline-runs 1` unless `argv` sets it);
+ * printed (captured, not shown). The run uses a temporary worktree where
+ * `current` replaces fixture files. `baseline` creates a second one and passes
+ * it with `--baseline` (`--baseline-runs 1` unless `argv` sets it);
  * `statistical` marks fixtures whose shard is statistical.
  */
 export async function runFixtureDeepSearch(
   fixtures: DeepFixture[],
   {
+    current = {},
     baseline,
     statistical = [],
     argv = [],
   }: {
-    baseline?: BaselineFixtures;
+    current?: FixtureSources;
+    baseline?: FixtureSources;
     statistical?: DeepFixture[];
     argv?: string[];
   } = {},
 ) {
+  const checkout = makeWorktree(current);
   const config: DeepSearchConfig = {
-    cwd: fixtureDir,
+    cwd: checkout.dir,
     suites: Object.fromEntries(
       fixtures.map((name) => [
         name,
@@ -97,7 +115,7 @@ export async function runFixtureDeepSearch(
       ]),
     ),
   };
-  const baselineRoot = baseline ? makeBaselineWorktree(baseline) : undefined;
+  const baselineRoot = baseline ? makeWorktree(baseline).root : undefined;
   const lines: string[] = [];
   const capture = (...args: unknown[]) => {
     lines.push(args.join(" "));
@@ -118,6 +136,37 @@ export async function runFixtureDeepSearch(
   } finally {
     log.mockRestore();
     error.mockRestore();
-    if (baselineRoot) rmSync(baselineRoot, { recursive: true, force: true });
+    for (const root of [checkout.root, baselineRoot]) {
+      if (root) rmSync(root, { recursive: true, force: true });
+    }
+  }
+}
+
+/**
+ * Run `src/cli.ts` as `npm run pbt:deep` does (node with the type-stripping
+ * hook) over one fixture in a temporary worktree.
+ */
+export function runFixtureCli(fixture: DeepFixture) {
+  const { root, dir } = makeWorktree({});
+  const file = `${fixture}.fixture.ts`;
+  writeFileSync(
+    join(dir, "suites.mjs"),
+    `export default { suites: { ${fixture}: { file: "${file}", shards: () => [{ label: "${fixture} shard", file: "${file}", env: {} }] } } };\n`,
+  );
+  try {
+    return spawnSync(
+      process.execPath,
+      [
+        "--disable-warning=ExperimentalWarning",
+        "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
+        "--import",
+        join(__dirname, "../../../tools/node-ts/register.mjs"),
+        join(__dirname, "../src/cli.ts"),
+        "suites.mjs",
+      ],
+      { cwd: dir, encoding: "utf8" },
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 }

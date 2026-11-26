@@ -44,22 +44,34 @@ or install its dependencies). Each confirmed failure (it failed again alone)
 is replayed in the same package of that worktree with the same file, title
 pattern and environment, up to `--baseline-runs` (default 3) times. It is
 **pre-existing** — listed with the baseline's result and left out of the exit
-code — when the baseline fails in the same form at least once:
+code — when the baseline reproduces every form observed on this revision (the
+first run and the replay alone):
 
 | Failure | Same form on the baseline |
 | --- | --- |
-| a failed test | a failed test with the same title (seed and replay environment included) and the same `failureSignature`: the first non-empty line of the error, colors removed, every number as `<n>` |
-| a shard that ended abnormally | the same `abnormalExit` reason |
+| a failed test | the same test (full name, so seed and replay environment included) whose errors have the same `failureSignature`s |
+| errors outside the test results (unhandled errors, failing files and hooks) | each of those errors, by its `failureSignature`; never by the exit code. They are judged apart from the shard's failed tests |
+| a signal, no report, an exit code no error explains, an error without a message | no comparable cause: stays confirmed |
 | a shard that ran no test | never compared (a wrong pattern of this revision) |
+
+`failureSignature` is the whole cause: error type and name, the full message,
+`expected` / `actual`, the file and source line it was thrown at, and the same
+of its `cause`. Only ANSI colors, the worktree root, line and column numbers
+and millisecond durations are removed, so a flake whose message carries other
+run-to-run values stays confirmed. The runner reads these from its own
+reporter (`src/deepReporter.mjs`).
 
 A failure the baseline passes, or fails in another form, stays confirmed
 (exit 1). There is no known-flake list: a list outlives its evidence, while
 the baseline replay re-checks it in every run.
 
-A shard marked `statistical` (a threshold on a measured value, for example the
-webrtc leak heap slope P3) is judged only against a baseline: without
-`--baseline` its confirmed failure is reported as statistical and left out of
-the exit code. Thresholds are not loosened instead.
+In a shard marked `statistical` (for example the webrtc leak heap slope P3),
+only a failure whose errors are all statistical assertions — the message
+starts with `STATISTICAL_FAILURE_MARKER` — is judged only against a baseline:
+without `--baseline` it is reported as statistical and left out of the exit
+code, and its signature has every number replaced by `<n>`. Any other failure
+of that shard (an operation that threw, a timeout, a hook, an unhandled error,
+a crash) counts as usual. Thresholds are not loosened instead.
 
 The output ends with
 `summary: <n> confirmed (exit code), <n> pre-existing (...), <n> flaky (passed alone), <n> statistical (...)`.
@@ -77,4 +89,5 @@ one with fixed scenes or other parts gives its own `shards` (see
 - `propertySeeds(prefix, { seeds, steps? })`: `{ seeds, cases, steps, seedSelected, replay, title }`.
 - `propertyOptions(timeout?)`: `{ retry: 0, timeout? }`.
 - `SEED_TITLE_PATTERN`: the vitest `-t` pattern of the seed titles.
+- `STATISTICAL_FAILURE_MARKER`, `isStatisticalError`; type `ReportedError`.
 - `runDeepSearch(config, argv)`, `abnormalExit`, `failureSignature`, `sameFailure`, `baselinePackageDir`, `planDeepSearch`, `seedRanges`, `prefixShards`, `parseDeepArgs`; types `DeepSearchConfig`, `DeepSuite`, `DeepShard`, `DeepContext`.

@@ -46,4 +46,4 @@ __pycache__/
 .vitest/
 
 # pbt:deep --baseline test worktrees (packages/pbt/tests/utils.ts)
-packages/pbt/tests/fixtures/.baseline-*/
+packages/pbt/tests/fixtures/.worktree-*/

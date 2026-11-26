@@ -6,7 +6,7 @@ Instructions for coding agents working in `packages/pbt`.
 
 ## Scope
 
-* The property-based testing base of every package (`src/random.ts`, `src/seeds.ts`, `src/deep.ts`, `src/cli.ts`). Test-only and private: never imported from a package's `src`.
+* The property-based testing base of every package (`src/random.ts`, `src/seeds.ts`, `src/deep.ts`, `src/failureForm.ts`, `src/deepReporter.mjs`, `src/cli.ts`). Test-only and private: never imported from a package's `src`.
 * The rules every property test follows (location, seeds, titles, retry, deep search) are in `README.md`.
 
 ## Do
@@ -31,7 +31,7 @@ Instructions for coding agents working in `packages/pbt`.
 
 ## Validation
 
-* Any change: `npm test` here (the `--baseline` tests build a temporary baseline worktree under `tests/fixtures/.baseline-*`), then `npm run pbt:deep -- --dry-run` in a package with custom shards (`packages/webrtc`) and the property tests of the packages it affects.
+* Any change: `npm test` here (the `--baseline` tests build a temporary current and baseline worktrees under `tests/fixtures/.worktree-*`), then `npm run pbt:deep -- --dry-run` in a package with custom shards (`packages/webrtc`) and the property tests of the packages it affects.
 
 ## Maintenance
 
