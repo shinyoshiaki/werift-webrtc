@@ -312,6 +312,8 @@ type IceTransportInternals = {
     earlyChecks: unknown[];
     /** SPED Binding Response replay cache (stays empty without SPED). */
     spedBindingCache: { size: number };
+    carriedChecks: unknown[];
+    endedStagedChecks?: { checks: unknown[] };
   };
 };
 type EventInternals = {
@@ -485,6 +487,12 @@ export function leakFootprint(pc: RTCPeerConnection): Footprint {
     "ice.spedBindingResponses": sum(
       ice,
       (t) => t.connection.spedBindingCache.size,
+    ),
+    "ice.carriedChecks": sum(
+      ice,
+      (t) =>
+        t.connection.carriedChecks.length +
+        (t.connection.endedStagedChecks?.checks.length ?? 0),
     ),
     "sctp.dataChannels": sctpManager.dataChannels.length,
     "sctp.routedChannels": Object.keys(sctp?.dataChannels ?? {}).length,

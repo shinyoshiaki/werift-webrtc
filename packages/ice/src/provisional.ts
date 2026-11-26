@@ -36,6 +36,12 @@ const log = debug("werift-ice : packages/ice/src/provisional.ts : log");
 export type ProvisionalGeneration = {
   localUsername: string;
   localPassword: string;
+  /**
+   * Checks received for the staged ufrag (at most `MAX_CARRIED_CHECKS`),
+   * replayed as early checks if an answer commits this generation
+   * (`Connection.commitLocalCredentials`).
+   */
+  receivedChecks: [Message, Address, Protocol][];
   /** The options the staged generation gathers with (stageLocalCredentials). */
   gatherOptions?: Partial<IceOptions>;
   remoteUsername?: string;
@@ -141,6 +147,7 @@ export class ProvisionalChecklist {
       localUsername: usernameFragment,
       localPassword: password,
       gatherOptions,
+      receivedChecks: [],
       remoteCandidates: [],
       remoteCandidatesEnd: false,
       remoteCandidatesEndRequested: false,
@@ -566,6 +573,9 @@ export class ProvisionalChecklist {
     if (generation.remoteUsername && sender !== generation.remoteUsername) {
       return;
     }
+    // Kept for the commit: if this generation becomes live, connect() learns
+    // the sender from it as from an early check.
+    rememberStagedCheck(generation.receivedChecks, message, addr, protocol);
     const [host, port] = addr;
     let remoteCandidate = generation.remoteCandidates.find(
       (c) => c.host === host && c.port === port,
@@ -656,3 +666,61 @@ export class ProvisionalChecklist {
     return true;
   }
 }
+
+/** Upper bound of the checks a staged generation keeps for its commit. */
+export const MAX_CARRIED_CHECKS = 32;
+
+const senderOfCheck = (message: Message) => {
+  const username = message.getAttributeValue("USERNAME");
+  return typeof username === "string"
+    ? decodeTxUsername(username).localUsername
+    : "";
+};
+
+/**
+ * Keep a check for the commit without letting it be crowded out. The sender's
+ * ufrag is not always known yet (no pranswer), so the list cannot filter by
+ * it: a repeat from the same sender / address / socket replaces the earlier
+ * one (unless that one nominated: USE-CANDIDATE / NOMINATION is kept), and a
+ * full list drops the oldest check of the sender holding the most, so a flood
+ * from one (wrong) ufrag cannot evict the first check of another.
+ */
+const rememberStagedCheck = (
+  checks: [Message, Address, Protocol][],
+  message: Message,
+  addr: Address,
+  protocol: Protocol,
+) => {
+  const sender = senderOfCheck(message);
+  const same = checks.findIndex(
+    ([m, a, p]) =>
+      p === protocol &&
+      a[0] === addr[0] &&
+      a[1] === addr[1] &&
+      senderOfCheck(m) === sender,
+  );
+  if (same >= 0) {
+    // A later plain check must not erase the nomination an earlier one made.
+    if (receivedNomination(checks[same][0]) > 0) return;
+    checks.splice(same, 1);
+  } else if (checks.length >= MAX_CARRIED_CHECKS) {
+    const counts = new Map<string, number>();
+    for (const [m] of checks) {
+      const key = senderOfCheck(m);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    let victim = "";
+    let most = 0;
+    for (const [key, count] of counts) {
+      if (count > most) {
+        victim = key;
+        most = count;
+      }
+    }
+    checks.splice(
+      checks.findIndex(([m]) => senderOfCheck(m) === victim),
+      1,
+    );
+  }
+  checks.push([message, addr, protocol]);
+};

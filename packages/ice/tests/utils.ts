@@ -4533,3 +4533,122 @@ export async function createRttSwitchRealPair({
     },
   };
 }
+
+// --- checks a staged restart receives before its answer ---
+
+/**
+ * Shared Arrange: `a` (controlling) staged an ICE restart (its offer) and
+ * `b`, which applied that offer, restarted and checked the staged ufrag
+ * before its answer reached `a`. Like Firefox, `b` does not repeat a check
+ * that succeeded: it is controlled and only waits for the nomination
+ * (`bConnected`). Resolves once every check of `b` finished.
+ * `incomingCheckTimeout` is 1 s.
+ */
+export async function createRestartCheckedBeforeAnswer(
+  beforeBChecks?: (a: Connection) => void,
+) {
+  // A generation left without a pair fails after 1 s instead of waiting the
+  // default 30 s for a check that the peer never repeats.
+  const { a, b } = await createConnectedPair({ incomingCheckTimeout: 1 });
+  const staged = {
+    usernameFragment: "rstA",
+    password: "restart-password-a-0000",
+  };
+  a.stageLocalCredentials(staged.usernameFragment, staged.password);
+  beforeBChecks?.(a);
+  await b.restart();
+  await b.gatherCandidates();
+  b.remoteUsername = staged.usernameFragment;
+  b.remotePassword = staged.password;
+  for (const candidate of a.localCandidates) {
+    await b.addRemoteCandidate(
+      remoteHostCandidate(candidate.port, candidate.host),
+    );
+  }
+  await b.addRemoteCandidate(undefined);
+  const bConnected = b.connect();
+  // close() で終わる場合もあるので未処理の reject にしない。
+  bConnected.catch(() => {});
+  await waitUntil(
+    () =>
+      b.checkList.length > 0 &&
+      b.checkList.every((pair) =>
+        (
+          [
+            CandidatePairState.SUCCEEDED,
+            CandidatePairState.FAILED,
+          ] as CandidatePairState[]
+        ).includes(pair.state),
+      ),
+  );
+  return { a, b, staged, bConnected };
+}
+
+/**
+ * Act helper: `a` applies the answer of `b` (ICE restart commit, as
+ * `RTCIceTransport.commitLocalRestartIfStaged` does) with `committed` as the
+ * live local credentials. The answer carries no candidate `a` can use, only
+ * end-of-candidates (as Firefox's restart answer); `remoteUsername` defaults
+ * to `b`'s current ufrag.
+ */
+export async function commitRestartWithoutCandidates(
+  a: Connection,
+  b: Connection,
+  committed: { usernameFragment: string; password: string },
+  remoteUsername = b.localUsername,
+) {
+  await a.restart();
+  a.commitLocalCredentials(committed.usernameFragment, committed.password);
+  await a.gatherCandidates();
+  a.remoteUsername = remoteUsername;
+  a.remotePassword = b.localPassword;
+  await a.addRemoteCandidate(undefined);
+  return a.connect();
+}
+
+/** Test-only observation of the checks `connection` carries into its next connect(). */
+export function carriedCheckCount(connection: Connection) {
+  const internals = connection as unknown as {
+    carriedChecks: unknown[];
+    endedStagedChecks?: { checks: unknown[] };
+    earlyChecks: unknown[];
+  };
+  return (
+    internals.carriedChecks.length +
+    (internals.endedStagedChecks?.checks.length ?? 0) +
+    internals.earlyChecks.length
+  );
+}
+
+/**
+ * Arrange helper: `count` checks for `a`'s staged ufrag from `senderUfrag`
+ * (a remote generation the answer will not carry), each from its own address.
+ */
+export function injectStagedChecksFrom(
+  a: Connection,
+  stagedUfrag: string,
+  senderUfrag: string,
+  count: number,
+  options: { useCandidate?: boolean; port?: (i: number) => number } = {},
+) {
+  const checklist = provisionalChecklistOf(a);
+  const protocol = (a as unknown as { protocols: Protocol[] }).protocols[0];
+  for (let i = 0; i < count; i++) {
+    const message = new Message(methods.BINDING, classes.REQUEST);
+    message
+      .setAttribute("USERNAME", `${stagedUfrag}:${senderUfrag}`)
+      .setAttribute("PRIORITY", 1);
+    if (options.useCandidate) message.setAttribute("USE-CANDIDATE", null);
+    checklist.checkIncoming(
+      checklist.generation!,
+      message,
+      ["203.0.113.1", options.port?.(i) ?? 40000 + i],
+      protocol,
+    );
+  }
+}
+
+/** Test-only observation of the checks the staged generation of `a` keeps for its commit. */
+export function stagedChecks(a: Connection) {
+  return provisionalGeneration(a)?.receivedChecks ?? [];
+}

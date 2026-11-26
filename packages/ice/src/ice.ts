@@ -320,6 +320,23 @@ export class Connection implements IceConnection {
   private checkListState = new PQueue<number>();
   private earlyChecks: [Message, Address, Protocol][] = [];
   private earlyChecksDone = false;
+  /**
+   * Checks the staged generation the last restart() replaced received
+   * before the commit (the peer applied the offer and checked the staged
+   * ufrag before its answer arrived). Held only until the commit tells
+   * whether that generation became live (`commitLocalCredentials`).
+   */
+  private endedStagedChecks?: {
+    localUsername: string;
+    checks: [Message, Address, Protocol][];
+  };
+  /**
+   * The committed generation's checks of `endedStagedChecks`: connect()
+   * replays those from the live remote ufrag as early checks. A peer that
+   * does not repeat a check that already succeeded (Firefox) is otherwise
+   * never learned as a peer-reflexive candidate of the new generation.
+   */
+  private carriedChecks: [Message, Address, Protocol][] = [];
   private localCandidatesStart = false;
   private protocols: Protocol[] = [];
   /** RFC 7675 consent freshness of the selected pair. */
@@ -747,6 +764,15 @@ export class Connection implements IceConnection {
     this.consent.stop();
     this.spedBindingCache.clear();
     this.spedRuntime?.reset(this.generation);
+    // Taken before `provisionalChecklist.end()` drops the staged generation.
+    // A generation a pranswer started checking hands its path over through
+    // `nominationHint` instead (the peer's check re-forms it after the commit).
+    const staged = this.provisional;
+    this.carriedChecks = [];
+    this.endedStagedChecks =
+      staged && !staged.started
+        ? { localUsername: staged.localUsername, checks: staged.receivedChecks }
+        : undefined;
     this.provisionalChecklist.end();
   }
 
@@ -885,6 +911,8 @@ export class Connection implements IceConnection {
     this.checkListState = new PQueue<number>();
     this.earlyChecks = [];
     this.earlyChecksDone = false;
+    this.endedStagedChecks = undefined;
+    this.carriedChecks = [];
     this.consent.stop();
     this.provisionalChecklist.end();
   }
@@ -910,6 +938,8 @@ export class Connection implements IceConnection {
     gatherOptions?: Partial<IceOptions>,
   ) {
     this.userHistory[usernameFragment] = password;
+    // A new offer replaces whatever an earlier restart left to commit.
+    this.endedStagedChecks = undefined;
     this.provisionalChecklist.stage(usernameFragment, password, gatherOptions);
   }
 
@@ -948,6 +978,13 @@ export class Connection implements IceConnection {
 
   /** Called after restart, before re-gathering the chosen generation. */
   commitLocalCredentials(usernameFragment: string, password: string) {
+    // Only the checks addressed to the committed ufrag carry over; a staged
+    // generation a replacement offer or a rollback dropped never reaches here.
+    const ended = this.endedStagedChecks;
+    this.endedStagedChecks = undefined;
+    if (ended?.localUsername === usernameFragment && !this.earlyChecksDone) {
+      this.carriedChecks = ended.checks;
+    }
     // The credentials restart() generated were never signalled: these replace them.
     if (this.localUsername !== usernameFragment) {
       delete this.userHistory[this.localUsername];
@@ -1895,8 +1932,37 @@ export class Connection implements IceConnection {
       this.unfreezeInitial();
     }
 
-    log("earlyChecks", this.localPassword, this.earlyChecks.length);
+    log(
+      "earlyChecks",
+      this.localPassword,
+      this.earlyChecks.length,
+      this.carriedChecks.length,
+    );
     // # handle early checks
+    // Checks the staged generation received before the commit come first:
+    // only those from the remote ufrag the answer carried and on a socket
+    // the generation still uses (an older remote generation's checks are
+    // not part of this checklist).
+    const carried = this.carriedChecks;
+    this.carriedChecks = [];
+    this.endedStagedChecks = undefined;
+    for (const [message, addr, protocol] of carried) {
+      const txUsername = message.getAttributeValue("USERNAME");
+      if (
+        typeof txUsername !== "string" ||
+        decodeTxUsername(txUsername).localUsername !== this.remoteUsername
+      ) {
+        continue;
+      }
+      if (this.protocols.includes(protocol)) {
+        this.checkIncoming(message, addr, protocol);
+      } else if (protocol.localCandidate?.type === "relay") {
+        // The commit replaced the TURN allocation the check arrived on, so
+        // it cannot be answered there; the peer's address is still learned
+        // and checked from the current sockets.
+        this.learnPeerReflexive(message, addr, protocol);
+      }
+    }
     for (const earlyCheck of this.earlyChecks) {
       this.checkIncoming(...earlyCheck);
       const [, addr, protocol] = earlyCheck;
@@ -2239,6 +2305,8 @@ export class Connection implements IceConnection {
     this.closing.abort();
     this.cancelChecks();
     this.provisionalChecklist.end();
+    this.endedStagedChecks = undefined;
+    this.carriedChecks = [];
     // Before the first await: a pending mDNS lookup is cancelled here, so no
     // response arriving while the protocols close adds a remote candidate.
     this.lookup?.close?.();
@@ -3664,6 +3732,38 @@ export class Connection implements IceConnection {
         this.checkComplete(pair);
       }
     }
+  }
+
+  /**
+   * 7.2.1.3: learn a peer-reflexive remote candidate without answering on
+   * `protocol`. A USE-CANDIDATE on the check is not carried over: it
+   * nominated the pair of the replaced socket, which no longer exists, so the
+   * peer nominates again on the pairs of the current sockets.
+   */
+  private learnPeerReflexive(
+    message: Message,
+    addr: Address,
+    protocol: Protocol,
+  ) {
+    const [host, port] = addr;
+    if (this._remoteCandidates.some((c) => c.host === host && c.port === port))
+      return;
+    const remoteCandidate = new Candidate(
+      randomString(10),
+      1,
+      protocol.localCandidate?.transport ?? "udp",
+      message.getAttributeValue("PRIORITY"),
+      host,
+      port,
+      "prflx",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    );
+    this._remoteCandidates.push(remoteCandidate);
+    this.pairRemoteCandidate(remoteCandidate);
   }
 
   /**
