@@ -1,6 +1,7 @@
 export * from "../transceiverManager";
 export * from "./codec";
 export * from "./codecCompatibility";
+export * from "./domEventTarget";
 export * from "./extension/rtcpFeedback";
 export * from "./extension/rtpExtension";
 export * from "./parameters";
@@ -106,3 +107,10 @@ export {
 } from "./sender/estimators/twccFeedbackAdapter";
 export * from "./stats";
 export * from "./track";
+export type {
+  WeriftConstrainDOMString,
+  WeriftMediaTrackCapabilities,
+  WeriftMediaTrackConstraintSet,
+  WeriftMediaTrackConstraints,
+  WeriftMediaTrackSettings,
+} from "./trackConstraints";

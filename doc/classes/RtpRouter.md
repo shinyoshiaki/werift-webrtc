@@ -124,7 +124,7 @@ omits stays routed; only SSRCs a replaced pranswer alone added are dropped.
 
 ### announcedTrack
 
-> **announcedTrack**: (`transceiver`) => [`MediaStreamTrack`](MediaStreamTrack.md) \| `undefined`
+> **announcedTrack**: (`transceiver`) => [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\> \| `undefined`
 
 Internal: the track `ontrack` last announced for a transceiver (set by
 the TransceiverManager). A replacement offer resets `firedReceiving`
@@ -138,7 +138,7 @@ before it applies, while the announcement of the default track stands.
 
 #### Returns
 
-[`MediaStreamTrack`](MediaStreamTrack.md) \| `undefined`
+[`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\> \| `undefined`
 
 ***
 

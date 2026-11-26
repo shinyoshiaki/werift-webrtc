@@ -199,7 +199,7 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 
 ###### Index Signature
 
-\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)
+\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>
 
 ##### receiver.trackBySSRC
 
@@ -207,15 +207,15 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 
 ###### Index Signature
 
-\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)
+\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>
 
 ##### receiver.tracks
 
-> **tracks**: [`MediaStreamTrack`](MediaStreamTrack.md)[]
+> **tracks**: [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>[]
 
 ##### receiver.unboundTracks
 
-> **unboundTracks**: [`MediaStreamTrack`](MediaStreamTrack.md)[]
+> **unboundTracks**: [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>[]
 
 #### rejected
 
@@ -271,7 +271,7 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 
 ##### sender.track
 
-> **track**: [`MediaStreamTrack`](MediaStreamTrack.md) \| `null`
+> **track**: [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\> \| `null`
 
 ##### sender.trackCodec
 
@@ -341,7 +341,7 @@ them again, as for empty codecs. The next write of `codecs` clears it.
 
 ### onTrack
 
-> `readonly` **onTrack**: [`Event`](Event.md)\<\[[`MediaStreamTrack`](MediaStreamTrack.md), `RTCRtpTransceiver`\]\>
+> `readonly` **onTrack**: [`Event`](Event.md)\<\[[`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>, `RTCRtpTransceiver`\]\>
 
 ***
 
@@ -733,7 +733,7 @@ Internal: return to a negotiation baseline taken by `snapshotNegotiationState`.
 
 ###### receiver
 
-\{ `deferredRemote`: `DeferredRemoteRtp` \| `undefined`; `learnedTrackSsrcs`: `number`[]; `receiverTWCC`: `ReceiverTWCC` \| `undefined`; `receiveTables`: \{ `codecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `ridFidMediaByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; `ssrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; `stagedCodecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `stagedRidFidTable`: \{\[`rtxSsrc`: `number`\]: `number`; \} \| `undefined`; `stagedSsrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; \}; `remoteStreamId`: `string` \| `undefined`; `remoteStreamIds`: `string`[]; `remoteTrackId`: `string` \| `undefined`; `trackByRID`: \{\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \}; `trackBySSRC`: \{\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \}; `tracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; `unboundTracks`: [`MediaStreamTrack`](MediaStreamTrack.md)[]; \} = `...`
+\{ `deferredRemote`: `DeferredRemoteRtp` \| `undefined`; `learnedTrackSsrcs`: `number`[]; `receiverTWCC`: `ReceiverTWCC` \| `undefined`; `receiveTables`: \{ `codecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `ridFidMediaByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; `ssrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; `stagedCodecs`: \{\[`pt`: `number`\]: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md); \}; `stagedRidFidTable`: \{\[`rtxSsrc`: `number`\]: `number`; \} \| `undefined`; `stagedSsrcByRtx`: \{\[`rtxSsrc`: `number`\]: `number`; \}; \}; `remoteStreamId`: `string` \| `undefined`; `remoteStreamIds`: `string`[]; `remoteTrackId`: `string` \| `undefined`; `trackByRID`: \{\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>; \}; `trackBySSRC`: \{\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>; \}; `tracks`: [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>[]; `unboundTracks`: [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>[]; \} = `...`
 
 ###### receiver.deferredRemote
 
@@ -791,19 +791,19 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 
 ###### receiver.trackByRID
 
-\{\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \} = `...`
+\{\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>; \} = `...`
 
 ###### receiver.trackBySSRC
 
-\{\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md); \} = `...`
+\{\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>; \} = `...`
 
 ###### receiver.tracks
 
-[`MediaStreamTrack`](MediaStreamTrack.md)[] = `...`
+[`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>[] = `...`
 
 ###### receiver.unboundTracks
 
-[`MediaStreamTrack`](MediaStreamTrack.md)[] = `...`
+[`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>[] = `...`
 
 ###### rejected
 
@@ -811,7 +811,7 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 
 ###### sender
 
-\{ `cname`: `string` \| `undefined`; `codec`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`; `headerExtensions`: [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[]; `mid`: `string` \| `undefined`; `negotiatedCodecs`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]; `proposedPrimaryCodec`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`; `redRedundantPayloadType`: `number` \| `undefined`; `repairedRtpStreamId`: `string` \| `undefined`; `rtpStreamId`: `string` \| `undefined`; `rtxPayloadType`: `number` \| `undefined`; `sendPrimaryCodec`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`; `track`: [`MediaStreamTrack`](MediaStreamTrack.md) \| `null`; `trackCodec`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`; \} = `...`
+\{ `cname`: `string` \| `undefined`; `codec`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`; `headerExtensions`: [`RTCRtpHeaderExtensionParameters`](RTCRtpHeaderExtensionParameters.md)[]; `mid`: `string` \| `undefined`; `negotiatedCodecs`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md)[]; `proposedPrimaryCodec`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`; `redRedundantPayloadType`: `number` \| `undefined`; `repairedRtpStreamId`: `string` \| `undefined`; `rtpStreamId`: `string` \| `undefined`; `rtxPayloadType`: `number` \| `undefined`; `sendPrimaryCodec`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`; `track`: [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\> \| `null`; `trackCodec`: [`RTCRtpCodecParameters`](RTCRtpCodecParameters.md) \| `undefined`; \} = `...`
 
 ###### sender.cname
 
@@ -859,7 +859,7 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 
 ###### sender.track
 
-[`MediaStreamTrack`](MediaStreamTrack.md) \| `null` = `...`
+[`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\> \| `null` = `...`
 
 ###### sender.trackCodec
 
@@ -1095,7 +1095,7 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 
 ###### Index Signature
 
-\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)
+\[`rid`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>
 
 ###### receiver.trackBySSRC
 
@@ -1103,15 +1103,15 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 
 ###### Index Signature
 
-\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)
+\[`ssrc`: `string`\]: [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>
 
 ###### receiver.tracks
 
-> **tracks**: [`MediaStreamTrack`](MediaStreamTrack.md)[]
+> **tracks**: [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>[]
 
 ###### receiver.unboundTracks
 
-> **unboundTracks**: [`MediaStreamTrack`](MediaStreamTrack.md)[]
+> **unboundTracks**: [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>[]
 
 ##### rejected
 
@@ -1167,7 +1167,7 @@ SSRCs of `trackBySSRC` that packets taught (not description state).
 
 ###### sender.track
 
-> **track**: [`MediaStreamTrack`](MediaStreamTrack.md) \| `null`
+> **track**: [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\> \| `null`
 
 ###### sender.trackCodec
 
