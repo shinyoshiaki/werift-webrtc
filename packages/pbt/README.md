@@ -83,7 +83,10 @@ statistical.
 The output ends with
 `summary: <n> confirmed (exit code), <n> pre-existing (...), <n> flaky (passed alone), <n> statistical (...)`.
 Exit code 1 when a confirmed failure remains, 2 when the baseline cannot be
-used (no package at the same path, vitest not resolvable) or `--baseline` has
+used (no package at the same path, not a worktree root (no `.git`), this
+worktree or its package, also through a relative path or a symlink, since a
+checkout compared with itself reports every failure as pre-existing; vitest not
+resolvable) or `--baseline` has
 no path (missing, empty, followed by another option, or written as
 `--baseline=<path>`); in both cases no shard runs.
 

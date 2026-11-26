@@ -1,3 +1,6 @@
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, test } from "vitest";
 
 import {
@@ -12,6 +15,7 @@ import {
   seedRanges,
 } from "../src";
 import {
+  type Checkout,
   passingSource,
   rejection,
   runFixtureCli,
@@ -572,6 +576,65 @@ describe("deep search against a baseline", () => {
       expect(status).toBe(2);
       expect(stderr).toContain("pbt:deep --baseline: no path given");
       // Assert: 分割の実行も計画の出力もしない。
+      expect(stdout).toBe("");
+    },
+    60_000,
+  );
+
+  test.each([
+    {
+      name: "the root of this worktree",
+      reason: "is this worktree",
+      baseline: ({ root }: Checkout) => root,
+    },
+    {
+      name: "a relative path to this worktree",
+      reason: "is this worktree",
+      // CLI の作業ディレクトリは root の下のパッケージ。
+      baseline: () => "..",
+    },
+    {
+      name: "a symlink to this worktree",
+      reason: "is this worktree",
+      baseline: ({ root }: Checkout) => {
+        symlinkSync(root, join(root, "self"));
+        return join(root, "self");
+      },
+    },
+    {
+      name: "another worktree whose package links to this one",
+      reason: "is the package of this worktree",
+      baseline: ({ root, dir }: Checkout) => {
+        const other = join(root, "other");
+        mkdirSync(other);
+        writeFileSync(join(other, ".git"), "");
+        symlinkSync(dir, join(other, "deep"));
+        return other;
+      },
+    },
+    {
+      name: "a directory that is not a worktree root",
+      reason: "is not a worktree root",
+      baseline: ({ root }: Checkout) => {
+        const copy = join(root, "copy");
+        mkdirSync(join(copy, "deep"), { recursive: true });
+        writeFileSync(join(copy, "deep", "package.json"), "{}\n");
+        return copy;
+      },
+    },
+  ])(
+    "$name as the baseline is an error before any shard runs",
+    ({ baseline, reason }) => {
+      // Act: 失敗するフィクスチャを、別の版ではない比較元を指定して CLI で動かす。
+      const { status, stdout, stderr } = runFixtureCli(
+        "failing",
+        (checkout) => ["--baseline", baseline(checkout)],
+      );
+
+      // Assert: 自分自身との比較で pre-existing にせず、理由を示して終了コード 2。
+      expect(status).toBe(2);
+      expect(stderr).toContain(reason);
+      // Assert: 分割は実行しない。
       expect(stdout).toBe("");
     },
     60_000,

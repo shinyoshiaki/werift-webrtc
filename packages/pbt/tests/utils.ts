@@ -51,6 +51,9 @@ export const throwingSource = (title: string, message: string) =>
 export const rejection = (message: string) =>
   `void Promise.reject(new Error(${JSON.stringify(message)}));`;
 
+/** A temporary worktree: its root and the fixture package in it. */
+export type Checkout = { root: string; dir: string };
+
 /**
  * A temporary worktree (inside the package, so the fixtures resolve vitest
  * from the same node_modules): its root holds a `.git` marker and the fixtures
@@ -149,10 +152,15 @@ export async function runFixtureDeepSearch(
 /**
  * Run `src/cli.ts` as `npm run pbt:deep` does (node with the type-stripping
  * hook) over one fixture in a temporary worktree, with `argv` as the last
- * arguments.
+ * arguments; a function may arrange paths in the worktree before returning
+ * them.
  */
-export function runFixtureCli(fixture: DeepFixture, argv: string[] = []) {
-  const { root, dir } = makeWorktree({});
+export function runFixtureCli(
+  fixture: DeepFixture,
+  argv: string[] | ((checkout: Checkout) => string[]) = [],
+) {
+  const checkout = makeWorktree({});
+  const { root, dir } = checkout;
   const file = `${fixture}.fixture.ts`;
   writeFileSync(
     join(dir, "suites.mjs"),
@@ -168,7 +176,7 @@ export function runFixtureCli(fixture: DeepFixture, argv: string[] = []) {
         join(__dirname, "../../../tools/node-ts/register.mjs"),
         join(__dirname, "../src/cli.ts"),
         "suites.mjs",
-        ...argv,
+        ...(typeof argv === "function" ? argv(checkout) : argv),
       ],
       { cwd: dir, encoding: "utf8" },
     );

@@ -20,7 +20,8 @@
  *
  * Baseline comparison (`--baseline <worktree root>`): the root of another
  * revision checked out with `git worktree add --detach <dir> <rev>` (never the
- * active worktree; its dependencies installed or linked as for
+ * active worktree, which is rejected before anything runs, as is a directory
+ * that is not a worktree root; its dependencies installed or linked as for
  * `tools/negotiation-diff`). Every confirmed failure is replayed in the same
  * package of that worktree with the same file, title pattern and environment,
  * up to `--baseline-runs` (default 3) times. It is pre-existing, reported and
@@ -60,7 +61,13 @@
  * shard is its own vitest process running one file with `--retry=0`.
  */
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+} from "node:fs";
 import { createRequire } from "node:module";
 import { cpus, tmpdir } from "node:os";
 import { dirname, join, relative, resolve as resolvePath } from "node:path";
@@ -442,6 +449,30 @@ export function baselinePackageDir(baselineRoot: string, cwd: string) {
   );
 }
 
+/**
+ * Why the package `baselineCwd` of `baselineRoot` cannot be the baseline of
+ * the package `cwd`, or undefined when it can. This checkout compared with
+ * itself would repeat every failure and report it as pre-existing, so the
+ * baseline must be the root of another worktree whose package is another
+ * directory; real paths are compared, so a relative path or a symlink to this
+ * checkout is the same one.
+ */
+function baselineError(baselineRoot: string, baselineCwd: string, cwd: string) {
+  if (!existsSync(join(baselineCwd, "package.json"))) {
+    return `${baselineCwd} has no package.json (pass the root of a worktree made with git worktree add --detach)`;
+  }
+  if (!existsSync(join(baselineRoot, ".git"))) {
+    return `${resolvePath(baselineRoot)} is not a worktree root (it has no .git; make one with git worktree add --detach)`;
+  }
+  if (realpathSync(baselineRoot) === realpathSync(worktreeRoot(cwd))) {
+    return `${resolvePath(baselineRoot)} is this worktree (compare with another revision checked out with git worktree add --detach)`;
+  }
+  if (realpathSync(baselineCwd) === realpathSync(cwd)) {
+    return `${baselineCwd} is the package of this worktree (the baseline needs its own checkout of the package)`;
+  }
+  return undefined;
+}
+
 /** vitest's own entry for a package directory (its package.json is exported; vitest.mjs sits beside it). */
 const vitestEntry = (cwd: string) =>
   join(
@@ -489,10 +520,9 @@ export async function runDeepSearch(
   let baseline: Target | undefined;
   if (baselineRoot) {
     const baselineCwd = baselinePackageDir(baselineRoot, cwd);
-    if (!existsSync(join(baselineCwd, "package.json"))) {
-      console.error(
-        `pbt:deep --baseline: ${baselineCwd} has no package.json (pass the root of a worktree made with git worktree add --detach)`,
-      );
+    const error = baselineError(baselineRoot, baselineCwd, cwd);
+    if (error) {
+      console.error(`pbt:deep --baseline: ${error}`);
       return 2;
     }
     try {
