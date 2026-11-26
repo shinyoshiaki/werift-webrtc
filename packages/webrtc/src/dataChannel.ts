@@ -3,7 +3,7 @@ import { createWebRtcTypeError } from "./errors";
 import { EventTarget, notifySafely } from "./helper";
 import { debug, Event } from "./imports/common";
 import type { RTCSctpTransport } from "./transport/sctp";
-import type { Callback, CallbackWithValue } from "./types/util";
+import type { CallbackWithValue, EventHandler } from "./types/util";
 import { toEnum } from "./webidl";
 
 /**
@@ -100,12 +100,24 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
   readonly onMessage = new Event<[string | Buffer]>();
   // todo impl
   readonly error = new Event<[Error]>();
+  /**
+   * W3C `bufferedamountlow`.
+   * @see tests/datachannel/bufferedAmount.test.ts "bufferedamountlow fires once per downward crossing, through every notification"
+   * @see tests/datachannel/bufferedAmount.test.ts "pc.close() keeps bufferedAmount and fires no bufferedamountlow"
+   */
   readonly bufferedAmountLow = new Event();
-  onopen?: Callback;
-  /** W3C `onbufferedamountlow`. See {@link RTCDataChannel.bufferedAmountLowThreshold}. */
-  onbufferedamountlow?: CallbackWithValue<globalThis.Event>;
-  onclose?: Callback;
-  onclosing?: Callback;
+  /** @see tests/datachannel/bufferedAmount.test.ts "every event handler receives the same Event object as the listeners" */
+  onopen?: EventHandler<globalThis.Event>;
+  /** @see tests/datachannel/bufferedAmount.test.ts "every event handler receives the same Event object as the listeners" */
+  onclose?: EventHandler<globalThis.Event>;
+  /** @see tests/datachannel/bufferedAmount.test.ts "every event handler receives the same Event object as the listeners" */
+  onclosing?: EventHandler<globalThis.Event>;
+  /**
+   * W3C `onbufferedamountlow`.
+   * @see tests/datachannel/bufferedAmount.test.ts "bufferedamountlow fires once per downward crossing, through every notification"
+   * @see tests/datachannel/bufferedAmount.test.ts "onbufferedamountlow receives the same Event object as the bufferedamountlow listeners"
+   */
+  onbufferedamountlow?: EventHandler<globalThis.Event>;
   onmessage?: CallbackWithValue<MessageEvent>;
   // todo impl
   onerror?: CallbackWithValue<RTCErrorEvent>;
@@ -113,7 +125,7 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
   id: number;
   readyState: DCState = "connecting";
 
-  bufferedAmount = 0;
+  private _bufferedAmount = 0;
   private _bufferedAmountLowThreshold = 0;
   private _binaryType: RTCDataChannelBinaryType;
 
@@ -200,6 +212,25 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
     if (binaryType !== undefined) this._binaryType = binaryType;
   }
 
+  /**
+   * W3C webrtc-pc `bufferedAmount`.
+   * @see tests/datachannel/bufferedAmount.test.ts "is read-only"
+   * @see tests/datachannel/bufferedAmount.test.ts "send() adds the UTF-8 byte length synchronously"
+   * @see tests/datachannel/bufferedAmount.test.ts "with loss every message arrives and bufferedAmount reaches 0 before the ACK"
+   * @see tests/datachannel/bufferedAmount.test.ts "messages abandoned by maxPacketLifeTime before they were sent are subtracted and notified"
+   * @see tests/datachannel/bufferedAmount.test.ts "close() does not decrease bufferedAmount immediately; it drains while closing"
+   * @see tests/datachannel/bufferedAmount.test.ts "pc.close() keeps bufferedAmount and fires no bufferedamountlow"
+   * @see tests/transport/sctp.test.ts "stop discards unsent messages and keeps them in bufferedAmount"
+   */
+  get bufferedAmount() {
+    return this._bufferedAmount;
+  }
+
+  /**
+   * W3C webrtc-pc `bufferedAmountLowThreshold`.
+   * @see tests/datachannel/bufferedAmount.test.ts "a threshold reached exactly notifies once; a threshold raised above the amount does not notify"
+   * @see tests/datachannel/bufferedAmount.test.ts "bufferedAmountLowThreshold defaults to 0 and accepts only 0..2^32-1"
+   */
   get bufferedAmountLowThreshold() {
     return this._bufferedAmountLowThreshold;
   }
@@ -240,17 +271,20 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
     this.emitIsolated((e) => log("error listener failed", e), "error", {
       error,
     });
-    notifySafely(log, "onclose", () => this.onclose?.());
-    this.emitIsolated((e) => log("close listener failed", e), "close");
+    this.fireEvent("close", (e) => log("close listener failed", e));
     log("failed", error.message);
   }
 
   /**
    * Internal. Every listener is isolated (DOM event semantics).
+   * @see tests/datachannel/closeDelivery.test.ts "closing fires on the end the peer closed, not on the end calling close()"
    * @see tests/issue/815.test.ts "a throwing close listener of a registered channel skips no listener, channel or teardown"
    * @see tests/issue/815.test.ts "pc.close() closes every pending channel even if a close listener throws"
    */
-  setReadyState(state: DCState) {
+  setReadyState(
+    state: DCState,
+    { notifyClosing = true }: { notifyClosing?: boolean } = {},
+  ) {
     if (state !== this.readyState) {
       this.readyState = state;
       const onError = (e: unknown) => log("state listener failed", state, e);
@@ -259,15 +293,15 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
 
       switch (state) {
         case "open":
-          notifySafely(log, "onopen", () => this.onopen?.());
-          this.emitIsolated(onError, "open");
+          this.fireEvent("open", onError);
           break;
         case "closed":
-          notifySafely(log, "onclose", () => this.onclose?.());
-          this.emitIsolated(onError, "close");
+          this.fireEvent("close", onError);
           break;
         case "closing":
-          notifySafely(log, "onclosing", () => this.onclosing?.());
+          // Test: tests/datachannel/closeDelivery.test.ts "closing fires on the end the peer closed, not on the end calling close()"
+          if (!notifyClosing) break;
+          this.fireEvent("closing", onError);
           break;
       }
       log("change state", state);
@@ -275,78 +309,93 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
   }
 
   /**
-   * Internal: add to `bufferedAmount` (a negative `amount` when the
-   * transport sent a message). Only sent data leaves `bufferedAmount`, so
-   * only sending can fire `bufferedamountlow` (W3C: "as a result of sending
-   * data"); data discarded unsent stays counted, also after close, and a low
-   * listener that sends again on a closed channel cannot loop.
-   * @see tests/datachannel/bufferedAmountLow.test.ts "a low listener sending on the channel it closed does not loop"
-   * @see tests/datachannel/bufferedAmountLow.test.ts "every surface is notified once per crossing, in the order of the other channel events"
+   * @internal
+   * @deprecated Internal bookkeeping, removed in v0.30.0. Send an empty
+   * message with `send("")` / `send(Buffer.alloc(0))` instead of queuing it
+   * by hand; {@link RTCDataChannel.bufferedAmount} is maintained by werift.
    */
   addBufferedAmount(amount: number) {
-    const crossesThreshold =
-      this.bufferedAmount > this.bufferedAmountLowThreshold &&
-      this.bufferedAmount + amount <= this.bufferedAmountLowThreshold;
-    this.bufferedAmount += amount;
-    if (crossesThreshold) this.notifyBufferedAmountLow();
-  }
-  /**
-   * @internal
-   * Remove `amount` bytes that were discarded unsent from
-   * `bufferedAmount` of a channel that outlives its transport (a rollback
-   * stops the SCTP transport the channel's queued messages belonged to; they
-   * are never sent, and kept counted the channel's `bufferedAmount` could
-   * never drain). Not sent data, so it fires no `bufferedamountlow`. A
-   * closing / closed channel keeps its unsent bytes instead (W3C: not reset
-   * to zero once the channel closes), so callers do not use this for one.
-   * @see tests/transport/sctp.test.ts "stop discards unsent messages and releases bufferedAmount"
-   * @see tests/datachannel/bufferedAmountLow.test.ts "pc.close() keeps the unsent bytes in bufferedAmount"
-   */
-  releaseDiscardedBufferedAmount(amount: number) {
-    this.bufferedAmount -= amount;
+    this.changeBufferedAmount(amount, true);
   }
 
   /**
-   * `bufferedAmountLow`, `onbufferedamountlow`, then the
-   * `"bufferedamountlow"` event, synchronously when the threshold is
-   * crossed (the order of setReadyState). Every listener is isolated, so
-   * the flush loop, stop() and later listeners continue.
-   * @see tests/issue/815.notification.test.ts "bufferedamountlow: later listeners run and sending continues"
+   * @internal
+   * @see tests/datachannel/bufferedAmount.test.ts "pc.close() keeps bufferedAmount and fires no bufferedamountlow"
+   * @see tests/datachannel/bufferedAmount.test.ts "the deprecated addBufferedAmount() still notifies on a closed channel"
    */
-  private notifyBufferedAmountLow() {
-    const onError = (e: unknown) => log("bufferedamountlow listener failed", e);
-    this.bufferedAmountLow.executeIsolated(onError);
-    // One DOM Event for both surfaces (W3C: handler and listeners see the same event).
-    const event = new globalThis.Event("bufferedamountlow");
-    // Not dispatched through a DOM EventTarget, so point target/currentTarget at this channel.
-    for (const key of ["target", "currentTarget"] as const) {
+  changeBufferedAmount(amount: number, notifyClosed = false) {
+    const crossesThreshold =
+      this._bufferedAmount > this.bufferedAmountLowThreshold &&
+      this._bufferedAmount + amount <= this.bufferedAmountLowThreshold;
+    this._bufferedAmount += amount;
+    if (crossesThreshold && (notifyClosed || this.readyState !== "closed")) {
+      // Test: tests/issue/815.notification.test.ts "bufferedamountlow: later listeners run and sending continues"
+      const onError = (e: unknown) =>
+        log("bufferedamountlow listener failed", e);
+      this.bufferedAmountLow.executeIsolated(onError);
+      this.fireEvent("bufferedamountlow", onError);
+    }
+  }
+
+  /**
+   * @see tests/datachannel/bufferedAmount.test.ts "every event handler receives the same Event object as the listeners"
+   * @see tests/datachannel/bufferedAmountLow.test.ts "onbufferedamountlow receives the same bufferedamountlow Event as the listeners"
+   */
+  private fireEvent(
+    type: "open" | "close" | "closing" | "bufferedamountlow",
+    onError: (error: unknown) => void,
+  ) {
+    const event = new globalThis.Event(type);
+    const name = `on${type}` as const;
+    // Not dispatched through a DOM EventTarget, so `bufferedamountlow` points
+    // target / currentTarget at this channel itself.
+    const setEventProperty = (
+      key: "target" | "currentTarget",
+      value: this | null,
+    ) =>
       Object.defineProperty(event, key, {
         configurable: true,
         enumerable: true,
-        value: this,
+        value,
       });
+    const hasTarget = type === "bufferedamountlow";
+    if (hasTarget) {
+      setEventProperty("target", this);
+      setEventProperty("currentTarget", this);
     }
-    try {
-      notifySafely(log, "onbufferedamountlow", () =>
-        this.onbufferedamountlow?.(event),
-      );
-      this.emitIsolated(onError, "bufferedamountlow", event);
-    } finally {
-      // DOM: currentTarget is null once dispatch has finished.
-      Object.defineProperty(event, "currentTarget", {
-        configurable: true,
-        enumerable: true,
-        value: null,
-      });
-    }
+    notifySafely(log, name, () => this[name]?.(event));
+    this.emitIsolated(onError, type, event);
+    // DOM: currentTarget is null once dispatch has finished.
+    if (hasTarget) setEventProperty("currentTarget", null);
   }
 
+  /**
+   * Queue a message. While `connecting` it waits until the channel can send
+   * (werift convenience; W3C throws).
+   * @throws Error when the message is larger than the peer's max-message-size.
+   * @see tests/datachannel/closeDelivery.test.ts "messages sent before close() while connecting reach the peer, then both ends close"
+   * @see tests/datachannel/bufferedAmount.test.ts "send() adds the UTF-8 byte length synchronously"
+   * @see tests/datachannel/bufferedAmount.test.ts "send() on a closing or closed channel is ignored"
+   * @see tests/datachannel/bufferedAmount.test.ts "empty string and empty Buffer arrive in order, bufferedAmount stays 0, stats count them"
+   * @see tests/integrate/peerConnection.test.ts "respects remote max-message-size advertised in answer"
+   */
   send(data: Buffer | string) {
+    if (this.readyState === "closing" || this.readyState === "closed") {
+      log("send on a", this.readyState, "data channel, ignored");
+      return;
+    }
     const size = this.sctp.datachannelSend(this, data);
     this.messagesSent++;
     this.bytesSent += size;
   }
 
+  /**
+   * Start the closing procedure (W3C webrtc-pc, RFC 8831 6.7).
+   * @see tests/datachannel/closeDelivery.test.ts "close() right after a burst (%o): every message arrives in order before close fires on the sender"
+   * @see tests/datachannel/closeDelivery.test.ts "messages sent before close() while connecting reach the peer, then both ends close"
+   * @see tests/datachannel/closeDelivery.test.ts "pc.close() before the association is established closes the channel and drops its messages"
+   * @see tests/datachannel/closeDelivery.test.ts "an in-band channel closed before its DATA_CHANNEL_OPEN is sent closes at once and sends nothing"
+   */
   close() {
     this.sctp.dataChannelClose(this);
   }
@@ -369,6 +418,8 @@ export class RTCDataChannelParameters {
 }
 
 export interface MessageEvent {
+  /** `"message"` on received messages. */
+  readonly type?: string;
   /**
    * A string for a text message; a binary message by the channel's
    * `binaryType` (`Buffer` by default). Use {@link RTCDataChannel.onMessage}

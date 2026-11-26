@@ -6,7 +6,11 @@ import {
   seededRandom,
 } from "../../../../pbt/src";
 import { SCTP_STATE } from "../../../src";
-import { createLossyPrSctpPair, flushImmediates } from "../../utils";
+import {
+  createLossyPrSctpPair,
+  flushImmediates,
+  outboundQueueOf,
+} from "../../utils";
 
 /**
  * Stream reset property (RFC 6525): with every packet lost at random (20 %)
@@ -76,7 +80,7 @@ describe(
           pair.recorder.dropIf = undefined;
           pair.serverRecorder.dropIf = undefined;
           const busy = (sctp: any) =>
-            sctp.outboundQueue.length > 0 ||
+            outboundQueueOf(sctp).length > 0 ||
             sctp.sentQueue.length > 0 ||
             sctp.reconfigRequest !== undefined ||
             sctp.reconfigQueue.length > 0;

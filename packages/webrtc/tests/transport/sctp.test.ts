@@ -25,7 +25,7 @@ describe("RTCSctpTransportTest", () => {
     expect(transport.sctp.mtu).toBe(1052);
   });
 
-  test("stop discards unsent messages and releases bufferedAmount", async () => {
+  test("stop discards unsent messages and keeps them in bufferedAmount", async () => {
     // Arrange: association 確立前の transport に未送信メッセージを積む。
     const [first, second] = await dtlsTransportPair();
     const transport = new RTCSctpTransport();
@@ -50,14 +50,14 @@ describe("RTCSctpTransportTest", () => {
     }) as typeof send;
     transport["dataChannelFlush"]();
 
-    // Assert: 古いメッセージは SCTP に渡されず、bufferedAmount は 0 に戻る。
+    // Assert: 古いメッセージは SCTP に渡されない。送られていないので bufferedAmount は減らない (W3C)。
     expect(sent).toHaveLength(0);
     // 存続するチャネルの DATA_CHANNEL_OPEN だけが残る。
     expect(channel.readyState).toBe("connecting");
     expect(transport["dataChannelQueue"].toArray().map((i) => i[1])).toEqual([
       50,
     ]);
-    expect(channel.bufferedAmount).toBe(0);
+    expect(channel.bufferedAmount).toBe(14);
   });
 
   test("reconnect does not announce a channel closed while stopped", async () => {

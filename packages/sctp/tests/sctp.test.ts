@@ -32,6 +32,7 @@ import {
   expectFlightSizeInvariant,
   flightSizeOf,
   holdTransport,
+  outboundQueueOf,
   receiveCookieEcho,
   receiveInitAck,
   receiveInitAndTakeCookie,
@@ -614,7 +615,7 @@ describe("sctp flight size accounting", () => {
       await sctp.send(0, 51, Buffer.alloc(100));
       await settle();
       // outboundQueue から送出され、send() が resolve している
-      expect((sctp as any).outboundQueue.length).toBe(0);
+      expect(outboundQueueOf(sctp).length).toBe(0);
       expect(sentDataTsns(transport, beforeSend)).toHaveLength(1);
       expectFlightSizeInvariant(sctp);
     } finally {

@@ -405,6 +405,70 @@ DTLS role when an answer decides it (client even, server odd, RFC 8832); an
 `id` passed to `createDataChannel()` is ignored for it, as in browsers. Use
 `{ negotiated: true, id }` for a fixed stream ID.
 
+#### DataChannel backpressure
+
+`bufferedAmount` (read-only) counts the bytes passed to `send()` that are not
+handed to the network yet; it drops as SCTP sends each message (not when the
+peer acknowledges it). `bufferedamountlow` (also `onbufferedamountlow` and
+`channel.bufferedAmountLow`) fires once each time it falls from above
+`bufferedAmountLowThreshold` to at or below it. A high / low water mark:
+
+```typescript
+const HIGH_WATER_MARK = 1024 * 1024;
+channel.bufferedAmountLowThreshold = 256 * 1024;
+
+async function sendAll(chunks: Buffer[]) {
+  for (const chunk of chunks) {
+    if (channel.bufferedAmount > HIGH_WATER_MARK) {
+      await new Promise<void>((resolve) =>
+        channel.addEventListener("bufferedamountlow", () => resolve(), {
+          once: true,
+        }),
+      );
+    }
+    channel.send(chunk);
+  }
+}
+```
+
+Messages abandoned by a partially reliable channel (`maxRetransmits` /
+`maxPacketLifeTime`) are subtracted too. Messages thrown away unsent
+(`pc.close()`, the association ending) stay in `bufferedAmount`, and
+`bufferedamountlow` never fires once the channel is `closed`.
+
+#### Graceful close
+
+`channel.close()` keeps every message `send()` queued before it: they are
+handed to SCTP before the stream reset, also when the association is still
+being established (the channel stays `closing` until then). The peer resets
+its side only after it received everything up to the reset (RFC 6525), so on
+a reliable channel the sender's `close` event means every message sent before
+`close()` reached the peer. No need to wait for `bufferedAmount` first:
+
+```typescript
+// Register the wait before close(): a channel whose DATA_CHANNEL_OPEN was
+// not sent yet closes synchronously and fires `close` inside close().
+const closed = new Promise((resolve) =>
+  channel.addEventListener("close", resolve, { once: true }),
+);
+channel.send(lastMessage); // delivered only if the channel is already `open`
+channel.close();
+await closed;
+await pc.close(); // pc.close() aborts SCTP: close the channels first
+```
+
+`pc.close()` aborts the association, so what is not delivered yet is lost. A
+partially reliable channel may lose what it abandoned. An in-band channel
+whose DATA_CHANNEL_OPEN was not sent yet (no connection so far) closes at once
+and sends nothing. To make sure a message is delivered,
+send it after the channel is `open`.
+
+#### Empty messages
+
+`send("")` and `send(Buffer.alloc(0))` send an empty message (RFC 8831 6.6,
+PPID 56 / 57) that the peer receives as `""` / an empty `Buffer`, in order with
+the other messages. It adds nothing to `bufferedAmount`.
+
 The outbound SCTP packet MTU can be configured independently from the
 negotiated DataChannel message-size limit:
 

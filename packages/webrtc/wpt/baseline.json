@@ -392,6 +392,150 @@
       "status": "PASS"
     },
     {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "datachannel bufferedAmount initial value should be 0 for both peers",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "datachannel bufferedAmount should increase to byte length of buffer sent",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "datachannel bufferedAmount should increase to byte length of encodedunicode string sent",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "datachannel bufferedAmount should not decrease after closing the peer connection",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "datachannel bufferedAmount should not decrease immediately after initiating closure",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "datachannel bufferedAmount should stay at zero for empty buffer sent",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "datachannel bufferedAmount should stay at zero for empty string sent",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "datachannel bufferedamount is data.length on send(data)",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "datachannel bufferedamount returns the same amount if no more data is",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "datachannel bufferedamountlow event fires after each sent message",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "datachannel bufferedamountlow event fires after send() is complete",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "datachannel bufferedamountlow event fires only once after multiple consecutive send() calls",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "negotiated datachannel bufferedAmount initial value should be 0 for both peers",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "negotiated datachannel bufferedAmount should increase to byte length of buffer sent",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "negotiated datachannel bufferedAmount should increase to byte length of encodedunicode string sent",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "negotiated datachannel bufferedAmount should not decrease after closing the peer connection",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "negotiated datachannel bufferedAmount should not decrease immediately after initiating closure",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "negotiated datachannel bufferedAmount should stay at zero for empty buffer sent",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "negotiated datachannel bufferedAmount should stay at zero for empty string sent",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "negotiated datachannel bufferedamount is data.length on send(data)",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "negotiated datachannel bufferedamount returns the same amount if no more data is",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "negotiated datachannel bufferedamountlow event fires after each sent message",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "negotiated datachannel bufferedamountlow event fires after send() is complete",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-bufferedAmount.html",
+      "variant": "",
+      "subtest": "negotiated datachannel bufferedamountlow event fires only once after multiple consecutive send() calls",
+      "status": "PASS"
+    },
+    {
       "file": "webrtc/RTCDataChannel-close.html",
       "variant": "",
       "subtest": "Close peerconnection after datachannel close causes no events",
@@ -401,6 +545,30 @@
       "file": "webrtc/RTCDataChannel-close.html",
       "variant": "",
       "subtest": "Close peerconnection after negotiated datachannel close causes no events",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-close.html",
+      "variant": "",
+      "subtest": "Close datachannel causes closing and close event to be called",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-close.html",
+      "variant": "",
+      "subtest": "Close datachannel causes onclosing and onclose to be called",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-close.html",
+      "variant": "",
+      "subtest": "Close negotiated datachannel causes closing and close event to be called",
+      "status": "PASS"
+    },
+    {
+      "file": "webrtc/RTCDataChannel-close.html",
+      "variant": "",
+      "subtest": "Close negotiated datachannel causes onclosing and onclose to be called",
       "status": "PASS"
     },
     {

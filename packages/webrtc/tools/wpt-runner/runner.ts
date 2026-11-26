@@ -1,3 +1,4 @@
+import { Blob } from "buffer";
 import { type ChildProcess, spawn } from "child_process";
 import { existsSync } from "fs";
 import { mkdir, readdir, readFile, writeFile } from "fs/promises";
@@ -572,7 +573,6 @@ function createContext(input: {
   const location = new URL(`https://wpt.local/${input.file}${input.variant}`);
   const sandbox: Record<string, unknown> = {
     AbortController,
-    // RTCDataChannel binaryType "blob" delivers Node.js Blobs.
     Blob,
     Buffer,
     DOMException,
