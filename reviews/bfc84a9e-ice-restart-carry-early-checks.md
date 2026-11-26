@@ -4,7 +4,7 @@ ide:
   version: 1
   title: "werift 起点の ICE restart と Firefox: answer 前の check の引き継ぎ"
   dock: right
-  baseCommit: e72cbd57e66bc22d1466ae8a1632fa1d6d4ae07a
+  baseCommit: 6e6d2d4aee7fdfba931072a2365496d48c1bb195
 ---
 # werift 起点の ICE restart で Firefox への送信が止まる不具合の修正
 
@@ -12,9 +12,18 @@ ide:
 
 answer の適用前に新しい ufrag 宛てに届いた connectivity check を、restart の commit 後に再生するようにしました。修正前はこの check から学んだ内容が commit で消えていました。Firefox の restart answer には候補がなく、成功した check も再送されないため、werift は新しい generation の pair を作れず、Firefox へ RTP も DataChannel も送れませんでした。
 
-変更は ICE 層の内部に閉じています。`Connection` の公開 API と `iceBase.ts` は変えておらず、SDP の出力も変わらない想定です。比較範囲はベースの `develop`（`7ca1d86aa`）から HEAD の `e72cbd57e` までです。
+変更は ICE 層の内部に閉じています。`Connection` の公開 API と `iceBase.ts` は変えておらず、SDP の出力も変わらない想定です。比較範囲はベースの `develop`（`b925ad42d`、マージ済み）から HEAD の `6e6d2d4ae` までです。
+
+前回版（`e72cbd57e`）の後、レビューの指摘で次の 2 点を直しました。2 回目の承認はこの修正を含みます。
+
+- 同じ経路に値の大きい NOMINATION が後から届くと、捨てていました（2.2 節）。
+- carried check の再生で、early check にある SPED の処理を呼んでいませんでした（3.2 節）。
+
+**現行コードでは、Firefox の実機確認をしていません**（6 節）。
 
 ## 2. 修正前と修正後の流れ
+
+### 2.1 restart 全体（develop と HEAD の比較）
 
 <div style="font-family:var(--review-font);border:1px solid var(--review-border);border-left:4px solid var(--review-danger);border-radius:6px;padding:8px;margin-bottom:12px">
 <strong>Before: 受けた check が commit で消える</strong>
@@ -59,31 +68,62 @@ answer の適用前に新しい ufrag 宛てに届いた connectivity check を�
 
 チケット 10.1 節の調査では、ログ出力で処理が遅れ、Firefox の check が commit の後に届いた回は成功しました。トリクルでも、Firefox が新しい候補を送るため修正前から成功しています。
 
+### 2.2 再指名の保持（レビューで見つかった、このブランチ内の不具合）
+
+develop にあった不具合ではありません。この変更の途中版（`6c6a8b687`）の保存規則にあった問題です。controlling peer が answer の前に A=1、B=2、A=3 の順で再指名すると、A=3 が捨てられました。controlled 側の werift は `remoteNomination` が最大の経路を選ぶため、peer が選んだ A ではなく B を選ぶおそれがありました。
+
+<div style="font-family:var(--review-font);display:flex;flex-wrap:wrap;gap:12px">
+<div style="flex:1;min-width:280px;border:1px solid var(--review-border);border-left:4px solid var(--review-danger);border-radius:6px;padding:8px">
+<strong>Before（6c6a8b687）: 指名済みなら後続を捨てる</strong>
+<table style="width:100%;border-collapse:collapse;font-family:var(--review-mono);font-size:12px">
+<tr><th align="left">到着</th><th align="left">保存値 A</th><th align="left">保存値 B</th></tr>
+<tr><td>A=1</td><td>1</td><td>-</td></tr>
+<tr><td>B=2</td><td>1</td><td>2</td></tr>
+<tr><td>A=3</td><td style="color:var(--review-danger)"><b>1（3 を破棄）</b></td><td>2</td></tr>
+<tr><td>commit 後の選択</td><td></td><td style="color:var(--review-danger)"><b>B（peer と不一致）</b></td></tr>
+</table></div>
+<div style="flex:1;min-width:280px;border:1px solid var(--review-border);border-left:4px solid var(--review-success);border-radius:6px;padding:8px">
+<strong>After（HEAD）: 経路ごとに最大値を残す</strong>
+<table style="width:100%;border-collapse:collapse;font-family:var(--review-mono);font-size:12px">
+<tr><th align="left">到着</th><th align="left">保存値 A</th><th align="left">保存値 B</th></tr>
+<tr><td>A=1</td><td>1</td><td>-</td></tr>
+<tr><td>B=2</td><td>1</td><td>2</td></tr>
+<tr><td>A=3</td><td style="color:var(--review-success)"><b>3（置換）</b></td><td>2</td></tr>
+<tr><td>両経路の check 完了後</td><td style="color:var(--review-success)"><b>A を選択</b></td><td></td></tr>
+</table></div></div>
+
+同じ入力に対する `rememberStagedCheck` の保存値の比較です。赤が問題の箇所、緑が修正後の結果です。
+
+変更は [packages/ice/src/provisional.ts:709](review-diff:packages/ice/src/provisional.ts:commit:6e6d2d4ae:709) の比較です。保存済みの値が新しい値より大きいときだけ、新しい check を捨てます。値が同じなら新しい check に置き換えます。通常の check の値は 0、`USE-CANDIDATE` だけの check の値は 1 です（[packages/ice/src/internal/checkMessages.ts:44](review-file:packages/ice/src/internal/checkMessages.ts:44)）。
+
+commit の直後は、triggered check が先に成功した B が一時的に選ばれることがあります。その後 A の check が成功すると、通常の renomination の規則で A に移ります。テストは両経路の check の完了を待ってから判定します。
+
 ## 3. 主要変更
 
 ### 3.1 check の記録（`provisional.ts`）
 
-- [packages/ice/src/provisional.ts:578](review-diff:packages/ice/src/provisional.ts:578): 応答対象の check を `receivedChecks` に記録します。記録位置は `allows()` と remote ufrag の判定より後です。除外されるソケットの check や、既知の remote ufrag と異なる check は残りません。
-- [packages/ice/src/provisional.ts:688](review-diff:packages/ice/src/provisional.ts:688): `rememberStagedCheck` は上限を 32 件（`MAX_CARRIED_CHECKS`）にします。pranswer がない時点では相手の ufrag が分からないため、次の規則で正しい check が押し出されるのを防ぎます。
+- [packages/ice/src/provisional.ts:578](review-diff:packages/ice/src/provisional.ts:commit:0767eeacb:578): 応答対象の check を `receivedChecks` に記録します。記録位置は `allows()` と remote ufrag の判定より後です。除外されるソケットの check や、既知の remote ufrag と異なる check は残りません。
+- [packages/ice/src/provisional.ts:688](review-diff:packages/ice/src/provisional.ts:commit:0767eeacb:688): `rememberStagedCheck` は上限を 32 件（`MAX_CARRIED_CHECKS`）にします。pranswer がない時点では相手の ufrag が分からないため、次の規則で正しい check が押し出されるのを防ぎます。
   - 送信元 ufrag、アドレス、ソケットが同じ check は、新しいもので置き換えます。
-  - ただし、保存済みの check が指名（USE-CANDIDATE / NOMINATION）を持つ場合は置き換えません。
+  - ただし、保存済みの check の指名の値が新しい check より大きい場合は置き換えません（2.2 節。この条件は `6e6d2d4ae` で変えたため、上のリンクが開く初版の差分とは異なります）。
   - 満杯なら、最も多くの件数を持つ送信元 ufrag の最古の 1 件を捨てます。
 
 ### 3.2 引き継ぎの受け渡し（`ice.ts`）
 
 check は `receivedChecks` → `endedStagedChecks` → `carriedChecks` の順に移ります。
 
-- [packages/ice/src/ice.ts:770](review-diff:packages/ice/src/ice.ts:770): `restart()` は `end()` の前に記録を退避します。pranswer で checks を始めた（`started`）generation は対象外です。
-- [packages/ice/src/ice.ts:983](review-diff:packages/ice/src/ice.ts:983): `commitLocalCredentials()` は、退避した ufrag が commit する ufrag と一致し、`earlyChecksDone` が false のときだけ `carriedChecks` に移します。
-- [packages/ice/src/ice.ts:1946](review-diff:packages/ice/src/ice.ts:1946): `connect()` は通常の `earlyChecks` より先に再生します。送信元が answer の remote ufrag と一致しない check は捨てます。
-- 破棄する経路は、置き換えの offer（[packages/ice/src/ice.ts:942](review-diff:packages/ice/src/ice.ts:942)）、`restartRemote()`（[packages/ice/src/ice.ts:914](review-diff:packages/ice/src/ice.ts:914)）、`close()`（[packages/ice/src/ice.ts:2308](review-diff:packages/ice/src/ice.ts:2308)）です。次の `restart()` も `carriedChecks` を空にします。rollback は staged generation を先に捨てるため、退避する対象がありません。
+- [packages/ice/src/ice.ts:770](review-diff:packages/ice/src/ice.ts:commit:0767eeacb:770): `restart()` は `end()` の前に記録を退避します。pranswer で checks を始めた（`started`）generation は対象外です。
+- [packages/ice/src/ice.ts:983](review-diff:packages/ice/src/ice.ts:commit:0767eeacb:983): `commitLocalCredentials()` は、退避した ufrag が commit する ufrag と一致し、`earlyChecksDone` が false のときだけ `carriedChecks` に移します。
+- [packages/ice/src/ice.ts:1946](review-diff:packages/ice/src/ice.ts:commit:0767eeacb:1946): `connect()` は通常の `earlyChecks` より先に再生します。送信元が answer の remote ufrag と一致しない check は捨てます。
+- 再生した check には、early check と同じく `settleSpedUnconfirmed` と `maybeSendSpedFallback` を適用します（[packages/ice/src/ice.ts:1961](review-diff:packages/ice/src/ice.ts:commit:6e6d2d4ae:1961)）。restart は SPED runtime を reset するため、新しい generation でも SPED が動きます。session が fallback になっていれば、再生で学んだ経路へ handshake の flight を直送します。
+- 破棄する経路は、置き換えの offer（[packages/ice/src/ice.ts:942](review-diff:packages/ice/src/ice.ts:commit:0767eeacb:942)）、`restartRemote()`（[packages/ice/src/ice.ts:914](review-diff:packages/ice/src/ice.ts:commit:0767eeacb:914)）、`close()`（[packages/ice/src/ice.ts:2308](review-diff:packages/ice/src/ice.ts:commit:0767eeacb:2308)）です。次の `restart()` も `carriedChecks` を空にします。rollback は staged generation を先に捨てるため、退避する対象がありません。
 
 ```mermaid
 flowchart TD
   A["carriedChecks の 1 件"] --> B{"送信元 ufrag が<br/>remoteUsername と一致"}
   B -- いいえ --> X["捨てる"]
   B -- はい --> C{"受信ソケットが<br/>protocols に残る"}
-  C -- はい --> D["checkIncoming()"]
+  C -- はい --> D["checkIncoming()<br/>settleSpedUnconfirmed()<br/>maybeSendSpedFallback()"]
   C -- いいえ --> E{"relay の<br/>ソケットだった"}
   E -- はい --> F["learnPeerReflexive()<br/>応答も指名の引き継ぎもしない"]
   E -- いいえ --> X
@@ -91,18 +131,20 @@ flowchart TD
 
 ### 3.3 閉じた TURN allocation の扱い
 
-commit で TURN allocation が差し替わると、その allocation では応答できません。この場合は [packages/ice/src/ice.ts:3743](review-diff:packages/ice/src/ice.ts:3743) の `learnPeerReflexive` が相手のアドレスだけを prflx 候補にし、現在のソケットから確認します。旧 pair への指名は引き継ぎません。
+commit で TURN allocation が差し替わると、その allocation では応答できません。この場合は [packages/ice/src/ice.ts:3743](review-diff:packages/ice/src/ice.ts:commit:0767eeacb:3743) の `learnPeerReflexive` が相手のアドレスだけを prflx 候補にし、現在のソケットから確認します。旧 pair への指名は引き継ぎません。
 
 チケット 10.2 節には「今も使っているソケットに届いたものだけを再生する」とだけあり、この relay の分岐は書かれていません。`checkIncoming()` で再生しないという意味では一致しますが、アドレスは学習される点に注意してください。
 
 ### 3.4 テスト、リーク監視、changelog
 
-- [packages/ice/tests/ice/restart-early-checks.test.ts:12](review-diff:packages/ice/tests/ice/restart-early-checks.test.ts:12): 7 ケースを追加しました。内容は、主ケース（nominate と双方向のデータ）、置き換えの offer、rollback、別の remote ufrag、別 ufrag の check 64 件による容量超過、指名の保持、閉じた relay です。
-- [packages/ice/tests/utils.ts:4547](review-diff:packages/ice/tests/utils.ts:4547): 共通の Arrange です。`b` は check を終えたあと再送せず指名を待ち、answer は使える候補を持ちません。`incomingCheckTimeout` は 1 秒です。
-- [packages/webrtc/tests/pbt/leak/leakProbe.ts:491](review-diff:packages/webrtc/tests/pbt/leak/leakProbe.ts:491): leak probe に `ice.carriedChecks` を追加しました。`endedStagedChecks` の件数も合算します。
-- [changelog.md:61](review-diff:changelog.md:61): `## Unreleased` の Bug Fixes に記載しました。初回レビューでは公開済みの `v0.28.0` 節にあると指摘され、`e72cbd57e` で移しています。
+- [packages/ice/tests/ice/restart-early-checks.test.ts:12](review-diff:packages/ice/tests/ice/restart-early-checks.test.ts:commit:0767eeacb:12): 初版で 7 ケースを追加しました。内容は、主ケース（nominate と双方向のデータ）、置き換えの offer、rollback、別の remote ufrag、別 ufrag の check 64 件による容量超過、指名の保持、閉じた relay です。
+- [packages/ice/tests/utils.ts:4547](review-diff:packages/ice/tests/utils.ts:commit:0767eeacb:4547): 共通の Arrange です。`b` は check を終えたあと再送せず指名を待ち、answer は使える候補を持ちません。`incomingCheckTimeout` は 1 秒です。
+- [packages/ice/tests/ice/restart-early-checks.test.ts:184](review-diff:packages/ice/tests/ice/restart-early-checks.test.ts:commit:6e6d2d4ae:184): 再指名の 3 ケースを追加し、合計 10 ケースになりました。大きい値での置換、小さい値や通常の check で消えないこと、commit 後に A が選ばれることを確かめます。共通の準備は [packages/ice/tests/utils.ts:4664](review-file:packages/ice/tests/utils.ts:4664) の `createRenominatedBeforeAnswer` です。
+- [packages/ice/tests/sped/restart.test.ts:391](review-diff:packages/ice/tests/sped/restart.test.ts:commit:6e6d2d4ae:391): 再生した check の経路へ fallback の flight を直送するテストを追加しました。テストは fallback への移行を直接起こし、mock の `Protocol` で送信を記録します。実際の DTLS と組み合わせた restart ではありません。
+- [packages/webrtc/tests/pbt/leak/leakProbe.ts:491](review-diff:packages/webrtc/tests/pbt/leak/leakProbe.ts:commit:0767eeacb:491): leak probe に `ice.carriedChecks` を追加しました。`endedStagedChecks` の件数も合算します。
+- [changelog.md:72](review-diff:changelog.md:commit:6e6d2d4ae:72): `## Unreleased` の Bug Fixes に記載しました。初回レビューで公開済みの `v0.28.0` 節にあると指摘され、`e72cbd57e` で移しました。`6e6d2d4ae` で、指名の最大値と SPED の扱いを追記しています。
 
-`0767eeacb` と `e72cbd57e` の差は changelog とチケットだけで、コードとテストは同じです。
+ICE の行番号付き diff リンクは、コミットを固定しています。`0767eeacb` が初版の差分、`6e6d2d4ae` がレビュー指摘への追加差分で、行番号は各コミット時点のものです。HEAD の ICE ソースには、このほかに途中の develop マージ（`6c6a8b687`）が入っています。
 
 ## 4. 判断理由
 
@@ -116,42 +158,47 @@ commit で TURN allocation が差し替わると、その allocation では応�
 
 ## 5. レビュアーが確認すべき点とリスク
 
-1. **再生ループと early check の処理の違い**: [packages/ice/src/ice.ts:1949](review-file:packages/ice/src/ice.ts:1949) では `settleSpedUnconfirmed` と `maybeSendSpedFallback` を呼びません。直後の `earlyChecks` のループは呼びます。restart で SPED runtime が reset され、DTLS は張り直さないため影響は小さいという見立てですが、SPED と restart の組み合わせは未検証です。
-2. **32 件の上限が守る範囲**: 1 つの誤った ufrag からの大量の check は、別の ufrag の check を押し出しにくい作りです。一方、全送信元が 1 件ずつで満杯の場合は、先に登録された送信元の check から落ちます。テストが確かめているのは、1 つの別 ufrag から 64 件届く場合です。
-3. **挙動の変化**: answer の前に check を受けた restart では、commit 後の checklist に prflx の pair が加わります。answer に候補がある相手でも同じです。commit 時に `nominated` を捨て、再指名まで送信しない仕様は変えていません。
-4. **relay の分岐のテスト**: テストは `carriedChecks` に偽の relay `Protocol` を直接入れています。実際の TURN サーバーで allocation が差し替わる流れは通していません。
-5. **Firefox の確認範囲**: 次節のとおり、現行コードで直結確認できたのは Firefox が初回の offer を出す構成です。
-6. **別件の DTLS 不具合**: werift が初回の offer を出し、Firefox が DTLS client になる構成では、HelloVerifyRequest に Firefox が `decode_error` を返します。ベースでも再現すると報告されており、この差分は dtls に触れていません。別チケットでの調査が推奨されています。
+1. **Firefox の確認は現行コードより前の結果**: チケットの目的は Firefox との相互接続ですが、直結確認の後に `ice.ts` と `provisional.ts` を変えています。最終レビューは 18/18 を「同一コード」の結果と書いています。実際の対象は `0767eeacb` で、HEAD のコードとは異なります。チケット 9 章はすべてチェック済みですが、一部は移植前の結果に基づきます（10.4 節）。
+2. **再指名の途中経過**: commit 直後に B が一時的に選ばれ、その後 A に移ることがあります。確認はテスト内の ICE agent 同士で、実際の controlling peer との再指名は試していません。
+3. **32 件の上限が守る範囲**: 1 つの誤った ufrag からの大量の check は、別の ufrag の check を押し出しにくい作りです。一方、全送信元が 1 件ずつで満杯の場合は、先に登録された送信元の check から落ちます。テストが確かめているのは、1 つの別 ufrag から 64 件届く場合です。
+4. **挙動の変化**: answer の前に check を受けた restart では、commit 後の checklist に prflx の pair が加わります。answer に候補がある相手でも同じです。再生時には SPED の fallback flight を直送することもあります。commit 時に `nominated` を捨て、再指名まで送信しない仕様は変えていません。
+5. **relay の分岐のテスト**: テストは `carriedChecks` に偽の relay `Protocol` を直接入れています。実際の TURN サーバーで allocation が差し替わる流れは通していません。
+6. **別件の DTLS 不具合**: werift が初回の offer を出し、Firefox が DTLS client になる構成では、HelloVerifyRequest に Firefox が `decode_error` を返します。ベース `7ca1d86aa` でも再現すると報告されています（現行の `b925ad42d` での再確認は記録にありません）。この差分は dtls に触れていません。別チケットでの調査が推奨されています。
 
 ## 6. 検証結果
 
-実行者と対象リビジョンを分けて示します。「レビュー」の行はチケットのレビュー記録からの転記で、この文書の作成時には再実行していません。
+対象リビジョンごとに分けます。「この文書の作成時」以外は、レビュー記録、チケット、CI 履歴からの転記で、再実行していません。
 
-### この文書の作成時（`e72cbd57e`）
+### HEAD（`6e6d2d4ae`）
 
-- `packages/ice` で `npx vitest run tests/ice/restart-early-checks.test.ts tests/ice/provisional.test.ts`: 2 ファイル、15 件がすべて成功しました。
-- これ以外のテスト、型検査、E2E は実行していません。
+| 実行者 | 項目 | 結果 |
+| --- | --- | --- |
+| この文書の作成時 | `packages/ice` で `npx vitest run`（`tests/ice/restart-early-checks.test.ts`、`tests/ice/provisional.test.ts`、`tests/sped/restart.test.ts`） | 3 ファイル、33 件がすべて成功 |
+| 2 回目の最終承認レビュー | `restart-early-checks.test.ts` | 10 件が成功 |
+| 同上 | `packages/ice` の全テスト | 2,415 件が成功、10 件は skip |
+| 同上 | ICE deep property search | 30,800 件が成功 |
+| 同上 | `packages/ice` の型検査、`git diff --check` | 成功 |
 
-### 最終承認レビュー（`e72cbd57e`）
+### 指摘への対応時（チケット 10.6 節。`6c6a8b687` に未コミットの修正を加えた作業ツリー）
 
-| 項目 | 結果 |
-| --- | --- |
-| ICE / WebRTC テスト | 2,411 件 / 3,272 件が成功 |
-| workspace の型検査 | 成功 |
-| Chrome / DTLS E2E | 108 件が成功 |
-| ICE deep search | 50,800 件が成功 |
-| WebRTC deep search | fuzz / model / scenario と leak の構造検査は成功。heap slope の seed 2 / 4 は失敗し、develop でも同じ seed が失敗 |
-| negotiation-diff | 10 seeds × 12 steps で regressions / divergences / hangs が 0。80 seeds の実行は seed 11 で時間切れのため中断 |
+- `packages/ice` 2,415 件、`packages/webrtc` 3,322 件が成功し、`npm run type` も成功しました。
+- negotiation-diff は `b925ad42d` と比較し、seeds 11–40（各 12 steps）で regressions / divergences / hangs / transceiver state differences がすべて 0 でした。seeds 1–10 の 0 件は以前のレビューの結果で、この修正より前のものです。seeds 41–80 は実行していません。
+- チケットは、追加したテストが修正前のコードで失敗することも記録しています（再指名は 3 件中 2 件、SPED は直送されない）。この文書の作成時には再現していません。
 
-### 初回レビュー（`0767eeacb`、コードは HEAD と同じ）
+### 追加修正より前のリビジョン（参考。HEAD の結果ではない）
 
-- Firefox 157 の直結確認: ベースは 2/18、修正後は **18/18** が成功しました（3 ポリシー × `legacy` / `compatible` × 3 回）。条件は、Firefox が初回の offer を出し（werift が DTLS client）、各側が gathering の完了後に SDP を渡す方式です。restart 後の受信パケット数の増加と DataChannel の往復を確認しています。トリクルと、werift が初回の offer を出す構成は含みません。
-- 主ケースは、ベースにテストと utils だけを入れると `ICE negotiation failed` で失敗しました。
-- Chrome の restart E2E は `--retry=0` の 5 回で 10/10 が成功しました。全体は 71 件成功、6 件失敗で、失敗した relay 関連の 6 件はベースでも失敗しています。
-- heap slope の seed 2 / 4 は、この回の単独再実行ではベースと HEAD の両方で成功しました。最終レビューやチケット 10.4 節の結果（develop でも失敗）と異なるため、結果が安定しない検査として扱ってください。
+| 対象 | 項目 | 結果 |
+| --- | --- | --- |
+| `e72cbd57e` | 自動 CI の `npm run ci`（チケットの CI 履歴にある記録はこの 1 件） | 成功 |
+| `e72cbd57e` | 1 回目の最終承認レビュー: Chrome / DTLS E2E | 108 件が成功 |
+| `e72cbd57e` | 同上: WebRTC deep search | fuzz / model / scenario と leak の構造検査は成功。heap slope の seed 2 / 4 は失敗し、develop でも同じ seed が失敗 |
+| `0767eeacb` | 初回レビュー: Firefox 157 の直結確認 | ベースは 2/18、修正後は 18/18 が成功 |
+| `0767eeacb` | 同上: Chrome の E2E | restart は `--retry=0` の 5 回で 10/10 が成功。全体は 71 件成功、6 件失敗（失敗した relay 関連はベースでも失敗） |
 
-最終承認レビューは、現行コードでの Firefox 直結を再実施できていないことを懸念に挙げています。上の 18/18 は同じコードに対する初回レビューの結果で、構成は限られます。
+- Firefox の 18/18 の条件は、3 ポリシー × `legacy` / `compatible` × 3 回で、Firefox が初回の offer を出し（werift が DTLS client）、各側が gathering の完了後に SDP を渡す方式です。トリクルと、werift が初回の offer を出す構成は含みません。
+- heap slope の seed 2 / 4 は、初回レビューの単独再実行ではベースと変更後の両方で成功しました。後のレビューやチケット 10.4 節（develop でも失敗）と異なるため、結果が安定しない検査として扱ってください。
+- 移植前の別ブランチ（基準 `dc95a5a49`）では、Firefox の直結確認が 36/36、80 seeds の negotiation-diff が差分 0 でした（チケット 10.3 節）。
 
-### 移植前の参考値（`dc95a5a49` を基準にした別ブランチ）
+### HEAD で結果の記録を確認できなかったもの
 
-チケット 10.3 節では、Firefox の直結確認（vanilla とトリクル）が 36/36、80 seeds × 12 steps の negotiation-diff が差分 0 でした。チケット 9 章の完了条件の一部はこの結果に基づきます。現行コードの結果ではありません。
+Firefox の直結確認、Chrome の E2E、WebRTC の deep property search、80 seeds 全体の negotiation-diff です。Firefox の一時 harness はチケットが指す場所になく、再実行できなかったと 10.6 節に記録されています。
