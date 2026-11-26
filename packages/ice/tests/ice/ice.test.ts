@@ -9,6 +9,7 @@ import {
 } from "../../src";
 import { Candidate, candidatePriority } from "../../src/candidate";
 import { Connection } from "../../src/ice";
+import { markConnectionSpedEnabled } from "../../src/internal/sped-bind";
 import { classes, methods } from "../../src/stun/const";
 import { Message } from "../../src/stun/message";
 import type { Protocol } from "../../src/types/model";
@@ -93,6 +94,42 @@ async function assertConnectWithStunServer(stunServer: Address) {
     await a.close();
     await b.close();
   }
+}
+
+async function gatherAndExchangeTcpOnly(a: Connection, b: Connection) {
+  await a.gatherCandidates();
+  b.remoteCandidates = a.localCandidates.filter(
+    (candidate) => candidate.transport === "tcp",
+  );
+  b.remoteUsername = a.localUsername;
+  b.remotePassword = a.localPassword;
+  await b.gatherCandidates();
+  a.remoteCandidates = b.localCandidates.filter(
+    (candidate) => candidate.transport === "tcp",
+  );
+  a.remoteUsername = b.localUsername;
+  a.remotePassword = b.localPassword;
+}
+
+function delayTcpActiveRequests(connection: Connection, delayMs: number) {
+  for (const protocol of (connection as any).protocols as Protocol[]) {
+    if (protocol.localCandidate?.tcptype !== "active") {
+      continue;
+    }
+    const original = protocol.request.bind(protocol);
+    protocol.request = (async (...args: Parameters<Protocol["request"]>) => {
+      await setTimeout(delayMs);
+      return original(...args);
+    }) as Protocol["request"];
+  }
+}
+
+function expectComplementaryTcpNomination(a: Connection, b: Connection) {
+  expect(a.nominated?.localCandidate.tcptype).toBe("active");
+  expect(a.nominated?.remoteCandidate.tcptype).toBe("passive");
+  expect(b.nominated?.localCandidate.tcptype).toBe("passive");
+  expect(b.nominated?.localCandidate.host).toBe(a.nominated?.remoteAddr[0]);
+  expect(b.nominated?.localCandidate.port).toBe(a.nominated?.remoteAddr[1]);
 }
 
 describe("ice", () => {
@@ -210,14 +247,17 @@ describe("ice", () => {
 
     const request = new Message(methods.BINDING, classes.REQUEST);
     request
-      .setAttribute("USERNAME", "a:b")
+      .setAttribute("USERNAME", `${connection.localUsername}:remote-username`)
       .setAttribute("PRIORITY", 1234)
       .setAttribute("ICE-CONTROLLED", 2n);
+    request
+      .addMessageIntegrity(Buffer.from(connection.localPassword, "utf8"))
+      .addFingerprint();
 
     protocol.onRequestReceived.execute(
       request,
       ["2.3.4.5", 2345],
-      Buffer.alloc(0),
+      request.bytes,
     );
 
     expect(connection.iceControlling).toBe(false);
@@ -226,6 +266,166 @@ describe("ice", () => {
       487,
       "Role Conflict",
     ]);
+  });
+
+  test("SPED 有効時、unauthenticated Binding Request は role / filter に到達しない", async () => {
+    // Arrange: SPED の認証境界は PeerConfig.sped の connection だけに適用される
+    const connection = createTestConnection(false, { iceLite: true });
+    markConnectionSpedEnabled(connection);
+    const protocol = new ProtocolMock();
+    let filterCalled = false;
+    connection.options.filterStunResponse = () => {
+      filterCalled = true;
+      return true;
+    };
+    (connection as any).ensureProtocol(protocol);
+
+    const request = new Message(methods.BINDING, classes.REQUEST);
+    request
+      .setAttribute("USERNAME", `${connection.localUsername}:remote`)
+      .setAttribute("PRIORITY", 1)
+      .setAttribute("ICE-CONTROLLED", 2n);
+
+    // Act: HMAC 無しの raw bytes
+    protocol.onRequestReceived.execute(
+      request,
+      ["2.3.4.5", 2345],
+      request.bytes,
+    );
+
+    // Assert: 未認証は drop。role も filter も動かない
+    expect(connection.iceControlling).toBe(false);
+    expect(protocol.sentMessage).toBeUndefined();
+    expect(filterCalled).toBe(false);
+  });
+
+  test("filterStunResponse は前の generation の Binding Request にも適用される", async () => {
+    // Arrange: 前の generation の ufrag / password を userHistory に残し、filter は拒否する
+    const connection = createTestConnection(false);
+    const protocol = new ProtocolMock();
+    const filtered: string[] = [];
+    connection.options.filterStunResponse = (message) => {
+      filtered.push(message.getAttributeValue("USERNAME"));
+      return false;
+    };
+    (connection as any).userHistory["old-ufrag"] = "old-password-0123456789";
+    (connection as any).ensureProtocol(protocol);
+
+    const request = new Message(methods.BINDING, classes.REQUEST);
+    request
+      .setAttribute("USERNAME", "old-ufrag:remote")
+      .setAttribute("PRIORITY", 1);
+    request
+      .addMessageIntegrity(Buffer.from("old-password-0123456789", "utf8"))
+      .addFingerprint();
+
+    // Act: 前の generation の認証済み Binding Request を受信する
+    protocol.onRequestReceived.execute(
+      request,
+      ["2.3.4.5", 2345],
+      request.bytes,
+    );
+    await new Promise((r) => setImmediate(r));
+
+    // Assert: filter が呼ばれ、拒否されたので応答しない
+    expect(filtered).toEqual(["old-ufrag:remote"]);
+    expect(protocol.sentMessage).toBeUndefined();
+  });
+
+  test("filterStunResponse が例外を投げても Binding Request の処理は unhandled rejection にならない", async () => {
+    // Arrange: filter が例外を投げる
+    const connection = createTestConnection(false);
+    const protocol = new ProtocolMock();
+    connection.options.filterStunResponse = () => {
+      throw new Error("filter failed");
+    };
+    (connection as any).ensureProtocol(protocol);
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    const request = new Message(methods.BINDING, classes.REQUEST);
+    request
+      .setAttribute("USERNAME", `${connection.localUsername}:remote`)
+      .setAttribute("PRIORITY", 1);
+    request
+      .addMessageIntegrity(Buffer.from(connection.localPassword, "utf8"))
+      .addFingerprint();
+
+    try {
+      // Act: 認証済みの Binding Request を受信する
+      protocol.onRequestReceived.execute(
+        request,
+        ["2.3.4.5", 2345],
+        request.bytes,
+      );
+      await setTimeout(20);
+
+      // Assert: 例外はログに留まり、応答もしない
+      expect(unhandled).toEqual([]);
+      expect(protocol.sentMessage).toBeUndefined();
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
+  test("SPED 無効時は ':' の無い USERNAME の Binding Request にも従来どおり応答し、SPED 有効時は応答しない", async () => {
+    // Arrange: SPED 無効と有効の connection
+    const plain = createTestConnection(false);
+    const sped = createTestConnection(false);
+    markConnectionSpedEnabled(sped);
+    const plainProtocol = new ProtocolMock();
+    const spedProtocol = new ProtocolMock();
+    (plain as any).ensureProtocol(plainProtocol);
+    (sped as any).ensureProtocol(spedProtocol);
+    const requestFor = (connection: Connection) => {
+      const request = new Message(methods.BINDING, classes.REQUEST);
+      request
+        .setAttribute("USERNAME", connection.localUsername)
+        .setAttribute("PRIORITY", 1);
+      request
+        .addMessageIntegrity(Buffer.from(connection.localPassword, "utf8"))
+        .addFingerprint();
+      return request;
+    };
+
+    // Act: ':' の無い USERNAME の check を受信する
+    const plainRequest = requestFor(plain);
+    const spedRequest = requestFor(sped);
+    plainProtocol.onRequestReceived.execute(
+      plainRequest,
+      ["2.3.4.5", 2345],
+      plainRequest.bytes,
+    );
+    spedProtocol.onRequestReceived.execute(
+      spedRequest,
+      ["2.3.4.5", 2345],
+      spedRequest.bytes,
+    );
+    await setTimeout(20);
+
+    // Assert: SPED 無効は USERNAME 全体を local ufrag として応答し、SPED 有効は破棄する
+    expect(plainProtocol.sentMessage?.messageClass).toBe(classes.RESPONSE);
+    expect(spedProtocol.sentMessage).toBeUndefined();
+  });
+
+  test("datagram event の購読者がいなければ受信データグラムごとの pair 解決をしない", () => {
+    // Arrange: SPED の datagram event を購読しない connection
+    const connection = createTestConnection(false);
+    const protocol = new ProtocolMock();
+    (connection as any).ensureProtocol(protocol);
+    const resolve = vi.spyOn(connection as any, "resolveDatagramPair");
+    const received: Buffer[] = [];
+    connection.onData.subscribe((data) => received.push(data));
+
+    // Act: データグラムを受信する
+    protocol.onDataReceived.execute(Buffer.from([0x80, 1, 2]), [
+      "2.3.4.5",
+      2345,
+    ]);
+
+    // Assert: 公開 onData には届くが、SPED 用の pair 解決は走らない
+    expect(received).toHaveLength(1);
+    expect(resolve).not.toHaveBeenCalled();
   });
 
   test("test_connect", async () => {
@@ -323,6 +523,7 @@ describe("ice", () => {
       expect(b.nominated?.localCandidate.transport).toBe("tcp");
       expect(b.nominated?.remoteCandidate.transport).toBe("tcp");
       expect(b.nominated?.protocol.type).toBe("tcp");
+      expect(b.nominated?.localCandidate.tcptype).toBe("passive");
       expect(
         b.remoteCandidates.some(
           (candidate) =>
@@ -383,6 +584,121 @@ describe("ice", () => {
       await b.close();
     }
   });
+
+  test("test_connect_tcp_passive_check_completes_before_active", async () => {
+    const a = createTestConnection(true, {
+      useTcp: true,
+      useIpv6: false,
+      stunServer: undefined,
+    });
+    const b = createTestConnection(false, {
+      useTcp: true,
+      useIpv6: false,
+      stunServer: undefined,
+    });
+
+    try {
+      // Arrange: controlling の local-active check を遅らせ、reverse path が先に成功する
+      await gatherAndExchangeTcpOnly(a, b);
+      delayTcpActiveRequests(a, 80);
+      await Promise.all([
+        a.addRemoteCandidate(undefined),
+        b.addRemoteCandidate(undefined),
+      ]);
+
+      // Act
+      await Promise.all([a.connect(), b.connect()]);
+
+      // Assert: 応答順が逆転しても同一 TCP connection の対を選ぶ
+      expectComplementaryTcpNomination(a, b);
+      await a.send(Buffer.from("howdee over tcp"));
+      const [data] = await b.onData.asPromise();
+      await b.send(Buffer.from("gotcha over tcp"));
+      const [echo] = await a.onData.asPromise();
+      expect(data.toString()).toBe("howdee over tcp");
+      expect(echo.toString()).toBe("gotcha over tcp");
+    } finally {
+      await a.close();
+      await b.close();
+    }
+  });
+
+  test("test_connect_tcp_controlling_passive_only_path", async () => {
+    const a = createTestConnection(true, {
+      useTcp: true,
+      tcpPassive: true,
+      useIpv6: false,
+      stunServer: undefined,
+    });
+    const b = createTestConnection(false, {
+      useTcp: true,
+      tcpPassive: false,
+      useIpv6: false,
+      stunServer: undefined,
+    });
+
+    try {
+      // Arrange: B は listener 無し。成立するのは A local-passive × B local-active だけ
+      await gatherAndExchangeTcpOnly(a, b);
+      expect(
+        a.localCandidates.some((candidate) => candidate.tcptype === "passive"),
+      ).toBe(true);
+      expect(
+        b.localCandidates.some((candidate) => candidate.tcptype === "passive"),
+      ).toBe(false);
+      await Promise.all([
+        a.addRemoteCandidate(undefined),
+        b.addRemoteCandidate(undefined),
+      ]);
+
+      // Act
+      await Promise.all([a.connect(), b.connect()]);
+
+      // Assert: controlling は local-passive を nominate でき、同一 TCP connection で双方向に届く
+      expect(a.nominated?.localCandidate.tcptype).toBe("passive");
+      expect(b.nominated?.localCandidate.tcptype).toBe("active");
+      expect(b.nominated?.remoteAddr[0]).toBe(a.nominated?.localCandidate.host);
+      expect(b.nominated?.remoteAddr[1]).toBe(a.nominated?.localCandidate.port);
+      await a.send(Buffer.from("howdee over tcp"));
+      const [data] = await b.onData.asPromise();
+      await b.send(Buffer.from("gotcha over tcp"));
+      const [echo] = await a.onData.asPromise();
+      expect(data.toString()).toBe("howdee over tcp");
+      expect(echo.toString()).toBe("gotcha over tcp");
+    } finally {
+      await a.close();
+      await b.close();
+    }
+  });
+
+  test("test_connect_tcp_passive_listener_fails_without_incoming", async () => {
+    const connection = createTestConnection(true, {
+      incomingCheckTimeout: 0.1,
+      useTcp: true,
+      tcpPassive: true,
+      useIpv6: false,
+      stunServer: undefined,
+    });
+
+    try {
+      // Arrange: local passive listener あり、remote は active TCP だが incoming check は来ない
+      await connection.gatherCandidates();
+      connection.remoteUsername = "foo";
+      connection.remotePassword = "bar";
+      connection.remoteCandidates = [
+        Candidate.fromSdp(
+          "6815297761 1 tcp 659136 192.0.2.1 9 typ host tcptype active generation 0",
+        ),
+      ];
+
+      // Act / Assert: known checks が尽きたあと、incomingCheckTimeout だけ inbound TCP を待って ICE_FAILED になる
+      await expect(connection.connect()).rejects.toThrow(
+        "ICE negotiation failed",
+      );
+    } finally {
+      await connection.close();
+    }
+  }, 15_000);
 
   // test("test_connect_two_components", async () => {
   //   const a = new Connection(true, { components: 2 });
@@ -643,7 +959,8 @@ describe("ice", () => {
 
   test("test_connect_no_remote_candidates", async () =>
     new Promise<void>(async (done) => {
-      const conn = createTestConnection(true);
+      // 空の check list は相手からの check を incomingCheckTimeout だけ待ってから失敗する。
+      const conn = createTestConnection(true, { incomingCheckTimeout: 0.1 });
 
       await conn.gatherCandidates();
       conn.remoteCandidates = [];
@@ -938,6 +1255,64 @@ describe("ice", () => {
 
     await full.close();
     await lite.close();
+  });
+
+  test("USE-CANDIDATE 到着後も Binding Response 前は application data を送らない", async () => {
+    // Arrange: controlled 側の triggered check を応答待ちにしておく。
+    const connection = createTestConnection(false);
+    connection.remoteUsername = "remote";
+    connection.remotePassword = "remote-password";
+    const protocol = new ProtocolMock();
+    const remoteCandidate = new Candidate(
+      "remote-foundation",
+      1,
+      "udp",
+      1,
+      "2.3.4.5",
+      2345,
+      "host",
+    );
+    const remoteAddr: Address = ["2.3.4.5", 2345];
+    connection.remoteCandidates = [remoteCandidate];
+    const pair = new CandidatePair(protocol, remoteCandidate, false);
+    pair.updateState(CandidatePairState.WAITING);
+    connection.checkList.push(pair);
+    connection.state = "connected";
+    let release!: (value: [Message, Address]) => void;
+    protocol.request = async () =>
+      new Promise((resolve) => {
+        release = resolve;
+      });
+    const sendData = vi.spyOn(protocol, "sendData");
+    const request = new Message(methods.BINDING, classes.REQUEST);
+    request
+      .setAttribute("USERNAME", `${connection.localUsername}:remote`)
+      .setAttribute("USE-CANDIDATE", null)
+      .setAttribute("PRIORITY", 1);
+
+    // Act: nomination request を受けるが、対応する成功応答は保留する。
+    connection.checkIncoming(request, remoteAddr, protocol);
+    await Promise.resolve();
+    await connection.send(Buffer.from("before-response"));
+
+    // Assert: pair は IN_PROGRESS のままで、application data は wire に出ない。
+    expect(pair.remoteNominated).toBe(true);
+    expect(pair.state).toBe(CandidatePairState.IN_PROGRESS);
+    expect(pair.responsesReceived).toBe(0);
+    expect(connection.canSendApplicationData()).toBe(false);
+    expect(sendData).not.toHaveBeenCalled();
+
+    // Act: 成功応答を解放して pair を確立する。
+    release([
+      new Message(methods.BINDING, classes.RESPONSE, request.transactionId),
+      remoteAddr,
+    ]);
+    await pair.handle?.awaitable;
+
+    // Assert: successful response 後は nomination/consent が成立する。
+    expect(pair.state).toBe(CandidatePairState.SUCCEEDED);
+    expect(pair.nominated).toBe(true);
+    await connection.close();
   });
 });
 

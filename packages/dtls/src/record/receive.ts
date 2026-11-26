@@ -3,9 +3,17 @@ import type { CipherContext } from "../context/cipher";
 import type { DtlsContext } from "../context/dtls";
 import { Alert } from "../handshake/message/alert";
 import { debug } from "../imports/common";
+import { DtlsVersion, normalizeProtocolVersions } from "../version";
 import { alertDescName, ContentType } from "./const";
 import { FragmentedHandshake } from "./message/fragment";
 import { DtlsPlaintext } from "./message/plaintext";
+
+/** Whether the association offers DTLS 1.3 (dual-version probing). */
+function offersDtls13(dtls: DtlsContext): boolean {
+  return normalizeProtocolVersions(dtls.options.protocolVersions).includes(
+    DtlsVersion.V1_3,
+  );
+}
 
 const log = debug("werift-dtls : packages/dtls/record/receive.ts : log");
 const err = debug("werift-dtls : packages/dtls/record/receive.ts : err");
@@ -97,40 +105,36 @@ export const parsePlainText =
         return [{ type: ContentType.applicationData, data }];
       }
       case ContentType.alert: {
-        // The record epoch tells whether the alert is protected: epoch 0 is
-        // plaintext (before ChangeCipherSpec), epoch > 0 is encrypted. A
-        // record that fails to decrypt throws and is dropped by the caller
-        // (RFC 6347 §4.1.2.1: invalid records are silently discarded).
+        // Older record epochs cannot carry lifecycle alerts after authenticated
+        // protected traffic has advanced the peer epoch.
         const epoch = plain.recordLayerHeader.epoch;
-        // Once the peer's protected records were accepted, a plaintext (or
-        // older-epoch) alert is unauthenticated and must not end the
-        // connection: drop it.
         if (epoch < dtls.remoteEpoch) {
           throw new Error("alert from a stale epoch");
         }
-        const raw = epoch > 0 ? cipher.decryptPacket(plain) : plain.fragment;
+        let raw = plain.fragment;
         if (epoch > 0) {
-          dtls.remoteEpoch = Math.max(dtls.remoteEpoch, epoch);
+          try {
+            raw = cipher.decryptPacket(plain);
+            dtls.remoteEpoch = Math.max(dtls.remoteEpoch, epoch);
+          } catch (error) {
+            // During dual-version probing (this side offers DTLS 1.3), epoch>0
+            // may be a structurally valid pre-key alert; retain that
+            // compatibility only before local keys. A DTLS 1.2-only
+            // association discards a record that fails to decrypt
+            // (RFC 6347 §4.1.2.1).
+            if (dtls.epoch > 0 || !offersDtls13(dtls)) throw error;
+            raw = plain.fragment;
+          }
         }
-        if (raw.length < 2) {
-          throw new Error("malformed alert record");
-        }
-        // A record may carry several alerts (RFC 5246 §6.2.1, unchanged by
-        // RFC 6347 §4.1): return all of them in order. The receiver stops at
-        // the first one that ends the connection. A trailing partial alert
-        // cannot be reassembled across DTLS records and is dropped.
+        if (raw.length < 2) throw new Error("malformed alert record");
         const alerts: { type: ContentType; data: DtlsAlert }[] = [];
         for (let start = 0; start + 2 <= raw.length; start += 2) {
           const alert = Alert.deSerialize(raw.subarray(start, start + 2));
-          log(
+          err(
             dtls.sessionId,
             "ContentType.alert",
             alert,
             alertDescName(alert.description),
-            "flight",
-            dtls.flight,
-            "lastFlight",
-            dtls.lastFlight,
           );
           alerts.push({
             type: ContentType.alert,

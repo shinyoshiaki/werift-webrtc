@@ -18,14 +18,24 @@ dist
 *.m4a
 credential.env
 __screenshots__
+.vitest
 .env
 packages/webrtc/wpt/progress.state.json
 packages/webrtc/wpt/progress.md
+packages/dtls/tests/e2e/boringssl/dtls13_echo
+packages/dtls/tests/e2e/boringssl/*.o
+packages/dtls/tests/e2e/boringssl/.built-revision
+packages/dtls/third_party/
 
 .cache/
 artifacts/
 e2e/.playwright-browsers/
 .sak
+packages/ice/tools/pion-sped/pion-sped
+packages/ice/tools/pion-ice-agent/pion-ice-agent
+packages/webrtc/tools/pion-webrtc-sped/pion-webrtc-sped
+packages/dtls/tools/boringssl-dtls13/dtls13_echo
+packages/dtls/report.*.json
 report.2*.json
 report.*.json
 **/report.*.json
@@ -34,3 +44,6 @@ report.*.json
 __pycache__/
 *.py[cod]
 .vitest/
+
+# pbt:deep --baseline test worktrees (packages/pbt/tests/utils.ts)
+packages/pbt/tests/fixtures/.worktree-*/

@@ -6,6 +6,8 @@ export class IceTransport implements Transport {
   private ice: Connection;
 
   closed: boolean = false;
+  /** ICE selected pair is peer-authenticated (no UDP 5-tuple on RX). */
+  readonly peerAuthenticated = true;
   constructor(ice: Connection) {
     this.ice = ice;
     ice.onData.subscribe((buf) => {

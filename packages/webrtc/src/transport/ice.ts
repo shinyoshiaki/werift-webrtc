@@ -4,7 +4,9 @@ import {
   Connection,
   type IceCandidateErrorInfo,
   type IceConnection,
+  IceGatheringErrorReason,
   type IceOptions,
+  IceRestartedError,
   isCandidateAllowedByGatherOptions,
   mergeIceServerOptions,
 } from "../../../ice/src";
@@ -177,6 +179,15 @@ export class RTCIceTransport {
    * @internal
    */
   checksStarted = false;
+  /**
+   * Counts the ends of the remote generation (restart(),
+   * resetRemoteGeneration()). Whoever awaits the checks of a generation
+   * (start(), `TransportActivation`) compares it before and after: once it
+   * changed, the outcome belongs to a replaced generation and changes no
+   * state; the new generation's own start reports it.
+   * @internal
+   */
+  checksGeneration = 0;
   private renominating = false;
   /**
    * The restart generation selected for the description being created or
@@ -222,6 +233,16 @@ export class RTCIceTransport {
   readonly onIceCandidateError = new Event<[IceCandidateErrorDetails]>();
   /** URLs of a STUN / TURN server that answered while gathering (see RTCIceGatherer.onIceServerReached). */
   readonly onIceServerReached = new Event<[string[]]>();
+  /**
+   * The current generation's gathering reported an error (werift extension,
+   * not W3C; see RTCIceGatherer.onGatheringError).
+   * @see packages/webrtc/tests/transport/iceGatheringError.test.ts「RTCIceTransport.onGatheringError reports the same reasons」
+   * @see packages/webrtc/tests/transport/iceGatheringError.test.ts「nothing is reported after close」
+   * @see packages/webrtc/tests/transport/iceGatheringError.test.ts「a throwing transport onGatheringError listener does not stop the later ones」
+   */
+  readonly onGatheringError = new Event<[IceGatheringErrorDetails]>({
+    onListenerError: (error) => log("onGatheringError listener threw", error),
+  });
   readonly onNegotiationNeeded = new Event<[]>();
 
   constructor(iceGather: RTCIceGatherer) {
@@ -241,6 +262,10 @@ export class RTCIceTransport {
     this.iceGather.onIceServerReached = (urls) => {
       if (this.state === "closed") return;
       this.onIceServerReached.execute(urls);
+    };
+    this.iceGather.onGatheringError = (details) => {
+      if (this.state === "closed") return;
+      this.onGatheringError.execute(details);
     };
     this.iceGather.onGatheringStateChange.subscribe(() => {
       this.ongatheringstatechange?.();
@@ -615,6 +640,9 @@ export class RTCIceTransport {
     staged.endDeferred = undefined;
     // The kept sockets are re-advertised synchronously; nothing here waits
     // for a server, so the commit never holds the new generation's checks.
+    // The checks may thus start while this gathering still runs: an ICE-lite
+    // agent then waits on its empty check list until the gathering ends
+    // (Connection.waitForIncomingCheck wakes on that end).
     const gathering = this.gather();
     if (regather) {
       void gathering.catch((error) => log("restart gathering failed", error));
@@ -784,25 +812,29 @@ export class RTCIceTransport {
    */
   resetRemoteGeneration() {
     if (!this.connection.restartRemote) return;
+    this.checksGeneration++;
     this.connection.restartRemote();
-    this.setState("new");
+    // Reset before the event: a "new" subscriber may start the generation.
     this.waitStart = undefined;
     this.startPromise = undefined;
     this.checksStarted = false;
+    this.setState("new");
   }
 
   restart(notifyNegotiation = true, applyNextGatherIceServers = true) {
     this.iceRestarts++;
+    this.checksGeneration++;
     this.connection.restart();
     const servers = this.nextGatherIceServers;
     if (servers && applyNextGatherIceServers) this.setIceServers(servers);
+    // Reset before the events: a subscriber may start the new generation.
+    this.waitStart = undefined;
+    this.startPromise = undefined;
+    this.checksStarted = false;
     this.setState("new");
     // Use setGatheringState so onGatheringStateChange fires and the
     // SecureTransportManager aggregate iceGatheringState stays in sync.
     this.iceGather.setGatheringState("new");
-    this.waitStart = undefined;
-    this.startPromise = undefined;
-    this.checksStarted = false;
     if (notifyNegotiation) this.onNegotiationNeeded.execute();
   }
 
@@ -818,25 +850,44 @@ export class RTCIceTransport {
     // their result. Waiting for the event and then continuing would start a
     // second connection attempt after the first one settles.
     if (this.startPromise) return this.startPromise;
+    // The request is bound to its generation and registered before any
+    // event: a "checking" subscriber may restart (a new generation, whose
+    // own start() runs its checks) or call start() again (it shares this).
+    const generation = this.checksGeneration;
     const waitStart = new Event<[]>();
     this.waitStart = waitStart;
     this.checksStarted = true;
-
-    this.setState("checking");
     const startPromise = Promise.resolve()
-      .then(() => this.connection.connect())
+      .then(() => {
+        // connect() runs a microtask later: a restart in between (restart(),
+        // resetRemoteGeneration()) ended this start's generation, and the
+        // connect() would check the next one (whose own start() runs it).
+        if (this.checksGeneration !== generation) {
+          throw new IceRestartedError();
+        }
+        // stop() in between closed the agent: no check starts.
+        if (this.state === "closed") {
+          throw new Error("RTCIceTransport is closed");
+        }
+        return this.connection.connect();
+      })
       .catch((error) => {
-        this.setState("failed");
+        // Once a restart replaced this generation (it already set "new"),
+        // the outcome of its checks says nothing about the new one.
+        if (this.checksGeneration === generation) this.setState("failed");
         throw error;
       })
       .finally(() => {
         // A failed start releases its waiters too.
-        waitStart.execute();
-        waitStart.complete();
+        if (!waitStart.ended) {
+          waitStart.execute();
+          waitStart.complete();
+        }
         if (this.waitStart === waitStart) this.waitStart = undefined;
         if (this.startPromise === startPromise) this.startPromise = undefined;
       });
     this.startPromise = startPromise;
+    this.setState("checking");
     return startPromise;
   }
 
@@ -866,6 +917,7 @@ export class RTCIceTransport {
     this.onIceCandidate.complete();
     this.onIceCandidateError.complete();
     this.onIceServerReached.complete();
+    this.onGatheringError.complete();
     this.onNegotiationNeeded.complete();
   }
 
@@ -988,6 +1040,20 @@ export type IceCandidateErrorDetails = {
   errorText: string;
 };
 
+/**
+ * A gathering error of an ICE transport (werift extension, not W3C): the
+ * `IceGatheringErrorInfo` of the ICE agent without its generation.
+ * @see packages/webrtc/tests/transport/iceGatheringError.test.ts「without STUN / TURN: gathering completes with end-of-candidates and both reasons are reported」
+ */
+export type IceGatheringErrorDetails = {
+  /** Why (new reasons may be added: handle unknown values). */
+  reason: IceGatheringErrorReason;
+  /** Human-readable description, for logs. Not a stable identifier. */
+  errorText: string;
+  /** The original exception, when there is one. */
+  cause?: unknown;
+};
+
 export class RTCIceGatherer {
   private options: Partial<IceOptions>;
 
@@ -1002,9 +1068,18 @@ export class RTCIceGatherer {
    * an error response): called with the URLs naming it.
    */
   onIceServerReached: (urls: string[]) => void = () => {};
+  /**
+   * The current generation's gathering reported an error (see
+   * {@link IceGatheringErrorDetails}).
+   * @see packages/webrtc/tests/transport/iceGatheringError.test.ts「of an ICE agent without onGatheringError: gathering-failed is reported and the gathering completes」
+   * @see packages/webrtc/tests/transport/iceGatheringError.test.ts「of an agent that reported gathering-failed itself: it is not reported twice」
+   */
+  onGatheringError: (details: IceGatheringErrorDetails) => void = () => {};
   gatheringState: IceGathererState = "new";
   readonly connection: IceConnection;
   private unreachableUrls = { generation: -1, urls: new Set<string>() };
+  /** @see packages/webrtc/tests/transport/iceGatheringError.test.ts「of an agent that reported gathering-failed itself: it is not reported twice」 */
+  private failureReportedGeneration = -1;
 
   readonly onGatheringStateChange = new Event<[IceGathererState]>();
 
@@ -1028,6 +1103,22 @@ export class RTCIceGatherer {
       } catch (error) {
         log("onIceServerReached listener threw", error);
       }
+    });
+    this.connection.onGatheringError?.subscribe((info) => {
+      if (
+        info.generation !== this.connection.generation ||
+        this.connection.state === "closed"
+      ) {
+        return;
+      }
+      if (info.reason === IceGatheringErrorReason.gatheringFailed) {
+        this.failureReportedGeneration = info.generation;
+      }
+      this.reportGatheringError({
+        reason: info.reason,
+        errorText: info.errorText,
+        ...(info.cause !== undefined ? { cause: info.cause } : {}),
+      });
     });
     this.connection.onIceCandidateError?.subscribe((info) => {
       // Only the generation gathering now (the ICE agent drops stale ones).
@@ -1070,7 +1161,34 @@ export class RTCIceGatherer {
     if (this.gatheringState === "new") {
       this.setState("gathering");
       const generation = this.connection.generation;
-      await this.connection.gatherCandidates();
+      const complete = () => {
+        this.onIceCandidate(undefined);
+        this.setState("complete");
+      };
+      try {
+        await this.connection.gatherCandidates();
+      } catch (error) {
+        // テスト: iceGatheringError.test.ts「of an ICE agent without onGatheringError」
+        if (this.connection.generation === generation) {
+          if (this.connection.state === "closed") {
+            this.setState("complete");
+          } else {
+            if (this.failureReportedGeneration !== generation) {
+              this.failureReportedGeneration = generation;
+              this.reportGatheringError({
+                reason: IceGatheringErrorReason.gatheringFailed,
+                errorText: `gathering failed: ${
+                  error instanceof Error ? error.message : String(error)
+                }`,
+                cause: error,
+              });
+            }
+            // テスト: iceGatheringError.test.ts「of an agent restarted by the gathering-failed listener」
+            if (!this.gatheringReplaced(generation)) complete();
+          }
+        }
+        throw error;
+      }
       // ICE restart で世代が置き換わった場合は新世代自身の完了通知に任せる。
       if (this.connection.generation !== generation) return;
       // gathering 中に閉じた transport は候補を終え、集約状態を先へ進める。
@@ -1081,10 +1199,6 @@ export class RTCIceGatherer {
       const replaced = () =>
         this.connection.generation !== generation ||
         this.connection.state === "closed";
-      const complete = () => {
-        this.onIceCandidate(undefined);
-        this.setState("complete");
-      };
       if (
         this.connection.localCandidatesEnd ||
         !this.connection.waitForLocalCandidatesEnd
@@ -1106,6 +1220,22 @@ export class RTCIceGatherer {
 
   setIceServers(options: Partial<IceOptions>) {
     this.connection.setIceServers(options);
+  }
+
+  /** @see packages/webrtc/tests/transport/iceGatheringError.test.ts「of an agent restarted by the gathering-failed listener: the new generation is not completed」 */
+  private gatheringReplaced(generation: number) {
+    return (
+      this.connection.generation !== generation ||
+      this.connection.state === "closed"
+    );
+  }
+
+  private reportGatheringError(details: IceGatheringErrorDetails) {
+    try {
+      this.onGatheringError(details);
+    } catch (error) {
+      log("onGatheringError listener threw", error);
+    }
   }
 
   /**

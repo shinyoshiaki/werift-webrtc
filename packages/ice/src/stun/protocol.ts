@@ -1,3 +1,5 @@
+import { isIP } from "node:net";
+
 import type { Address, InterfaceAddresses } from "../../../common/src/network";
 import type { Candidate } from "../candidate";
 import { TransactionCancelled } from "../exceptions";
@@ -12,6 +14,50 @@ import {
 } from "./transaction";
 
 const log = debug("werift-ice : packages/ice/src/stun/protocol.ts");
+
+/**
+ * Send errors (`code` of the Node.js error) that say the path itself is
+ * gone, not that a packet was lost: no route to the network or host, the
+ * network or host is down, the local address went away, or a local firewall
+ * refuses it. `Protocol.onPathBroken` reports them.
+ */
+export const PATH_BROKEN_SEND_ERRORS: ReadonlySet<string> = new Set([
+  "ENETUNREACH",
+  "EHOSTUNREACH",
+  "ENETDOWN",
+  "EHOSTDOWN",
+  "EADDRNOTAVAIL",
+  "EPERM",
+]);
+
+/** `error` is a send error in {@link PATH_BROKEN_SEND_ERRORS}. */
+export const isPathBrokenSendError = (error: unknown): error is Error =>
+  error instanceof Error &&
+  PATH_BROKEN_SEND_ERRORS.has((error as NodeJS.ErrnoException).code ?? "");
+
+/**
+ * Minimum time (ms) between two application-data datagrams of one socket
+ * sent with `confirm` (see {@link DataSendConfirmation}). werift's own value.
+ */
+export const DATA_SEND_CONFIRM_INTERVAL_MS = 100;
+
+/**
+ * Which application-data datagrams of one socket are sent with `confirm`:
+ * one per {@link DATA_SEND_CONFIRM_INTERVAL_MS}. Node.js reports a datagram's
+ * send error only to a completion callback, which costs a round of the event
+ * loop per packet; confirming a sample tells a path that is gone within that
+ * interval while data flows, at a bounded cost.
+ */
+export class DataSendConfirmation {
+  private lastAt = Number.NEGATIVE_INFINITY;
+
+  /** The datagram sent now is one to confirm. */
+  due(now = Date.now()) {
+    if (now - this.lastAt < DATA_SEND_CONFIRM_INTERVAL_MS) return false;
+    this.lastAt = now;
+    return true;
+  }
+}
 
 export class StunProtocol implements Protocol {
   static readonly type = "stun";
@@ -29,6 +75,9 @@ export class StunProtocol implements Protocol {
 
   readonly onRequestReceived = new Event<[Message, Address, Buffer]>();
   readonly onDataReceived = new Event<[Buffer, Address]>();
+  /** See `Protocol.onPathBroken`: a datagram to that address could not be sent. */
+  readonly onPathBroken = new Event<[Address | undefined, Error]>();
+  private readonly dataConfirmation = new DataSendConfirmation();
 
   constructor() {}
 
@@ -102,8 +151,14 @@ export class StunProtocol implements Protocol {
     }
 
     const data = message.bytes;
-    await this.transport.send(data, addr).catch(() => {
-      log("sendStun failed", addr, message);
+    // Confirmed: a STUN message is rare enough to wait for the OS, and its
+    // send error tells a path that is gone (application data is not
+    // confirmed, for speed).
+    await this.transport.send(data, addr, { confirm: true }).catch((error) => {
+      log("sendStun failed", addr, message, error);
+      if (isPathBrokenSendError(error)) {
+        this.onPathBroken.execute(addr, error);
+      }
     });
   }
 
@@ -112,7 +167,24 @@ export class StunProtocol implements Protocol {
       return;
     }
 
-    await this.transport.send(data, addr);
+    if (!this.dataConfirmation.due()) {
+      await this.transport.send(data, addr);
+      return;
+    }
+    try {
+      await this.transport.send(data, addr, { confirm: true });
+    } catch (error) {
+      if (isPathBrokenSendError(error)) {
+        this.onPathBroken.execute(addr, error);
+      }
+      // A datagram to an IP address reported no error before `confirm` (the
+      // callers do not expect one); a hostname's lookup error still rejects.
+      if (isIP(addr[0]) !== 0) {
+        log("sendData failed", addr, error);
+        return;
+      }
+      throw error;
+    }
   }
 
   async request(
@@ -172,5 +244,6 @@ export class StunProtocol implements Protocol {
     await this.transport.close();
     this.onRequestReceived.complete();
     this.onDataReceived.complete();
+    this.onPathBroken.complete();
   }
 }

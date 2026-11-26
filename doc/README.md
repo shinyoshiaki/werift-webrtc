@@ -20,6 +20,78 @@ werift is designed so application code can use the familiar browser WebRTC model
 
 A small number of intentional or known edge-case differences remain for backward compatibility or unsupported legacy APIs. See [Browser API compatibility](_media/browser-api-compatibility.md) for those differences and the WPT strategy used to track exact browser behavior.
 
+## DTLS 1.3 opt-in
+
+Default `new RTCPeerConnection()` still uses DTLS 1.2 only. DTLS 1.3 is an explicit opt-in via `dtls.protocolVersions`. SPED (DTLS handshake in ICE Binding) is a separate opt-in via `sped: true` (default false) and requires DTLS 1.3; the constructor and `setConfiguration()` reject `sped: true` without it.
+
+On the ICE-selected path, DTLS 1.3 omits the HelloRetryRequest cookie exchange by default so the handshake does not pay an extra RTT. Set `dtls.helloRetryRequest: true` only when you want a cookie-bearing HRR. Group-only HRR for `key_share` correction is unrelated and may still be sent.
+
+```ts
+import { DtlsVersion, RTCPeerConnection } from "werift";
+
+// DTLS 1.3 only
+const dtls13 = new RTCPeerConnection({
+  dtls: { protocolVersions: [DtlsVersion.V1_3] },
+});
+
+// DTLS 1.3 preferred, DTLS 1.2 fallback
+const dual = new RTCPeerConnection({
+  dtls: {
+    protocolVersions: [DtlsVersion.V1_3, DtlsVersion.V1_2],
+  },
+});
+
+// Cookie HRR (adds 1 RTT; not the WebRTC default)
+const cookieHrr = new RTCPeerConnection({
+  dtls: {
+    protocolVersions: [DtlsVersion.V1_3],
+    helloRetryRequest: true,
+  },
+});
+```
+
+`getStats()` transport `tlsVersion` is `"DTLS 1.2"` or `"DTLS 1.3"`. Successful DTLS 1.3 reports `dtlsCipher` `"TLS_AES_128_GCM_SHA256"`.
+
+## SPED opt-in
+
+`PeerConfig.sped` defaults to `false`: ICE completes, then DTLS starts. Set `sped: true` together with DTLS 1.3 so this PeerConnection embeds the DTLS 1.3 handshake in authenticated ICE Binding attributes (`0xC070` / `0xC071`). The `RTCPeerConnection` constructor and `setConfiguration()` throw synchronously (and leave the configuration unchanged) if `sped` is true and `dtls.protocolVersions` does not include `"1.3"`. Against a peer without SPED (no `0xC070` in its first authenticated Binding) the first DTLS flight is sent directly with the same bytes, never re-serialized. If `dtls.protocolVersions` also offers `"1.2"`, a dual-stack client's first ClientHello carries the DTLS 1.2 extensions, so a DTLS 1.2-only peer answers it and still connects over DTLS 1.2. SPED is not carried over relay / TURN: when ICE selects such a pair before the peer's SPED support is known, DTLS goes direct on that pair in the same way. `sped: true` cannot be combined with `dtls.helloRetryRequest: true` (SPED uses ICE-authenticated address validation, not a DTLS cookie); this is rejected the same way. Only a `sped: true` PeerConnection applies the SPED request boundary on its ICE agent: incoming Binding requests must carry a valid `MESSAGE-INTEGRITY` (others are dropped), a check carrying an older generation's ufrag is answered without touching the current checklist, and checks arriving before `connect()` are paired at once and held until it. Without `sped` the ICE agent keeps its default request handling.
+
+A `sped: true` PeerConnection advertises `a=ice-options:sped` in its offers and answers. draft-hancke-webrtc-sped-00 negotiates SPED in band, but Chromium (field trial `WebRTC-IceHandshakeDtls/Enabled/`) and Pion (pion/webrtc#3362) use SPED only when the offer advertises `sped`. werift has been checked against both with SPED on, in both offer directions (`e2e`: `npm run sped:ci`; `packages/webrtc`: `npm run test:pion-webrtc-sped`).
+
+WARP early server traffic is separately and explicitly enabled with
+`warp: { allowEarlyServerData: true }`. It requires both `sped: true` and DTLS
+1.3; otherwise the constructor and `setConfiguration()` throw synchronously. Inbound application data and media remain hidden until the SDP
+fingerprint matches. Pre-authentication encrypted media is dropped by default;
+set `warp.earlyMediaPolicy` to `"buffer"` to retain up to 256 packets / 256 KiB
+for at most two seconds.
+
+`warp: { sendBeforeNomination: true }` (requires `sped: true`) lets this side
+send application data and media as soon as its DTLS handshake is done (the
+DTLS client right after its Finished) and the peer is authenticated, on a
+valid candidate pair (its own connectivity check succeeded) instead of waiting
+for ICE nomination and consent (RFC 8445 §12.1, SPED draft-00 §3.1.2.2). It
+applies only until ICE has a selected pair, never during an ICE restart, and
+never on relay pairs. A peer that drops data arriving before its own
+nomination only loses it like any other packet (SCTP retransmits). Transport
+stats report `warpPreNominationSendUsed` when it was used.
+
+`close()` can interrupt the DTLS handshake with or without DataChannels.
+Revoking early sending with `setConfiguration({ warp: {
+allowEarlyServerData: false } })` cancels unfinished SCTP starts of the DTLS
+server. A cancelled association stays closed even if an in-flight send
+completes later; a retry uses a fresh association. Once COOKIE_ECHO or
+COOKIE_ACK has been handed to DTLS the peer may already be established, so the
+start is no longer cancelled: a send that fails afterwards counts as packet
+loss and SCTP retransmits (immediately on cancel/revoke and when DTLS
+connects) on the same association.
+
+```ts
+const pc = new RTCPeerConnection({
+  sped: true,
+  dtls: { protocolVersions: [DtlsVersion.V1_3] },
+});
+```
+
 ## Development setup
 
 Initialize the pinned upstream WPT checkout before running the package-level WPT tooling:
@@ -77,6 +149,44 @@ once per URL when the gathering ends, only if no ICE transport of that
 gathering reached the server.
 
 `npm run wpt -- --update-baseline` records the PASS subtests of a single run.
+
+## Where network interfaces cannot be enumerated
+
+`os.networkInterfaces()` throws where enumerating the network interfaces is
+not allowed (for example a systemd service with `RestrictAddressFamilies=`
+that denies `AF_NETLINK`). werift keeps working there:
+
+- Gathering goes on without enumerated host addresses. The explicit
+  `iceInterfaceAddresses`, `iceAdditionalHostAddresses` (bound to the wildcard
+  address, since none is known to be assigned locally), STUN and TURN can
+  still give candidates; `iceGatheringState` still reaches `"complete"` and
+  end-of-candidates still comes. `setLocalDescription()` is not rejected.
+- Remote `.local` (mDNS) candidates are dropped instead of crashing the
+  process: the mDNS socket is not opened, so the lookup fails at once.
+- The failure is reported by `onIceGatheringError` (a werift extension, not
+  W3C: there is no `on<event>` property or `addEventListener` type), once per
+  ICE transport and reason. `icecandidateerror` stays for STUN / TURN server
+  failures only.
+
+```ts
+import { IceGatheringErrorReason } from "werift";
+
+pc.onIceGatheringError.subscribe(({ reason, errorText, cause, iceTransport }) => {
+  // reason: "interface-enumeration-failed" | "no-candidates" | "gathering-failed"
+  // (new reasons may be added: handle unknown values)
+  if (reason === IceGatheringErrorReason.noCandidates) {
+    console.warn("no local ICE candidate", iceTransport.id);
+  }
+  console.warn(reason, errorText, cause);
+});
+```
+
+`no-candidates` is reported whenever a gathering ends without any local
+candidate, whatever the cause. The ICE layer gives the same errors with their
+generation (`Connection.onGatheringError` in `werift-ice`) and
+`RTCIceTransport.onGatheringError` gives them per transport. The exported
+helpers `nodeIpAddress()` / `getHostAddresses()` still throw the
+`SystemError`; catch it if you call them.
 
 ## Rejected, stopped and reused m-lines
 
@@ -167,7 +277,7 @@ Where werift's own behavior differs from the specifications and browsers, a cons
 | `certificateScope` | `"process"` | `"process"`: one default DTLS certificate shared by the process | a certificate per `RTCPeerConnection` | fixed | `"peerConnection"` (= `"standard"`) |
 | `mLineReuse` | `"standard"` | `"aggressive"`: an accepted `inactive` m-line uses port 0, so its position is reused | an accepted `inactive` m-line keeps its port | fixed | `"compatible"` (= `"standard"`) |
 | `transceiverPairing` | `"byKind"` | `"byKind"`: a remote offer takes any unassociated transceiver of its kind | JSEP 5.10: only one `addTrack()` created | fixed | — |
-| `keyFrameRequestRouting` | `"fallback"` | `"fallback"`: a PLI / FIR for an unknown SSRC falls back to the RTX owner or the only video sender | not delivered (RFC 4585 / RFC 5104) | changeable | `"compatible"` (= `"fallback"`), `"strict"` (= `"standard"`) |
+| `keyFrameRequestRouting` | `"fallback"` | `"fallback"`: a PLI / FIR for an unknown SSRC falls back to the RTX owner or the only video sender of the transport it arrived on | not delivered (RFC 4585 / RFC 5104) | changeable | `"compatible"` (= `"fallback"`), `"strict"` (= `"standard"`) |
 
 Any other value is a `TypeError`, and changing a fixed option is an `InvalidModificationError`. An old name is read as its current name (`getConfiguration()` returns the current name). `CompatibilityOptionValues` lists the values of every option.
 
@@ -288,6 +398,75 @@ npm run datachannel
 Open:
 
 https://shinyoshiaki.github.io/werift-webrtc/examples/datachannel/answer
+
+An in-band DataChannel (`negotiated` not `true`) gets its stream ID from the
+DTLS role when an answer decides it (client even, server odd, RFC 8832); an
+`id` passed to `createDataChannel()` is ignored for it, as in browsers. Use
+`{ negotiated: true, id }` for a fixed stream ID.
+
+#### DataChannel backpressure
+
+`bufferedAmount` (read-only) counts the bytes passed to `send()` that are not
+handed to the network yet; it drops as SCTP sends each message (not when the
+peer acknowledges it). `bufferedamountlow` (also `onbufferedamountlow` and
+`channel.bufferedAmountLow`) fires once each time it falls from above
+`bufferedAmountLowThreshold` to at or below it. A high / low water mark:
+
+```typescript
+const HIGH_WATER_MARK = 1024 * 1024;
+channel.bufferedAmountLowThreshold = 256 * 1024;
+
+async function sendAll(chunks: Buffer[]) {
+  for (const chunk of chunks) {
+    if (channel.bufferedAmount > HIGH_WATER_MARK) {
+      await new Promise<void>((resolve) =>
+        channel.addEventListener("bufferedamountlow", () => resolve(), {
+          once: true,
+        }),
+      );
+    }
+    channel.send(chunk);
+  }
+}
+```
+
+Messages abandoned by a partially reliable channel (`maxRetransmits` /
+`maxPacketLifeTime`) are subtracted too. Messages thrown away unsent
+(`pc.close()`, the association ending) stay in `bufferedAmount`, and
+`bufferedamountlow` never fires once the channel is `closed`.
+
+#### Graceful close
+
+`channel.close()` keeps every message `send()` queued before it: they are
+handed to SCTP before the stream reset, also when the association is still
+being established (the channel stays `closing` until then). The peer resets
+its side only after it received everything up to the reset (RFC 6525), so on
+a reliable channel the sender's `close` event means every message sent before
+`close()` reached the peer. No need to wait for `bufferedAmount` first:
+
+```typescript
+// Register the wait before close(): a channel whose DATA_CHANNEL_OPEN was
+// not sent yet closes synchronously and fires `close` inside close().
+const closed = new Promise((resolve) =>
+  channel.addEventListener("close", resolve, { once: true }),
+);
+channel.send(lastMessage); // delivered only if the channel is already `open`
+channel.close();
+await closed;
+await pc.close(); // pc.close() aborts SCTP: close the channels first
+```
+
+`pc.close()` aborts the association, so what is not delivered yet is lost. A
+partially reliable channel may lose what it abandoned. An in-band channel
+whose DATA_CHANNEL_OPEN was not sent yet (no connection so far) closes at once
+and sends nothing. To make sure a message is delivered,
+send it after the channel is `open`.
+
+#### Empty messages
+
+`send("")` and `send(Buffer.alloc(0))` send an empty message (RFC 8831 6.6,
+PPID 56 / 57) that the peer receives as `""` / an empty `Buffer`, in order with
+the other messages. It adds nothing to `bufferedAmount`.
 
 The outbound SCTP packet MTU can be configured independently from the
 negotiated DataChannel message-size limit:

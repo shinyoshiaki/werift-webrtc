@@ -18,6 +18,7 @@ describe("browser logger runtime", () => {
       .mockImplementation(() => {});
 
     // Act: process がない環境で読み込み、logger を呼ぶ
+    // hoist-imports-allow: load the logger after stubbing the browser globals
     const { debug } = await import("../src/log");
     const logger = debug("werift:browser");
     logger("message %s", "value");
@@ -40,6 +41,7 @@ describe("browser logger runtime", () => {
     });
 
     // Act: localStorage が例外を投げる環境で読み込む
+    // hoist-imports-allow: load the logger after stubbing the browser globals
     const { debug } = await import("../src/log");
 
     // Assert: 読み込みも logger の生成も失敗しない

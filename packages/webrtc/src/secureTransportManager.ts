@@ -1,3 +1,8 @@
+import type { Connection } from "../../ice/src";
+import {
+  markConnectionSpedEnabled,
+  prepareConnectionSped,
+} from "../../ice/src/internal/sped-bind";
 import type { PeerConfig } from "./api/peerConfig";
 import { SRTP_PROFILE } from "./const";
 import { createWebRtcDomException, createWebRtcTypeError } from "./errors";
@@ -44,6 +49,7 @@ export class SecureTransportManager {
   private lastLocalCredentials?: { usernameFragment: string; password: string };
   private transceiverManager: TransceiverManager;
   private sctpManager: SctpTransportManager;
+  private dtlsStateDisposers = new Map<RTCDtlsTransport, () => void>();
   /**
    * Every transport `createTransport` made that has not finished stopping
    * (`onStopped`). `close` stops all of them, so a transport no m-line
@@ -87,6 +93,16 @@ export class SecureTransportManager {
         .map((transceiver) => transceiver.dtlsTransport),
       this.sctpManager.sctpTransport?.dtlsTransport,
     ]);
+  }
+
+  /**
+   * Every DTLS transport created and not yet closed: the live ones, those a
+   * pending description prepared (BUNDLE split, a new m-line) and those a
+   * rollback baseline still holds. Transport-level settings that may change
+   * after creation must reach all of them, not only `dtlsTransports`.
+   */
+  get openDtlsTransports() {
+    return [...this.dtlsStateDisposers.keys()];
   }
 
   /**停止済み transceiver の transport も含めた全 transport */
@@ -231,9 +247,11 @@ export class SecureTransportManager {
       tcpPassive: this.config.iceTcpPassive,
       stunGatherTimeout: this.config.iceStunGatherTimeout,
       turnConnectTimeout: this.config.iceTurnConnectTimeout,
+      incomingCheckTimeout: this.config.iceIncomingCheckTimeout,
       nominationDelayMs: this.config.iceNominationDelayMs,
       nomination: this.config.iceNomination,
       renomination: this.config.iceRenomination,
+      failover: this.config.iceFailover,
       turnTlsOptions: this.config.turnTlsOptions,
       turnUdpFamily: this.config.turnUdpFamily,
       useLinkLocalAddress: this.config.iceUseLinkLocalAddress,
@@ -272,11 +290,26 @@ export class SecureTransportManager {
     });
 
     const dtlsTransport = new RTCDtlsTransport(
-      this.config,
+      {
+        debug: this.config.debug,
+        protocolVersions: this.config.dtls.protocolVersions,
+        helloRetryRequest: this.config.dtls.helloRetryRequest,
+        warp: this.config.warp,
+        handshakeValidation: this.config.dtlsHandshakeValidation,
+      },
       iceTransport,
       this.certificate,
       srtpProfiles,
     );
+    if (this.config.sped === true) {
+      dtlsTransport.sped = true;
+      // Candidates can receive authenticated checks before setLocalDescription
+      // finishes gathering and starts DTLS. Do not advertise a non-SPED peer
+      // during that interval; leave DTLS DATA unacknowledged until start().
+      prepareConnectionSped(iceTransport.connection as Connection);
+      // Before any check arrives: SPED's authenticated request boundary.
+      markConnectionSpedEnabled(iceGatherer.connection as Connection);
+    }
     dtlsTransport.onStateChange.subscribe((state) => {
       // Isolated: the DTLS transport's later subscribers (SCTP closing its
       // association) must run even if a connectionState listener throws.
@@ -288,6 +321,23 @@ export class SecureTransportManager {
     dtlsTransport.onStopped.once(() => {
       this.ownedTransports.delete(dtlsTransport);
     });
+
+    // A fingerprint re-validation failure happens after the initial
+    // connection has already been reported.  Bridge that terminal DTLS state
+    // to PeerConnection.connectionState instead of leaving it "connected".
+    // A closed transport (stopped by rollback, BUNDLE replacement or close())
+    // releases its entry so a long-lived PeerConnection does not retain it.
+    const release = () => {
+      stateSubscription.unSubscribe();
+      this.dtlsStateDisposers.delete(dtlsTransport);
+    };
+    const stateSubscription = dtlsTransport.onStateChange.subscribe((state) => {
+      if (state === "failed" && this.connectionState !== "closed") {
+        this.setConnectionState("failed");
+      }
+      if (state === "closed") release();
+    });
+    this.dtlsStateDisposers.set(dtlsTransport, release);
 
     return dtlsTransport;
   }
@@ -440,6 +490,14 @@ export class SecureTransportManager {
   }) {
     let mediaIndices: number[];
 
+    if (sdpMid === "" && typeof sdpMLineIndex !== "number") {
+      // addIceCandidate resolves "" with an index by the index
+      // (normalizeEmptyCandidateMid); without one no m-line is named.
+      throw createWebRtcDomException(
+        "OperationError",
+        "sdpMid is empty and no sdpMLineIndex was given",
+      );
+    }
     if (typeof sdpMid === "string") {
       const mediaIndex = sdp.media.findIndex(
         (media) => media.rtp.muxId === sdpMid,
@@ -536,6 +594,9 @@ export class SecureTransportManager {
   restartIce() {
     for (const transport of this.iceTransports) {
       transport.restart();
+    }
+    for (const transport of this.dtlsTransports) {
+      transport.handleIceRestart();
     }
     const [first] = this.iceTransports;
     if (first) this.lastLocalCredentials = first.localParameters;
@@ -750,12 +811,25 @@ export class SecureTransportManager {
       this.connectionState === "connected"
     ) {
       this.setConnectionState("disconnected");
+    } else if (
+      (newState === "connected" || newState === "completed") &&
+      this.connectionState === "disconnected" &&
+      // W3C: connected once every ICE transport is connected / completed /
+      // closed and every DTLS transport connected / closed (ICE recovered
+      // from `disconnected`, e.g. a failover without an ICE restart).
+      this.dtlsTransports.every(
+        (transport) =>
+          transport.state === "connected" || transport.state === "closed",
+      )
+    ) {
+      this.setConnectionState("connected");
     }
   }
 
   async gatherCandidates() {
     // Partial BUNDLE topology can have an established owner and newly added transports.
-    await Promise.allSettled(
+    // テスト: iceGatheringError.test.ts「of a mocked agent: setLocalDescription succeeds」
+    const results = await Promise.allSettled(
       this.iceTransports
         .filter(
           (iceTransport) =>
@@ -764,6 +838,11 @@ export class SecureTransportManager {
         )
         .map((iceTransport) => iceTransport.gather()),
     );
+    for (const result of results) {
+      if (result.status === "rejected") {
+        log("ice gathering failed", result.reason);
+      }
+    }
   }
 
   /**
@@ -790,6 +869,8 @@ export class SecureTransportManager {
    * (an ICE restart, the failed transport retired).
    */
   setConnectionState(state: ConnectionState) {
+    // "closed" is terminal: asynchronous ICE/DTLS/SCTP completions that
+    // settle after close() must not reopen or fail the connection.
     if (state !== "closed" && this.hasFailedTransport) {
       state = "failed";
     }
@@ -864,13 +945,15 @@ export class SecureTransportManager {
   async close() {
     this.markClosed();
 
-    // Owned transports cover the ones no binding references any more.
-    await Promise.allSettled(
-      uniqueTransports([
-        ...this.allDtlsTransports,
-        ...this.ownedTransports,
-      ]).map((t) => t.stop()),
-    );
+    const createdTransports = uniqueTransports([
+      ...this.dtlsStateDisposers.keys(),
+      ...this.allDtlsTransports,
+      ...this.ownedTransports,
+    ]);
+    for (const release of [...this.dtlsStateDisposers.values()]) {
+      release();
+    }
+    await Promise.allSettled(createdTransports.map((t) => t.stop()));
     this.ownedTransports.clear();
 
     this.iceGatheringStateChange.allUnsubscribe();

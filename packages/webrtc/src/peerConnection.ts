@@ -10,6 +10,7 @@ import {
 import {
   type PeerConnectionEventHandlers,
   type RTCDataChannelEvent,
+  type RTCIceGatheringErrorEvent,
   RTCPeerConnectionIceErrorEvent,
   type RTCPeerConnectionIceEvent,
   RTCTrackEvent,
@@ -45,6 +46,7 @@ import { IceRestartRequest } from "./negotiation/iceRestartRequest";
 import { NegotiationNeeded } from "./negotiation/negotiationNeeded";
 import {
   normalizeCandidateUfrag,
+  normalizeEmptyCandidateMid,
   RemoteCandidates,
 } from "./negotiation/remoteCandidates";
 import { RemoteMediaApplication } from "./negotiation/remoteMediaApplication";
@@ -86,6 +88,8 @@ export {
   DeprecatedCompatibilityValues,
   type DeprecatedKeyFrameRequestRouting,
   type DeprecatedMLineReuse,
+  type DtlsHandshakeValidation,
+  DtlsHandshakeValidationModes,
   defaultPeerConfig,
   findCodecByMimeType,
   MLineReuseModes,
@@ -101,6 +105,7 @@ export {
 } from "./api/peerConfig";
 export {
   type RTCDataChannelEvent,
+  type RTCIceGatheringErrorEvent,
   RTCPeerConnectionIceErrorEvent,
   type RTCPeerConnectionIceErrorEventInit,
   type RTCPeerConnectionIceEvent,
@@ -119,6 +124,9 @@ const log = debug("werift:packages/webrtc/src/peerConnection.ts");
  * - `addIceCandidate()` also validates `sdpMid` / `sdpMLineIndex` /
  *   `usernameFragment` against the applied remote description and appends
  *   candidates or end-of-candidates markers to the corresponding m-section.
+ *   An empty `sdpMid` with a numeric `sdpMLineIndex` (as Pion sends) is
+ *   resolved by the index, as libwebrtc and Firefox do; the W3C steps reject it with
+ *   OperationError. An empty `sdpMid` without an index is still rejected.
  *   The public API keeps werift's historical pre-SRD buffering behavior, while
  *   the WPT runner wraps the class to exercise strict spec rejection.
  * - `bundlePolicy: "balanced"` is accepted for input compatibility but is
@@ -179,6 +187,7 @@ export class RTCPeerConnection extends EventTarget {
   private readonly remoteMedia: RemoteMediaApplication;
   private readonly activation: TransportActivation;
   private isClosed = false;
+  private dtlsTransportCreated = false;
   private applyingIceRestart = false;
   /**
    * The current gathering's STUN / TURN outcomes by URL, for the 701 of
@@ -249,6 +258,20 @@ export class RTCPeerConnection extends EventTarget {
   readonly onIceCandidateError = new Event<[RTCPeerConnectionIceErrorEvent]>({
     onListenerError: (error) =>
       log("onIceCandidateError subscriber threw", error),
+  });
+  /**
+   * The gathering of one ICE transport reported an error (werift extension,
+   * not W3C, so there is no `on<event>` property or `addEventListener` type;
+   * see {@link RTCIceGatheringErrorEvent}). New reasons may be added.
+   * @see packages/webrtc/tests/transport/iceGatheringError.test.ts「without STUN / TURN: gathering completes with end-of-candidates and both reasons are reported」
+   * @see packages/webrtc/tests/transport/iceGatheringError.test.ts「an unreachable STUN server still gives only its 701 as icecandidateerror」
+   * @see packages/webrtc/tests/transport/iceGatheringError.test.ts「without BUNDLE each transport reports its own errors」
+   * @see packages/webrtc/tests/transport/iceGatheringError.test.ts「nothing is reported after close」
+   * @see packages/webrtc/tests/transport/iceGatheringError.test.ts「a transport a rollback discards (pending only) reports nothing」
+   */
+  readonly onIceGatheringError = new Event<[RTCIceGatheringErrorEvent]>({
+    onListenerError: (error) =>
+      log("onIceGatheringError subscriber threw", error),
   });
   readonly onNegotiationneeded = new Event<[]>();
   readonly onTrack = new Event<[MediaStreamTrack]>();
@@ -338,6 +361,7 @@ export class RTCPeerConnection extends EventTarget {
       bundleCandidates: this.config.bundleCandidates,
       iceRenomination: this.config.iceRenomination,
       iceOptionIce2: this.config.iceOptionIce2,
+      iceOptionSped: () => this.config.sped === true,
     });
     this.transceiverManager = new TransceiverManager(
       this.cname,
@@ -404,11 +428,14 @@ export class RTCPeerConnection extends EventTarget {
       this.negotiation,
       this.topology,
     );
+    // Test: tests/issue/815.notification.test.ts "datachannel: later listeners run and the channel opens on both ends"
     this.sctpManager.onDataChannel.subscribe((channel) => {
-      this.onDataChannel.execute(channel);
+      const onError = (error: unknown) =>
+        log("datachannel listener failed", error);
+      this.onDataChannel.executeIsolated(onError, channel);
       const event: RTCDataChannelEvent = { type: "datachannel", channel };
-      this.ondatachannel?.(event);
-      this.emit("datachannel", event);
+      notifySafely(log, "ondatachannel", () => this.ondatachannel?.(event));
+      this.emitIsolated(onError, "datachannel", event);
     });
     this.secureManager = new SecureTransportManager({
       config: this.config,
@@ -435,6 +462,7 @@ export class RTCPeerConnection extends EventTarget {
       this.topology,
       {
         signalingState: () => this.signalingState,
+        config: () => this.config,
         createTransport: () => this.findOrCreateTransport(),
       },
     );
@@ -760,10 +788,11 @@ export class RTCPeerConnection extends EventTarget {
     // Transports only use the first STUN/TURN, but any change in the
     // normalized list (e.g. a second TURN) counts as a configuration change.
     const previousIceServers = structuredClone(this.config.iceServers);
-    mergePeerConfiguration(this.config, config, {
+    const normalizedConfig = mergePeerConfiguration(this.config, config, {
       isReconfiguration,
       hasLocalDescription: isReconfiguration && !!this.localDescription,
       hasSctpTransport: !!this.sctpManager?.sctpTransport,
+      dtlsTransportCreated: this.dtlsTransportCreated,
     });
 
     this.router.keyFrameRequestRouting = this.config.keyFrameRequestRouting;
@@ -771,6 +800,13 @@ export class RTCPeerConnection extends EventTarget {
     if (this.sctpManager?.sctpTransport) {
       this.sctpManager.sctpTransport.maxMessageSize =
         this.config.maxMessageSize;
+    }
+    // Transports a pending description prepared take the new WARP policy too:
+    // they become live when that description is applied.
+    if (isReconfiguration && normalizedConfig.warp !== undefined) {
+      for (const transport of this.secureManager.openDtlsTransports) {
+        transport.updateWarpConfig(this.config.warp);
+      }
     }
 
     // JSEP (RFC 9429 §4.1.18): STUN/TURN changes affect the next gathering
@@ -901,6 +937,25 @@ export class RTCPeerConnection extends EventTarget {
     return createdOffer;
   }
 
+  /**
+   * W3C webrtc-pc 4.4.1.6 step 2.2.6: an answer / pranswer negotiating the
+   * application m-line assigns stream IDs before its promise resolves, also
+   * when the DTLS role it keeps did not change.
+   * @see tests/issue/815.test.ts "issue 815: data channel stream IDs follow the DTLS role"
+   * @see tests/issue/815.test.ts "a %s gives the IDs back and the next answer, keeping the DTLS role, assigns them again"
+   */
+  private assignDataChannelIds(description: SessionDescription) {
+    if (description.type !== "answer" && description.type !== "pranswer") {
+      return;
+    }
+    const negotiatesApplication = description.media.some(
+      (media) => media.kind === "application" && media.port !== 0,
+    );
+    if (negotiatesApplication) {
+      this.sctpTransport?.assignPendingStreamIds();
+    }
+  }
+
   private createSctpTransport() {
     const sctp = this.sctpManager.createSctpTransport(
       this.config.maxMessageSize,
@@ -922,6 +977,9 @@ export class RTCPeerConnection extends EventTarget {
       id?: number;
     }> = {},
   ): RTCDataChannel {
+    // W3C webrtc-pc createDataChannel step 2: [[IsClosed]].
+    // Test: tests/issue/815.notification.test.ts "pc.close(): createDataChannel throws, channel.close() and pc.close() complete"
+    this.assertNotClosed();
     // Reject invalid input before creating the transport or scheduling
     // negotiation, so a failed call leaves the connection unchanged.
     assertDataChannelFieldLengths({ label, protocol: options.protocol });
@@ -1070,6 +1128,10 @@ export class RTCPeerConnection extends EventTarget {
     }
   }
 
+  private connect() {
+    return this.activation.connect();
+  }
+
   private findOrCreateTransport(forceNew = false) {
     // A closed connection creates no transport (close() could not stop it).
     this.assertNotClosed();
@@ -1086,13 +1148,15 @@ export class RTCPeerConnection extends EventTarget {
         (this.sdpManager.bundlePolicy !== "disable" && this.remoteIsBundled))
     ) {
       if (existingDtlsTransport) {
+        this.dtlsTransportCreated = true;
         return existingDtlsTransport;
       }
     }
 
     const dtlsTransport = this.secureManager.createTransport(forceNew);
+    this.dtlsTransportCreated = true;
     dtlsTransport.onRtp.subscribe((rtp) => {
-      this.router.routeRtp(rtp);
+      this.router.routeRtp(rtp, dtlsTransport);
     });
     dtlsTransport.onRtcp.subscribe((rtcp) => {
       this.router.routeRtcp(rtcp, dtlsTransport);
@@ -1116,6 +1180,16 @@ export class RTCPeerConnection extends EventTarget {
           generation: iceTransport.connection.generation,
         });
       }
+    });
+    iceTransport.onGatheringError.subscribe((details) => {
+      // テスト: iceGatheringError.test.ts「nothing is reported after close」「a transport a rollback discards」「without BUNDLE each transport」
+      if (
+        this.isClosed ||
+        this.negotiation.isPendingOnlyTransport(iceTransport.id)
+      ) {
+        return;
+      }
+      this.onIceGatheringError.execute({ ...details, iceTransport });
     });
     iceTransport.onIceCandidateError.subscribe((details) => {
       // A closed connection fires nothing; a transport a rollback discards
@@ -1654,6 +1728,8 @@ export class RTCPeerConnection extends EventTarget {
         this.negotiation.transportByMid,
       );
 
+      this.assignDataChannelIds(description);
+
       if (description.type === "offer") {
         this.secureManager.markStagedIceRestartApplied();
         this.negotiation.settle();
@@ -1724,6 +1800,7 @@ export class RTCPeerConnection extends EventTarget {
       // The description is in place: a queued addIceCandidate need not wait
       // for the gathering below.
       this.markDescriptionApplied();
+      // テスト: iceGatheringError.test.ts「of a mocked agent: setLocalDescription succeeds」
       await this.gatherCandidates().catch((e) => {
         log("gatherCandidates failed", e);
       });
@@ -1736,7 +1813,7 @@ export class RTCPeerConnection extends EventTarget {
             .connectPending()
             .catch((err) => log("pending connect failed", err));
         }
-        this.activation.connect().catch((err) => {
+        this.connect().catch((err) => {
           log("connect failed", err);
           this.secureManager.setConnectionState("failed");
         });
@@ -1826,7 +1903,9 @@ export class RTCPeerConnection extends EventTarget {
           throw createWebRtcDomException("InvalidStateError", "is closed");
         }
 
-        candidateMessage = normalizeCandidateUfrag(candidateMessage);
+        candidateMessage = normalizeEmptyCandidateMid(
+          normalizeCandidateUfrag(candidateMessage),
+        );
         if (!this.remoteDescription || !this.sdpManager._remoteDescription) {
           const ufrag = candidateMessage?.usernameFragment;
           if (this.negotiation.isRetiredRemoteUfrag(ufrag)) {
@@ -2097,6 +2176,8 @@ export class RTCPeerConnection extends EventTarget {
         throw error;
       }
 
+      this.assignDataChannelIds(remoteSdp);
+
       if (remoteSdp.type === "offer") {
         this.sdpManager.applyRemoteDescription(remoteSdp);
         this.negotiation.settle();
@@ -2129,7 +2210,7 @@ export class RTCPeerConnection extends EventTarget {
             .connectPending()
             .catch((err) => log("pending connect failed", err));
         }
-        this.activation.connect().catch((err) => {
+        this.connect().catch((err) => {
           log("connect failed", err);
           this.secureManager.setConnectionState("failed");
         });
@@ -2409,6 +2490,7 @@ export class RTCPeerConnection extends EventTarget {
       this.onRemoteTransceiverAdded,
       this.onIceCandidate,
       this.onIceCandidateError,
+      this.onIceGatheringError,
       this.onNegotiationneeded,
     ] as const;
     for (const event of events) {

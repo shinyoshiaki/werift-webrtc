@@ -40,9 +40,19 @@ transport that leaves it unset gets no family preference.
 
 ***
 
+### onClosed?
+
+> `optional` **onClosed?**: [`Event`](../classes/Event.md)\<\[\]\>
+
+The transport closed by itself after it was established (a stream whose
+peer closed the connection, or that an error destroyed); not emitted by
+`close()`. Optional: datagram transports do not close by themselves.
+
+***
+
 ### onData
 
-> **onData**: (`data`, `addr`) => `void`
+> **onData**: (`data`, `addr`, `meta?`) => `void`
 
 #### Parameters
 
@@ -53,6 +63,10 @@ transport that leaves it unset gets no family preference.
 ##### addr
 
 readonly \[`string`, `number`\]
+
+##### meta?
+
+[`DatagramRxMeta`](DatagramRxMeta.md)
 
 #### Returns
 
@@ -69,6 +83,16 @@ custom transports need not implement it; the built-in UDP transport does.
 
 ***
 
+### peerAuthenticated?
+
+> `optional` **peerAuthenticated?**: `boolean`
+
+When true, the transport path is already peer-authenticated (e.g. ICE).
+DTLS 1.2 may treat protected records as association-authenticated even
+without a UDP 5-tuple pin (ICE does not expose source address on RX).
+
+***
+
 ### remoteAddress?
 
 > `optional` **remoteAddress?**: readonly \[`string`, `number`\]
@@ -80,7 +104,7 @@ from this address. Built-in TCP/TLS transports set it once connected.
 
 ### send
 
-> **send**: (`data`, `addr?`) => `Promise`\<`void`\>
+> **send**: (`data`, `addr?`, `options?`) => `Promise`\<`void`\>
 
 #### Parameters
 
@@ -91,6 +115,10 @@ from this address. Built-in TCP/TLS transports set it once connected.
 ##### addr?
 
 readonly \[`string`, `number`\]
+
+##### options?
+
+[`TransportSendOptions`](TransportSendOptions.md)
 
 #### Returns
 

@@ -1,0 +1,868 @@
+import {
+  type CandidatePair,
+  CandidatePairState,
+  CONNECTION_WRITE_CONNECT_FAILURES,
+  CONNECTION_WRITE_CONNECT_TIMEOUT,
+  compareCandidatePairPriority,
+  DEAD_CONNECTION_RECEIVE_TIMEOUT,
+  FAILOVER_BACKUP_ATTEMPTS,
+  FAILOVER_RECOVERY_RESPONSES,
+  type IceFailoverOptions,
+  MIN_PINGS_AT_WEAK_PING_INTERVAL,
+  RECEIVING_SWITCHING_DELAY,
+  STABLE_WRITABLE_CONNECTION_PING_INTERVAL,
+  WEAK_CONNECTION_RECEIVE_TIMEOUT,
+  WEAK_OR_STABILIZING_WRITABLE_CONNECTION_PING_INTERVAL,
+} from "./iceBase";
+import type { Address } from "./imports/common";
+import type { Protocol } from "./types/model";
+
+/** The thresholds in use: {@link IceFailoverOptions} with every default applied. */
+export type FailoverThresholds = Required<IceFailoverOptions>;
+
+/** The defaults of {@link IceFailoverOptions} (libwebrtc's values). */
+export const DEFAULT_FAILOVER_THRESHOLDS: Readonly<FailoverThresholds> =
+  Object.freeze({
+    unwritableMinChecks: CONNECTION_WRITE_CONNECT_FAILURES,
+    unwritableTimeout: CONNECTION_WRITE_CONNECT_TIMEOUT,
+    receivingTimeout: WEAK_CONNECTION_RECEIVE_TIMEOUT,
+    receivingSwitchingDelay: RECEIVING_SWITCHING_DELAY,
+  });
+
+/**
+ * {@link IceFailoverOptions} with its defaults: an unset or invalid value
+ * (not finite, out of range, a fractional check count) keeps the default.
+ */
+export const resolveFailoverThresholds = (
+  options: IceFailoverOptions | undefined,
+): FailoverThresholds => {
+  const pick = (
+    value: number | undefined,
+    fallback: number,
+    valid: (value: number) => boolean,
+  ) =>
+    typeof value === "number" && Number.isFinite(value) && valid(value)
+      ? value
+      : fallback;
+  const defaults = DEFAULT_FAILOVER_THRESHOLDS;
+  return {
+    unwritableMinChecks: pick(
+      options?.unwritableMinChecks,
+      defaults.unwritableMinChecks,
+      (value) => Number.isInteger(value) && value >= 1,
+    ),
+    unwritableTimeout: pick(
+      options?.unwritableTimeout,
+      defaults.unwritableTimeout,
+      (value) => value >= 0,
+    ),
+    receivingTimeout: pick(
+      options?.receivingTimeout,
+      defaults.receivingTimeout,
+      (value) => value > 0,
+    ),
+    receivingSwitchingDelay: pick(
+      options?.receivingSwitchingDelay,
+      defaults.receivingSwitchingDelay,
+      (value) => value >= 0,
+    ),
+  };
+};
+
+/**
+ * A demoted path (`FailoverMonitor.demote`): undefined for a whole socket,
+ * else the remote address of the path on the socket.
+ */
+type DemotedPath = string | undefined;
+
+/** The remote address of `pair`, as a key. */
+const remoteKey = (pair: CandidatePair) =>
+  `${pair.remoteAddr[0]}:${pair.remoteAddr[1]}`;
+
+/** Ta: the minimum spacing (ms) between two backup checks, as the ordinary schedule. */
+const PACING_MS = 20;
+
+/**
+ * Delays before a socket whose backup pairs all failed starts again from its
+ * highest-priority pair, one per retry; after the last one it goes on every
+ * last delay (16 s) while the selection lasts.
+ */
+const BACKUP_RETRY_DELAYS_MS = [1000, 2000, 4000, 8000, 16000] as const;
+
+/**
+ * What the agent knows about a monitored pair (the selected pair and the
+ * backups). Only a response to a check makes a pair writable: application
+ * data or a request from the peer only counts as received (as RFC 7675
+ * consent does not take data as consent).
+ */
+export type PairLiveness = {
+  /** When the pair began to be monitored (ms, `Date.now()`). */
+  since: number;
+  /** The last response to a check (undefined: none since monitoring began). */
+  lastResponse?: number;
+  /** The last response, request or application data received on the pair. */
+  lastReceived: number;
+  /** Consecutive checks that went unanswered. */
+  unanswered: number;
+  /**
+   * When the first of the `unanswered` checks was counted (ms); undefined
+   * while the last check was answered (see `notReceivingSince`).
+   */
+  missedSince?: number;
+  /** Responses since monitoring began (stabilizing below MIN_PINGS_AT_WEAK_PING_INTERVAL). */
+  responses: number;
+  /** Consecutive responses (reset by an unanswered check). */
+  consecutive: number;
+  /**
+   * The path is known to be gone without waiting for checks: sending on it
+   * failed with a routing error, or its TURN allocation was lost
+   * (`Protocol.onPathBroken`). Unwritable until a check is answered again.
+   */
+  broken?: boolean;
+};
+
+/**
+ * No longer writable: `unwritableMinChecks` (CONNECTION_WRITE_CONNECT_FAILURES)
+ * consecutive checks unanswered and `unwritableTimeout`
+ * (CONNECTION_WRITE_CONNECT_TIMEOUT) since the last response (or, for a pair
+ * never answered, since monitoring began); or the path is known to be gone
+ * (`broken`).
+ */
+export const isUnwritable = (
+  liveness: PairLiveness,
+  now: number,
+  thresholds: FailoverThresholds = DEFAULT_FAILOVER_THRESHOLDS,
+) =>
+  !!liveness.broken ||
+  (liveness.unanswered >= thresholds.unwritableMinChecks &&
+    now - (liveness.lastResponse ?? liveness.since) >=
+      thresholds.unwritableTimeout);
+
+/** Answered since monitoring began and not unwritable. */
+export const isWritable = (
+  liveness: PairLiveness,
+  now: number,
+  thresholds: FailoverThresholds = DEFAULT_FAILOVER_THRESHOLDS,
+) =>
+  liveness.lastResponse !== undefined &&
+  !isUnwritable(liveness, now, thresholds);
+
+/** The last check went unanswered, or nothing was received for `receivingTimeout` (WEAK_CONNECTION_RECEIVE_TIMEOUT). */
+export const isWeak = (
+  liveness: PairLiveness,
+  now: number,
+  thresholds: FailoverThresholds = DEFAULT_FAILOVER_THRESHOLDS,
+) =>
+  liveness.unanswered > 0 ||
+  now - liveness.lastReceived >= thresholds.receivingTimeout;
+
+/**
+ * Since when (ms) `pair` has not been receiving, undefined while it is: the
+ * later of `receivingTimeout` of silence (libwebrtc's `Connection::receiving`)
+ * and its first unanswered check. libwebrtc needs no unanswered check, as it
+ * pings a weak selection every 48 ms; werift checks it far less often.
+ * @see tests/ice/selection-controller.test.ts "silence alone (no unanswered check) is not 'not receiving'; a receiving selection beats a pair that is not"
+ * @see tests/ice/selection-controller.test.ts "a late unanswered check starts the hold at the check, and a recovery in the hold keeps the selection"
+ * @see tests/pbt/failoverRules/failoverRulesProperty.test.ts "a pair is not receiving exactly from the later of the silence and the unanswered check, plus the hold"
+ */
+export const notReceivingSince = <
+  T extends { lastReceived: number; missedSince?: number },
+>(
+  pair: T,
+  now: number,
+  receivingTimeout = WEAK_CONNECTION_RECEIVE_TIMEOUT,
+) => {
+  const silentSince = pair.lastReceived + receivingTimeout;
+  if (now < silentSince || pair.missedSince === undefined) return undefined;
+  return Math.max(silentSince, pair.missedSince);
+};
+
+/**
+ * Stopped receiving (libwebrtc's `receiving`, then
+ * `receiving_switching_delay`): `notReceivingSince` is
+ * `receivingSwitchingDelay` ago, the same time `SelectionController` switches
+ * at.
+ * @see tests/pbt/failoverRules/failoverRulesProperty.test.ts "a pair is not receiving exactly from the later of the silence and the unanswered check, plus the hold"
+ * @see tests/ice/selection-controller.test.ts "an RTT switch within the hold is not a failover: the old pair is not demoted"
+ */
+export const isNotReceiving = (
+  liveness: PairLiveness,
+  now: number,
+  thresholds: FailoverThresholds = DEFAULT_FAILOVER_THRESHOLDS,
+) => {
+  const since = notReceivingSince(liveness, now, thresholds.receivingTimeout);
+  return (
+    since !== undefined && now - since >= thresholds.receivingSwitchingDelay
+  );
+};
+
+/**
+ * Interval (ms) to the next check of a backup pair: the weak / stabilizing
+ * one until it answered MIN_PINGS_AT_WEAK_PING_INTERVAL times and while its
+ * last check goes unanswered, else the stable one (0.8–1.2 times).
+ */
+export const backupPingInterval = (liveness: PairLiveness) =>
+  liveness.unanswered > 0 ||
+  liveness.responses < MIN_PINGS_AT_WEAK_PING_INTERVAL
+    ? WEAK_OR_STABILIZING_WRITABLE_CONNECTION_PING_INTERVAL
+    : STABLE_WRITABLE_CONNECTION_PING_INTERVAL * (0.8 + 0.4 * Math.random());
+
+/**
+ * When the next check of a monitored pair is due (ms), given when the last
+ * one was sent and the interval it uses while the pair is not weak (D3):
+ * - its last check went unanswered (weak), or its path is known to be gone
+ *   (`broken`): WEAK_OR_STABILIZING_WRITABLE_CONNECTION_PING_INTERVAL after it;
+ * - otherwise `stableInterval` after it, but no later than the moment the
+ *   pair has received nothing for `receivingTimeout`
+ *   (WEAK_CONNECTION_RECEIVE_TIMEOUT, weak by silence), and never sooner
+ *   than the weak interval.
+ * Something received later only moves it later: a caller that wakes up at
+ * the time computed earlier computes it again.
+ */
+export const nextPingAt = (
+  liveness: PairLiveness,
+  lastSentAt: number,
+  stableInterval: number,
+  thresholds: FailoverThresholds = DEFAULT_FAILOVER_THRESHOLDS,
+) => {
+  const weakAt =
+    lastSentAt + WEAK_OR_STABILIZING_WRITABLE_CONNECTION_PING_INTERVAL;
+  if (liveness.unanswered > 0 || liveness.broken) return weakAt;
+  return Math.max(
+    weakAt,
+    Math.min(
+      lastSentAt + stableInterval,
+      liveness.lastReceived + thresholds.receivingTimeout,
+    ),
+  );
+};
+
+/** The agent's side of `FailoverMonitor`. */
+export interface FailoverHost {
+  /**
+   * Failover applies now: full ICE on both sides, semi-aggressive nomination
+   * or renomination, a selected pair that is not ICE-TCP, an open agent.
+   */
+  enabled(): boolean;
+  selected(): CandidatePair | undefined;
+  /** The checklist, highest priority first. */
+  pairs(): readonly CandidatePair[];
+  /** `pair` may be a backup (not ICE-TCP, checked by the agent). */
+  eligible(pair: CandidatePair): boolean;
+  iceControlling(): boolean;
+  /** The thresholds in use (`IceOptions.failover`). */
+  thresholds(): FailoverThresholds;
+  /**
+   * The agent moves the selection up by itself (controlling, semi-aggressive
+   * nomination or renomination): the pairs that outrank the selection are
+   * checked and retried there (`SelectionReplacement`).
+   */
+  movesSelectionUp(): boolean;
+  /**
+   * Send one check of `pair` without a nomination; resolves true when it
+   * was answered. `signal` cancels it.
+   */
+  ping(pair: CandidatePair, signal: AbortSignal): Promise<boolean>;
+  /** A backup that was not valid (Waiting, Frozen, Failed) answered: it is valid now. */
+  validated(pair: CandidatePair): void;
+  /** A backup was dropped (never answered, or received nothing for DEAD_CONNECTION_RECEIVE_TIMEOUT). */
+  dropped(pair: CandidatePair): void;
+  /** The writability of a monitored pair may have changed. */
+  changed(): void;
+  /** A socket the agent failed over from answered FAILOVER_RECOVERY_RESPONSES times in a row. */
+  recovered(): void;
+}
+
+/** The backup of one local socket (`Protocol`: a UDP socket or a TURN allocation). */
+type BackupRecord = {
+  pair?: CandidatePair;
+  /** When the next check of `pair` is due (see `nextPingAt`; recomputed when it comes). */
+  nextAt: number;
+  /** When the last check of `pair` was sent. */
+  sentAt?: number;
+  /** The interval `pair` uses while not weak, fixed when its last check was sent. */
+  stableInterval: number;
+  /** Checks of `pair` still waiting for their outcome. */
+  inFlight: number;
+  /** Pairs of this socket that failed as its backup in this round. */
+  failed: Set<CandidatePair>;
+  /** Rounds started again from the highest-priority pair. */
+  retries: number;
+  retryTimer?: ReturnType<typeof setTimeout>;
+};
+
+/**
+ * Failover of the selected pair without an ICE restart, as libwebrtc keeps
+ * pinging its connections after the selection.
+ *
+ * One backup pair is monitored per local socket other than the selected
+ * pair's (`CandidatePair.protocol`: a UDP socket, whose host and
+ * server-reflexive candidates share one path, or a TURN allocation): the
+ * highest-priority pair of the socket that did not fail. A backup that never
+ * answers (unwritable) or receives nothing for DEAD_CONNECTION_RECEIVE_TIMEOUT
+ * fails and the next pair of its socket follows, up to
+ * FAILOVER_BACKUP_ATTEMPTS pairs; then the socket starts again from its best
+ * pair after BACKUP_RETRY_DELAYS_MS, then every 16 s while the selection
+ * lasts. All checks run from one timer, paced by
+ * Ta, and stop with `halt()` / `reset()`.
+ *
+ * The selected pair is checked by the consent freshness checks (the agent
+ * reports their outcome with `responded` / `unanswered`); the monitor keeps
+ * its liveness beside the backups'.
+ */
+export class FailoverMonitor {
+  private liveness = new WeakMap<CandidatePair, PairLiveness>();
+  private readonly backups = new Map<Protocol, BackupRecord>();
+  /** Pairs RFC 8445 §8.1.2 failed without a check: they may still become a backup. */
+  private pruned = new WeakSet<CandidatePair>();
+  /** Sockets the agent failed over from, until one of their pairs answered FAILOVER_RECOVERY_RESPONSES times in a row. */
+  private readonly demoted = new Map<Protocol, DemotedPath>();
+  private abort = new AbortController();
+  private timer?: ReturnType<typeof setTimeout>;
+  private lastSentAt = Number.NEGATIVE_INFINITY;
+  private readonly host: FailoverHost;
+
+  constructor(host: FailoverHost) {
+    this.host = host;
+  }
+
+  /** The liveness of `pair`, while it is monitored. */
+  livenessOf(pair: CandidatePair): PairLiveness | undefined {
+    return this.liveness.get(pair);
+  }
+
+  /** The monitored backup pairs, one per socket. */
+  get backupPairs(): CandidatePair[] {
+    const pairs: CandidatePair[] = [];
+    for (const record of this.backups.values()) {
+      if (record.pair) pairs.push(record.pair);
+    }
+    return pairs;
+  }
+
+  /** `pair` is monitored and writable. */
+  writable(pair: CandidatePair, now = Date.now()) {
+    const liveness = this.liveness.get(pair);
+    return !!liveness && isWritable(liveness, now, this.host.thresholds());
+  }
+
+  /** `pair` is monitored, answered since and is unwritable now. */
+  knownUnwritable(pair: CandidatePair, now = Date.now()) {
+    const liveness = this.liveness.get(pair);
+    return (
+      !!liveness &&
+      liveness.lastResponse !== undefined &&
+      isUnwritable(liveness, now, this.host.thresholds())
+    );
+  }
+
+  /** `pair` is monitored and stopped receiving (`isNotReceiving`). */
+  notReceiving(pair: CandidatePair, now = Date.now()) {
+    const liveness = this.liveness.get(pair);
+    return !!liveness && isNotReceiving(liveness, now, this.host.thresholds());
+  }
+
+  /**
+   * The path of the monitored pairs on `protocol` (to `remote` only, when
+   * given) is known to be gone (`PairLiveness.broken`). Returns whether a
+   * monitored pair was on it.
+   */
+  broken(protocol: Protocol, remote?: Address) {
+    const pairs = new Set(this.backupPairs);
+    const selected = this.host.selected();
+    if (selected) pairs.add(selected);
+    let hit = false;
+    for (const pair of pairs) {
+      if (pair.protocol !== protocol) continue;
+      if (
+        remote &&
+        (pair.remoteAddr[0] !== remote[0] || pair.remoteAddr[1] !== remote[1])
+      ) {
+        continue;
+      }
+      const liveness = this.liveness.get(pair);
+      if (!liveness) continue;
+      liveness.broken = true;
+      liveness.consecutive = 0;
+      hit = true;
+    }
+    return hit;
+  }
+
+  /** A backup is writable. */
+  hasWritableBackup(now = Date.now()) {
+    return this.backupPairs.some((pair) => this.writable(pair, now));
+  }
+
+  /**
+   * The backup to fail over to from an unwritable selection: the
+   * highest-priority writable one that is not weak, else the
+   * highest-priority writable one.
+   */
+  target(now = Date.now()): CandidatePair | undefined {
+    const writable = this.backupPairs.filter((pair) =>
+      this.writable(pair, now),
+    );
+    const best = (pairs: CandidatePair[]) =>
+      pairs.reduce<CandidatePair | undefined>(
+        (best, pair) => (!best || this.outranks(pair, best) ? pair : best),
+        undefined,
+      );
+    const strong = best(
+      writable.filter(
+        (pair) =>
+          !isWeak(this.liveness.get(pair)!, now, this.host.thresholds()),
+      ),
+    );
+    return strong ?? best(writable);
+  }
+
+  /**
+   * `pair` may be nominated to move the selection up: its socket is not one
+   * the agent failed over from (until it recovered) and the pair is not known
+   * to be unwritable.
+   */
+  allows(pair: CandidatePair) {
+    return !this.isDemoted(pair) && !this.knownUnwritable(pair);
+  }
+
+  /** `pair` is on a path the agent failed over from (see `demote`). */
+  private isDemoted(pair: CandidatePair) {
+    if (!this.demoted.has(pair.protocol)) return false;
+    const path = this.demoted.get(pair.protocol);
+    return path === undefined || path === remoteKey(pair);
+  }
+
+  /**
+   * `pair` was selected (first selection, or a replacement): its check was
+   * just answered. The monitor follows the new selection.
+   */
+  selected(pair: CandidatePair) {
+    if (!this.host.enabled()) return;
+    this.track(pair);
+    this.responded(pair);
+    this.refresh();
+  }
+
+  /**
+   * The agent failed over from `pair` (the new selection is already set):
+   * its path waits to recover before the selection may move back. A move to
+   * another socket demotes `pair`'s whole socket (its paths break together);
+   * a move to another remote address on the same socket demotes only the
+   * path to `pair`'s remote address.
+   */
+  demote(pair: CandidatePair) {
+    const selected = this.host.selected();
+    const path =
+      selected && selected.protocol === pair.protocol
+        ? remoteKey(pair)
+        : undefined;
+    // A whole socket demoted already stays so.
+    if (!this.demoted.has(pair.protocol) || this.demoted.get(pair.protocol)) {
+      this.demoted.set(pair.protocol, path);
+    }
+    const liveness = this.liveness.get(pair);
+    if (liveness) liveness.consecutive = 0;
+  }
+
+  /** A check of monitored `pair` was answered. */
+  responded(pair: CandidatePair, now = Date.now()) {
+    const liveness = this.liveness.get(pair);
+    if (!liveness) return;
+    liveness.lastResponse = now;
+    liveness.lastReceived = now;
+    liveness.unanswered = 0;
+    liveness.missedSince = undefined;
+    liveness.broken = false;
+    liveness.responses++;
+    liveness.consecutive++;
+  }
+
+  /** A check of monitored `pair` went unanswered. */
+  unanswered(pair: CandidatePair, now = Date.now()) {
+    const liveness = this.liveness.get(pair);
+    if (!liveness) return;
+    if (liveness.unanswered === 0) liveness.missedSince = now;
+    liveness.unanswered++;
+    liveness.consecutive = 0;
+  }
+
+  /** Something (a request, application data) arrived on monitored `pair`. */
+  received(pair: CandidatePair, now = Date.now()) {
+    const liveness = this.liveness.get(pair);
+    if (liveness) liveness.lastReceived = now;
+  }
+
+  /**
+   * The pairs RFC 8445 §8.1.2 must keep for the current selection: the
+   * backup of each other socket (the monitored one, or the one it would
+   * monitor next).
+   */
+  keeps(): Set<CandidatePair> {
+    const keeps = new Set<CandidatePair>();
+    const selected = this.host.selected();
+    if (!selected || !this.host.enabled()) return keeps;
+    for (const protocol of this.backupProtocols(selected)) {
+      const record = this.backups.get(protocol);
+      const pair = record?.pair ?? this.candidateFor(protocol, record);
+      if (pair) keeps.add(pair);
+    }
+    return keeps;
+  }
+
+  /** RFC 8445 §8.1.2 failed `pair` without a check: it may still become a backup. */
+  prunedWithoutCheck(pair: CandidatePair) {
+    this.pruned.add(pair);
+  }
+
+  /**
+   * Bring the backups in line with the selection and the checklist (a new
+   * selection, a pair added, a backup that failed) and arm the timer.
+   */
+  refresh() {
+    const selected = this.host.selected();
+    if (!selected || !this.host.enabled()) {
+      this.halt();
+      return;
+    }
+    const now = Date.now();
+    const protocols = this.backupProtocols(selected);
+    for (const [protocol, record] of this.backups) {
+      if (protocols.has(protocol)) continue;
+      this.dropRecord(record);
+      this.backups.delete(protocol);
+    }
+    const pairs = this.host.pairs();
+    for (const protocol of protocols) {
+      let record = this.backups.get(protocol);
+      if (!record) {
+        record = {
+          nextAt: now,
+          stableInterval: 0,
+          inFlight: 0,
+          failed: new Set(),
+          retries: 0,
+        };
+        this.backups.set(protocol, record);
+      }
+      // The backup became the selection (or the selection moved to its
+      // remote address on this socket): it is released, not failed.
+      if (record.pair && !this.backupEligible(record.pair, selected)) {
+        if (this.host.eligible(record.pair)) {
+          this.replace(record, record.pair);
+        }
+      }
+      const current = record.pair;
+      if (
+        current &&
+        (!pairs.includes(current) ||
+          !this.host.eligible(current) ||
+          // Failed by another check (a nomination that went unanswered).
+          (current.state === CandidatePairState.FAILED &&
+            record.inFlight === 0))
+      ) {
+        this.fail(record, current, false);
+      }
+      // A higher-priority pair of the socket appeared (a candidate trickled
+      // or gathered later): it becomes the backup instead (D2).
+      if (record.pair && !record.retryTimer) {
+        const best = this.candidateFor(protocol, record);
+        if (best && best !== record.pair && this.outranks(best, record.pair)) {
+          this.replace(record, record.pair);
+        }
+      }
+      if (record.pair || record.retryTimer) continue;
+      const next =
+        record.failed.size < FAILOVER_BACKUP_ATTEMPTS
+          ? this.candidateFor(protocol, record)
+          : undefined;
+      if (next) {
+        this.adopt(record, next, now);
+      } else {
+        this.scheduleRetry(protocol, record);
+      }
+    }
+    this.arm();
+  }
+
+  /** Stop the checks and timers; the liveness of the pairs stays (a role change). */
+  halt() {
+    this.abort.abort();
+    this.abort = new AbortController();
+    if (this.timer !== undefined) clearTimeout(this.timer);
+    this.timer = undefined;
+    for (const record of this.backups.values()) this.dropRecord(record);
+    this.backups.clear();
+  }
+
+  /** Stop everything and forget every pair (restart, close, a selection reset). */
+  reset() {
+    this.halt();
+    this.demoted.clear();
+    this.liveness = new WeakMap();
+    this.pruned = new WeakSet();
+    this.lastSentAt = Number.NEGATIVE_INFINITY;
+  }
+
+  /**
+   * The sockets that keep a backup: every socket of an eligible pair; the
+   * selected pair's own socket only through a lower pair to another remote
+   * address (the remote side of the selected path may break alone: the
+   * peer's host candidate goes away while its relay still answers).
+   */
+  private backupProtocols(selected: CandidatePair) {
+    const protocols = new Set<Protocol>();
+    for (const pair of this.host.pairs()) {
+      if (!this.backupEligible(pair, selected)) continue;
+      protocols.add(pair.protocol);
+    }
+    return protocols;
+  }
+
+  /** `pair` may be a backup beside `selected`. */
+  private backupEligible(pair: CandidatePair, selected: CandidatePair) {
+    if (!this.host.eligible(pair)) return false;
+    if (pair.protocol !== selected.protocol) return true;
+    // On the selected pair's socket: any other remote address. Only an
+    // agent that moves the selection up by itself (controlling) leaves the
+    // pairs that outrank the selection to `SelectionReplacement` (checked
+    // and retried there), except the path it failed over from (monitored
+    // until it recovers, see `demote`). A controlled agent monitors them,
+    // so the peer's nomination finds a path known to work.
+    if (remoteKey(pair) === remoteKey(selected)) return false;
+    return (
+      !this.outranks(pair, selected) ||
+      this.isDemoted(pair) ||
+      !this.host.movesSelectionUp()
+    );
+  }
+
+  /**
+   * The next backup of `protocol`: its highest-priority eligible pair that
+   * did not fail in this round. A pair a check failed is skipped in the first
+   * round (one RFC 8445 §8.1.2 failed unchecked is not); a retry round takes
+   * every pair again.
+   */
+  private candidateFor(protocol: Protocol, record?: BackupRecord) {
+    const retrying = (record?.retries ?? 0) > 0;
+    const selected = this.host.selected();
+    return this.host
+      .pairs()
+      .find(
+        (pair) =>
+          pair.protocol === protocol &&
+          (selected ? this.backupEligible(pair, selected) : true) &&
+          !record?.failed.has(pair) &&
+          (pair.state !== CandidatePairState.FAILED ||
+            this.pruned.has(pair) ||
+            retrying),
+      );
+  }
+
+  private adopt(record: BackupRecord, pair: CandidatePair, now: number) {
+    record.pair = pair;
+    record.nextAt = now;
+    record.sentAt = undefined;
+    record.inFlight = 0;
+    this.pruned.delete(pair);
+    this.track(pair, now);
+    // The monitor checks it now: the ordinary schedule and the checks of
+    // pairs that outrank the selection (Waiting / Frozen) leave it alone.
+    if (pair.state !== CandidatePairState.SUCCEEDED) {
+      pair.updateState(CandidatePairState.IN_PROGRESS);
+    }
+  }
+
+  private track(pair: CandidatePair, now = Date.now()) {
+    if (this.liveness.has(pair)) return;
+    this.liveness.set(pair, {
+      since: now,
+      lastReceived: now,
+      unanswered: 0,
+      responses: 0,
+      consecutive: 0,
+    });
+  }
+
+  /** `pair` failed as the backup of `record`; with `notify` the agent marks it Failed. */
+  private fail(record: BackupRecord, pair: CandidatePair, notify: boolean) {
+    record.failed.add(pair);
+    record.pair = undefined;
+    record.inFlight = 0;
+    if (this.host.selected() !== pair) this.liveness.delete(pair);
+    if (notify) this.host.dropped(pair);
+  }
+
+  /**
+   * A better pair takes over as the backup of `record`: `pair` is no longer
+   * monitored but did not fail. One the monitor was still validating goes
+   * back to Failed-without-check, so it may become the backup again.
+   */
+  private replace(record: BackupRecord, pair: CandidatePair) {
+    record.pair = undefined;
+    record.inFlight = 0;
+    if (this.host.selected() !== pair) this.liveness.delete(pair);
+    if (pair.state === CandidatePairState.IN_PROGRESS) {
+      pair.updateState(CandidatePairState.FAILED);
+      this.pruned.add(pair);
+    }
+  }
+
+  /**
+   * The socket's backups all failed: start again from its best pair after
+   * BACKUP_RETRY_DELAYS_MS, then every last delay (16 s) for as long as the
+   * selection lasts, so a path that comes back after a long outage is found
+   * again (and is there when the selected pair breaks).
+   */
+  private scheduleRetry(protocol: Protocol, record: BackupRecord) {
+    if (record.retryTimer) return;
+    const delay =
+      BACKUP_RETRY_DELAYS_MS[
+        Math.min(record.retries, BACKUP_RETRY_DELAYS_MS.length - 1)
+      ];
+    record.retryTimer = setTimeout(() => {
+      record.retryTimer = undefined;
+      if (this.backups.get(protocol) !== record) return;
+      record.retries++;
+      record.failed.clear();
+      this.refresh();
+    }, delay);
+  }
+
+  private dropRecord(record: BackupRecord) {
+    if (record.retryTimer !== undefined) clearTimeout(record.retryTimer);
+    record.retryTimer = undefined;
+    record.pair = undefined;
+    record.inFlight = 0;
+  }
+
+  /** One timer for every backup: the earliest check due, Ta after the last one sent. */
+  private arm() {
+    if (this.timer !== undefined) clearTimeout(this.timer);
+    this.timer = undefined;
+    let at = Number.POSITIVE_INFINITY;
+    for (const record of this.backups.values()) {
+      if (record.pair) at = Math.min(at, record.nextAt);
+    }
+    if (at === Number.POSITIVE_INFINITY) return;
+    at = Math.max(at, this.lastSentAt + PACING_MS);
+    this.timer = setTimeout(
+      () => {
+        this.timer = undefined;
+        this.tick();
+      },
+      Math.max(0, at - Date.now()),
+    );
+  }
+
+  private tick() {
+    const now = Date.now();
+    let due: [Protocol, BackupRecord] | undefined;
+    for (const entry of this.backups) {
+      const [, record] = entry;
+      if (!record.pair || record.nextAt > now) continue;
+      // Something received since moves it later (nextPingAt).
+      if (record.sentAt !== undefined) {
+        const liveness = this.liveness.get(record.pair);
+        if (liveness) {
+          record.nextAt = nextPingAt(
+            liveness,
+            record.sentAt,
+            record.stableInterval,
+            this.host.thresholds(),
+          );
+          if (record.nextAt > now) continue;
+        }
+      }
+      if (!due || record.nextAt < due[1].nextAt) due = entry;
+    }
+    if (due) {
+      this.lastSentAt = now;
+      void this.check(due[0], due[1], due[1].pair!);
+    }
+    this.arm();
+  }
+
+  private async check(
+    protocol: Protocol,
+    record: BackupRecord,
+    pair: CandidatePair,
+  ) {
+    const signal = this.abort.signal;
+    const liveness = this.liveness.get(pair)!;
+    const sentAt = Date.now();
+    // Checks keep their pacing: the next one does not wait for this one's
+    // outcome (its response timeout may exceed the interval).
+    record.inFlight++;
+    record.sentAt = sentAt;
+    record.stableInterval = backupPingInterval(liveness);
+    const thresholds = this.host.thresholds();
+    record.nextAt = nextPingAt(
+      liveness,
+      sentAt,
+      record.stableInterval,
+      thresholds,
+    );
+    let answered = false;
+    try {
+      answered = await this.host.ping(pair, signal);
+    } catch {
+      answered = false;
+    }
+    if (
+      signal.aborted ||
+      this.backups.get(protocol) !== record ||
+      record.pair !== pair
+    ) {
+      return;
+    }
+    record.inFlight = Math.max(0, record.inFlight - 1);
+    const now = Date.now();
+    if (answered) {
+      this.responded(pair, now);
+    } else {
+      this.unanswered(pair);
+    }
+    // The outcome decides the interval (stabilizing, weak or stable).
+    record.stableInterval = backupPingInterval(liveness);
+    record.nextAt = Math.max(
+      now,
+      nextPingAt(liveness, sentAt, record.stableInterval, thresholds),
+    );
+
+    if (answered && pair.state !== CandidatePairState.SUCCEEDED) {
+      this.host.validated(pair);
+    }
+    if (
+      !answered &&
+      ((liveness.lastResponse === undefined &&
+        isUnwritable(liveness, now, thresholds)) ||
+        now - liveness.lastReceived >= DEAD_CONNECTION_RECEIVE_TIMEOUT)
+    ) {
+      this.fail(record, pair, true);
+      this.refresh();
+    }
+    if (
+      answered &&
+      this.isDemoted(pair) &&
+      liveness.consecutive >= FAILOVER_RECOVERY_RESPONSES
+    ) {
+      this.demoted.delete(protocol);
+      this.host.recovered();
+    }
+    this.host.changed();
+    this.arm();
+  }
+
+  private outranks(pair: CandidatePair, other: CandidatePair) {
+    return (
+      compareCandidatePairPriority(
+        pair.localCandidate,
+        pair.remoteCandidate,
+        other.localCandidate,
+        other.remoteCandidate,
+        this.host.iceControlling(),
+      ) > 0
+    );
+  }
+}

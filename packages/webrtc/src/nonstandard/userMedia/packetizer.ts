@@ -12,6 +12,7 @@ import {
   Vp8Packetizer,
   Vp9Packetizer,
 } from "../../imports/rtp";
+import { normalizeCodecMimeType } from "../../media/codecCompatibility";
 import type { RTCRtpCodecParameters } from "../../media/parameters";
 
 export { Vp8Packetizer } from "../../imports/rtp";
@@ -137,6 +138,36 @@ export function createPacketizer({
       };
     }
   }
+}
+
+/**
+ * Identity of the packetizer state for a negotiated codec: two codecs with the
+ * same key produce identical `createPacketizer` output, so the running
+ * packetizer (and codec state such as the VP8 PictureID) is kept.
+ *
+ * Only the values `createPacketizer` reads are included. The payload type is
+ * excluded because `MediaStreamTrack.writeRtp` rewrites it from `track.codec`,
+ * and raw fmtp is excluded because answers may add parameters that do not
+ * affect the payload format (for example VP8 `max-fs` / `max-fr`). H.264 keeps
+ * its normalized `packetization-mode`, so a changed mode still reaches the
+ * `createPacketizer` check.
+ */
+export function packetizerStateKey({
+  codec,
+  sourceCodec,
+}: {
+  codec: RTCRtpCodecParameters;
+  sourceCodec: SupportedSourceCodec;
+}) {
+  return JSON.stringify([
+    sourceCodec,
+    normalizeCodecMimeType(codec.mimeType),
+    codec.clockRate,
+    codec.channels ?? null,
+    sourceCodec === "avc"
+      ? `packetization-mode=${getH264PacketizationMode(codec.parameters)}`
+      : null,
+  ]);
 }
 
 function getH264PacketizationMode(parameters?: string) {

@@ -24,11 +24,12 @@ import { codecParametersFromString } from "../sdp";
 import type { RTCDtlsTransport } from "../transport/dtls";
 import type { Kind } from "../types/domain";
 import { compactNtp, ntpTimeToEpochMs, timestampSeconds } from "../utils";
-import { primaryTrackCodec } from "./codecCompatibility";
+import { deliveredTrackCodec, primaryTrackCodec } from "./codecCompatibility";
 import { usePLI, useTWCC } from "./extension/rtcpFeedback";
 import type {
   RTCRtpCodecParameters,
   RTCRtpReceiveParameters,
+  RTCRtpSimulcastParameters,
 } from "./parameters";
 import { NackHandler } from "./receiver/nack";
 import {
@@ -73,6 +74,43 @@ const RTX_TIMESTAMP_SLACK_SECONDS = 1;
 
 const log = debug("werift:packages/webrtc/src/media/rtpReceiver.ts");
 
+/**
+ * SSRCs a receiver of a remote m-line without `a=ssrc` and RIDs keeps
+ * learned (RFC 9143 section 9.2), oldest evicted first: like the per-RID
+ * bound, a late packet of a replaced SSRC still maps to the same track.
+ */
+const MAX_FALLBACK_SSRCS = 8;
+
+/**
+ * What packets taught about one learned SSRC of a remote m-line without
+ * `a=ssrc` and RIDs (see `RTCRtpReceiver.fallbackSsrcs`).
+ * @internal
+ */
+export type FallbackStream = {
+  codec?: RTCRtpCodecParameters;
+  /** Payload type of the packet that taught the SSRC (RED / media, as received). */
+  payloadType: number;
+  /** Highest extended sequence number seen. */
+  highestExt: number;
+  /**
+   * Extended sequence number of the packet whose MID last set the mapping
+   * (RFC 9143 section 9.2: an older packet's MID does not change it).
+   */
+  midUpdateExt?: number;
+  /** RID the stream last carried while the m-line had none (a pending description's). */
+  rid?: string;
+};
+
+/**
+ * The remote description a pending transaction applies to an m-line without
+ * SSRC and RID at its commit.
+ * @internal
+ */
+export type DeferredRemoteRtp = {
+  params: RTCRtpReceiveParameters;
+  simulcast: RTCRtpSimulcastParameters[];
+};
+
 export class RTCRtpReceiver {
   readonly config: PeerConfig;
   public kind: Kind;
@@ -80,14 +118,42 @@ export class RTCRtpReceiver {
 
   private readonly codecs: { [pt: number]: RTCRtpCodecParameters } = {};
   private readonly defaultTrack: MediaStreamTrack;
+  /**
+   * SSRCs learned for this m-line while its remote description has neither
+   * `a=ssrc` nor RIDs, in learning order (newest last, bounded by
+   * {@link MAX_FALLBACK_SSRCS}). All map to the default track, the one
+   * `ontrack` announced; its `ssrc` is the newest. Packet-driven: commit and
+   * rollback keep it while the m-line stays without SSRC and RID.
+   */
+  private readonly fallbackStreams = new Map<number, FallbackStream>();
+  /**
+   * Internal (TransceiverManager): what a pending remote description gives
+   * this m-line, whose current session is without SSRC and RID. It applies
+   * at the commit; until then the receiver keeps the current session's
+   * tracks, routes and learning. Part of the negotiation snapshot.
+   * @internal
+   */
+  deferredRemote?: DeferredRemoteRtp;
   private get codecArray() {
     return Object.values(this.codecs).sort(
       (a, b) => a.payloadType - b.payloadType,
     );
   }
   private readonly ssrcByRtx: { [rtxSsrc: number]: number } = {};
+  /**
+   * RTX SSRC → media SSRC of the committed FID pairs of a RID m-line, read
+   * per packet by {@link mediaSsrcOfRtx}
+   * (tests/media/firefoxSimulcastSsrc.test.ts "再 offer が 2 レイヤーの FID の RTX SSRC を交換して確定したら、repaired RID がなくても RTX は新しい対応先のレイヤーで復元される").
+   */
+  private readonly ridFidMediaByRtx: { [rtxSsrc: number]: number } = {};
   private readonly stagedCodecs: { [pt: number]: RTCRtpCodecParameters } = {};
   private readonly stagedSsrcByRtx: { [rtxSsrc: number]: number } = {};
+  /**
+   * The latest pending description's whole FID table; the commit replaces
+   * {@link ridFidMediaByRtx} with it
+   * (tests/media/firefoxSimulcastSsrc.test.ts "pranswer を 2 回適用してから answer で確定しても、FID 表は最後の answer の組だけになり、repaired RID のない RTX はその組で復元される").
+   */
+  private stagedRidFidTable?: { [rtxSsrc: number]: number };
   /** SSRCs of `trackBySSRC` learned from RID packets rather than SDP. */
   readonly learnedTrackSsrcs = new Set<number>();
   /**
@@ -110,6 +176,8 @@ export class RTCRtpReceiver {
   /** SSRCs retired by a media SSRC change, per RID, oldest first. */
   readonly retiredSsrcsByRid: { [rid: string]: number[] } = {};
   private readonly forgottenSsrcs: number[] = [];
+  /** FID RTX SSRCs a commit removed ({@link takeDroppedFidRtxSsrcs}). */
+  private readonly droppedFidRtxSsrcs: number[] = [];
   private readonly rejectedSsrcs: number[] = [];
   private readonly nack = new NackHandler(this);
   private readonly audioRedHandler = new RedHandler();
@@ -206,6 +274,249 @@ export class RTCRtpReceiver {
     return this.tracks[0] ?? this.defaultTrack;
   }
 
+  /**
+   * Internal (router): the newest SSRC learned from a packet for a remote
+   * m-line without `a=ssrc` and without RIDs (RFC 9143 section 9.2); see
+   * {@link fallbackStreams}.
+   */
+  get fallbackSsrc(): number | undefined {
+    let newest: number | undefined;
+    for (const ssrc of this.fallbackStreams.keys()) newest = ssrc;
+    return newest;
+  }
+
+  /** Internal (router): every learned fallback SSRC, oldest first. */
+  get fallbackSsrcs() {
+    return [...this.fallbackStreams.keys()];
+  }
+
+  /**
+   * Internal (router): a route to this receiver for `ssrc` is still in use:
+   * a track has it (media SSRC from a description or packets), or a RID's
+   * RTX learned it (`ridByRtxSsrc`, no track entry of its own).
+   */
+  knowsSsrc(ssrc: number) {
+    return !!this.trackBySSRC[ssrc] || ssrc in this.ridByRtxSsrc;
+  }
+
+  /** Internal (router): `ssrc` is one of {@link fallbackSsrcs}. */
+  hasFallbackSsrc(ssrc: number) {
+    return this.fallbackStreams.has(ssrc);
+  }
+
+  /**
+   * Internal (router): whether an RTP stream whose SSRC no description names
+   * may be learned for this receiver: the remote description gave it neither
+   * an SSRC nor a RID (no track besides the default one), and it is running.
+   */
+  get acceptsUnknownSsrc() {
+    return !this.stopped && this.tracks.length === 0;
+  }
+
+  /**
+   * Internal (router): the payload type is a negotiated media codec of this
+   * receiver. RTX is not: without `ssrc-group:FID` nothing pairs an RTX SSRC
+   * with the media SSRC.
+   */
+  receivesMediaPayloadType(payloadType: number) {
+    const codec = this.codecs[payloadType];
+    return !!codec && !isRtxCodec(codec);
+  }
+
+  /** Internal (router): the payload type is a negotiated RTX codec of this receiver. */
+  receivesRtxPayloadType(payloadType: number) {
+    return isRtxCodec(this.codecs[payloadType]);
+  }
+
+  /**
+   * Internal (router): learn `ssrc` for the default track (see
+   * {@link fallbackStreams}). Earlier SSRCs stay mapped to the same track (a
+   * late packet of a replaced stream is delivered, nothing is reset); the
+   * oldest beyond the bound is forgotten and handed to the router through
+   * {@link takeForgottenSsrcs}. `from` carries the stream state when a MID
+   * moves the SSRC here from another m-line.
+   */
+  bindFallbackSsrc(
+    ssrc: number,
+    payloadType: number,
+    from: { sequenceNumber: number; mid: boolean } | FallbackStream,
+  ) {
+    const codec = deliveredTrackCodec(
+      this.kind,
+      this.codecs[payloadType],
+      this.codecArray,
+    );
+    const stream: FallbackStream =
+      "highestExt" in from
+        ? { ...from, codec, payloadType }
+        : {
+            codec,
+            payloadType,
+            highestExt: extendRtpSequence(from.sequenceNumber, undefined),
+            midUpdateExt: from.mid
+              ? extendRtpSequence(from.sequenceNumber, undefined)
+              : undefined,
+          };
+    this.fallbackStreams.delete(ssrc);
+    this.fallbackStreams.set(ssrc, stream);
+    const track = this.defaultTrack;
+    track.ssrc = ssrc;
+    track.codec = codec;
+    this.trackBySSRC[ssrc] = track;
+    this.learnedTrackSsrcs.add(ssrc);
+    while (this.fallbackStreams.size > MAX_FALLBACK_SSRCS) {
+      const [oldest] = this.fallbackStreams.keys();
+      this.releaseFallbackSsrc(oldest);
+    }
+  }
+
+  /**
+   * Internal (router): where a packet of the learned fallback SSRC `ssrc`
+   * stands, without changing anything: its extended sequence number and
+   * whether its MID may update the mapping (RFC 9143 section 9.2: only a
+   * packet newer than the last update does). The router applies it with
+   * {@link acceptFallbackPacket} only once the packet is valid for the
+   * receiver that takes it, so an invalid packet moves nothing.
+   */
+  observeFallbackPacket(ssrc: number, sequenceNumber: number) {
+    const stream = this.fallbackStreams.get(ssrc);
+    if (!stream) return undefined;
+    const ext = extendRtpSequence(sequenceNumber, stream.highestExt);
+    const midMayUpdate =
+      stream.midUpdateExt === undefined || ext > stream.midUpdateExt;
+    return {
+      ext,
+      midMayUpdate,
+      stream: { ...stream, highestExt: Math.max(stream.highestExt, ext) },
+    };
+  }
+
+  /**
+   * Internal (router): a packet of the fallback SSRC `ssrc` at `ext` this
+   * receiver takes (a negotiated media payload type): it advances the
+   * highest sequence number and, with `ownMid`, the last MID update.
+   */
+  acceptFallbackPacket(ssrc: number, ext: number, ownMid: boolean) {
+    const stream = this.fallbackStreams.get(ssrc);
+    if (!stream) return;
+    if (ext > stream.highestExt) stream.highestExt = ext;
+    if (ownMid) stream.midUpdateExt = ext;
+  }
+
+  /**
+   * Internal (router): the fallback SSRC `ssrc` arrived with a RID this
+   * m-line has no track for (a pending description's RID). The commit that
+   * gives the RID hands the SSRC over ({@link adoptFallbackSsrcForRid}).
+   */
+  noteFallbackRid(ssrc: number, rid: string) {
+    const stream = this.fallbackStreams.get(ssrc);
+    if (stream) stream.rid = rid;
+  }
+
+  /** Internal: RID → newest fallback SSRC that carried it. */
+  fallbackSsrcsByRid() {
+    const out = new Map<string, number>();
+    for (const [ssrc, stream] of this.fallbackStreams) {
+      if (stream.rid !== undefined) out.set(stream.rid, ssrc);
+    }
+    return out;
+  }
+
+  /**
+   * Internal: at the commit that gives `rid`, the SSRC that already carried
+   * it is that RID's media SSRC (learned, so later packets without
+   * `rtp-stream-id` keep reaching the RID's track). False without the track.
+   */
+  adoptFallbackSsrcForRid(rid: string, ssrc: number) {
+    const track = this.trackByRID[rid];
+    if (!track) return false;
+    this.mediaSsrcByRid[rid] = ssrc;
+    this.trackBySSRC[ssrc] = track;
+    this.learnedTrackSsrcs.add(ssrc);
+    return true;
+  }
+
+  /**
+   * Internal (router): forget one learned fallback SSRC (evicted, or moved
+   * to the m-line a newer MID names): its track entry, NACK holes and
+   * per-SSRC receive state go, and {@link takeForgottenSsrcs} hands it to the
+   * router to drop its learned route. Returns its stream state.
+   */
+  releaseFallbackSsrc(ssrc: number) {
+    const stream = this.fallbackStreams.get(ssrc);
+    if (!stream) return undefined;
+    this.fallbackStreams.delete(ssrc);
+    if (this.defaultTrack.ssrc === ssrc) this.showNewestFallbackSsrc();
+    this.nack.forget(ssrc);
+    this.forgetLearnedSsrc(ssrc);
+    return stream;
+  }
+
+  /**
+   * Internal (router): forget whatever packets taught this receiver about
+   * `ssrc` — a fallback SSRC, a RID's media SSRC or a RID's RTX SSRC — when
+   * a local sender or another m-line's description in the same RTP session
+   * takes it. {@link takeForgottenSsrcs} hands it to the router to drop the
+   * learned route. A description's own SSRC stays.
+   */
+  releaseLearnedSsrc(ssrc: number) {
+    if (this.releaseFallbackSsrc(ssrc)) return;
+    let learned = this.learnedTrackSsrcs.has(ssrc);
+    for (const [rid, media] of Object.entries(this.mediaSsrcByRid)) {
+      if (media !== ssrc) continue;
+      delete this.mediaSsrcByRid[rid];
+      learned = true;
+    }
+    if (ssrc in this.ridByRtxSsrc) {
+      this.unbindRtxSsrc(ssrc);
+      learned = true;
+    }
+    if (!learned) return;
+    this.nack.forget(ssrc);
+    this.forgetLearnedSsrc(ssrc);
+  }
+
+  /** The default track shows the newest learned fallback SSRC and its codec. */
+  private showNewestFallbackSsrc() {
+    const newest = this.fallbackSsrc;
+    this.defaultTrack.ssrc = newest;
+    const codec =
+      newest === undefined
+        ? undefined
+        : this.fallbackStreams.get(newest)?.codec;
+    if (codec) this.defaultTrack.codec = codec;
+  }
+
+  /**
+   * Internal: forget every learned fallback SSRC, when a description gives
+   * this m-line an SSRC or a RID or the transceiver goes. Returns them.
+   */
+  releaseFallbackSsrcs() {
+    const released = this.fallbackSsrcs;
+    for (const ssrc of released) this.releaseFallbackSsrc(ssrc);
+    return released;
+  }
+
+  /**
+   * Internal (router): the track a description's first SSRC binds when this
+   * m-line had neither an SSRC nor a RID and `ontrack` already announced the
+   * default track: the application keeps receiving on the object it got,
+   * and `ontrack` does not fire again for it.
+   */
+  adoptDefaultTrack(ssrc: number, codec?: RTCRtpCodecParameters) {
+    this.defaultTrack.ssrc = ssrc;
+    this.defaultTrack.codec = codec ?? this.defaultTrack.codec;
+    return this.defaultTrack;
+  }
+
+  /** Tracks with an SSRC whose statistics are reported (the fallback one too). */
+  private get reportedTracks() {
+    return this.fallbackSsrc === undefined ||
+      this.tracks.includes(this.defaultTrack)
+      ? this.tracks
+      : [...this.tracks, this.defaultTrack];
+  }
+
   get nackEnabled() {
     return this.codecArray[0]?.rtcpFeedback.find((f) => f.type === "nack");
   }
@@ -246,14 +557,34 @@ export class RTCRtpReceiver {
         this.codecs[c.payloadType] = c;
       }
     });
-    params.encodings.forEach((e) => {
-      if (!e.rtx) return;
-      const existing = this.ssrcByRtx[e.rtx.ssrc];
-      if (deferConflicts && existing !== undefined && existing !== e.ssrc) {
-        this.stagedSsrcByRtx[e.rtx.ssrc] = e.ssrc;
+    const pairs = [
+      ...params.encodings.flatMap((e) =>
+        e.rtx ? [{ ssrc: e.ssrc, rtxSsrc: e.rtx.ssrc }] : [],
+      ),
+    ];
+    if (deferConflicts) {
+      this.stagedRidFidTable = Object.fromEntries(
+        (params.ridRtxPairs ?? []).map(({ ssrc, rtxSsrc }) => [rtxSsrc, ssrc]),
+      );
+    }
+    params.ridRtxPairs?.forEach(({ ssrc, rtxSsrc }) => {
+      const existing = this.ridFidMediaByRtx[rtxSsrc];
+      const inUse = existing === undefined && rtxSsrc in this.ridByRtxSsrc;
+      const changes = existing !== undefined && existing !== ssrc;
+      // Staged until the commit
+      // (tests/media/firefoxSimulcastSsrc.test.ts "保留中の offer が同じ RTX SSRC に別の FID 媒体 SSRC を割り当てても、現行セッションの RTX は復元され、rollback 後も元の対応に戻る";
+      // tests/media/firefoxSimulcastSsrc.test.ts "現行通信が repaired RID で RID high に学習した RTX SSRC を、保留中の offer が RID low の FID に記載しても、確定まで high の RTX は復元され、rollback 後も復元される").
+      if (deferConflicts && (changes || inUse)) return;
+      if (changes) this.unbindRtxSsrc(rtxSsrc);
+      this.ridFidMediaByRtx[rtxSsrc] = ssrc;
+    });
+    pairs.forEach(({ ssrc, rtxSsrc }) => {
+      const existing = this.ssrcByRtx[rtxSsrc];
+      if (deferConflicts && existing !== undefined && existing !== ssrc) {
+        this.stagedSsrcByRtx[rtxSsrc] = ssrc;
       } else {
-        delete this.stagedSsrcByRtx[e.rtx.ssrc];
-        this.ssrcByRtx[e.rtx.ssrc] = e.ssrc;
+        delete this.stagedSsrcByRtx[rtxSsrc];
+        this.ssrcByRtx[rtxSsrc] = ssrc;
       }
     });
   }
@@ -265,14 +596,23 @@ export class RTCRtpReceiver {
   discardStagedReceive() {
     clearTable(this.stagedCodecs);
     clearTable(this.stagedSsrcByRtx);
+    this.stagedRidFidTable = undefined;
   }
 
   /** Internal: the transaction committed, staged payload types and RTX pairs apply. */
   commitStagedReceive() {
     Object.assign(this.codecs, this.stagedCodecs);
     Object.assign(this.ssrcByRtx, this.stagedSsrcByRtx);
+    const before = { ...this.ridFidMediaByRtx };
+    if (this.stagedRidFidTable) {
+      // (tests/media/firefoxSimulcastSsrc.test.ts "再 offer が FID の組を外して確定したら、repaired RID のない RTX はその組で復元されない")
+      clearTable(this.ridFidMediaByRtx);
+      Object.assign(this.ridFidMediaByRtx, this.stagedRidFidTable);
+    }
     clearTable(this.stagedCodecs);
     clearTable(this.stagedSsrcByRtx);
+    this.stagedRidFidTable = undefined;
+    this.unbindChangedFidRtx(before);
   }
 
   /** Internal: capture the decode tables for a negotiation rollback baseline. */
@@ -282,6 +622,10 @@ export class RTCRtpReceiver {
       ssrcByRtx: { ...this.ssrcByRtx },
       stagedCodecs: { ...this.stagedCodecs },
       stagedSsrcByRtx: { ...this.stagedSsrcByRtx },
+      ridFidMediaByRtx: { ...this.ridFidMediaByRtx },
+      stagedRidFidTable: this.stagedRidFidTable && {
+        ...this.stagedRidFidTable,
+      },
     };
   }
 
@@ -294,10 +638,15 @@ export class RTCRtpReceiver {
       [this.ssrcByRtx, snapshot.ssrcByRtx],
       [this.stagedCodecs, snapshot.stagedCodecs],
       [this.stagedSsrcByRtx, snapshot.stagedSsrcByRtx],
+      [this.ridFidMediaByRtx, snapshot.ridFidMediaByRtx],
     ] as [Record<number, unknown>, Record<number, unknown>][]) {
       clearTable(table);
       Object.assign(table, saved);
     }
+    this.stagedRidFidTable = snapshot.stagedRidFidTable && {
+      ...snapshot.stagedRidFidTable,
+    };
+    this.droppedFidRtxSsrcs.length = 0;
   }
 
   /**
@@ -312,6 +661,7 @@ export class RTCRtpReceiver {
       remoteStreamId: this.remoteStreamId,
       remoteTrackId: this.remoteTrackId,
       tracks: [...this.tracks],
+      deferredRemote: this.deferredRemote,
       trackBySSRC: { ...this.trackBySSRC },
       /** SSRCs of `trackBySSRC` that packets taught (not description state). */
       learnedTrackSsrcs: [...this.learnedTrackSsrcs],
@@ -329,17 +679,22 @@ export class RTCRtpReceiver {
       if (this.receiverTWCC) this.receiverTWCC.twccRunning = false;
       this.receiverTWCC = state.receiverTWCC;
     }
+    this.deferredRemote = state.deferredRemote;
     this.remoteStreamIds = state.remoteStreamIds;
     this.remoteStreamId = state.remoteStreamId;
     this.remoteTrackId = state.remoteTrackId;
     this.tracks.splice(0, this.tracks.length, ...state.tracks);
     // SSRCs learned from RID packets are live state, not SDP: keep those
     // whose track survives the rollback.
+    // The fallback SSRC of an m-line without `a=ssrc` lives on the default
+    // track, which is never in `tracks`; it survives when the baseline has no
+    // track either (the m-line is still without SSRC and RID).
     const learnedTracks = Object.entries(this.trackBySSRC).filter(
       ([ssrc, track]) =>
         this.learnedTrackSsrcs.has(Number(ssrc)) &&
         !(ssrc in state.trackBySSRC) &&
-        state.tracks.includes(track),
+        (state.tracks.includes(track) ||
+          (track === this.defaultTrack && state.tracks.length === 0)),
     );
     // Packets taught before the baseline and later dropped (an SSRC retired
     // by a media SSRC change of its RID, or evicted): the baseline does not
@@ -347,20 +702,67 @@ export class RTCRtpReceiver {
     const forgotten = state.learnedTrackSsrcs.filter(
       (ssrc) => !(ssrc in this.trackBySSRC),
     );
+    // RIDs only the rolled-back description gave (staged tracks, or tracks
+    // it added): what their packets taught goes with them.
+    const droppedRids = Object.keys(this.trackByRID).filter(
+      (rid) => !(rid in state.trackByRID),
+    );
     replaceTable(this.trackBySSRC, state.trackBySSRC);
     for (const ssrc of forgotten) delete this.trackBySSRC[ssrc];
     for (const [ssrc, track] of learnedTracks) {
       this.trackBySSRC[ssrc] = track;
     }
+    // A baseline entry packets taught stays learned, even if the rolled-back
+    // description named the same SSRC (which cleared the mark).
+    for (const ssrc of state.learnedTrackSsrcs) {
+      if (ssrc in this.trackBySSRC) this.learnedTrackSsrcs.add(ssrc);
+    }
     replaceTable(this.trackByRID, state.trackByRID);
     this.unboundTracks = [...state.unboundTracks];
+    for (const rid of droppedRids) {
+      for (const rtxSsrc of [...(this.rtxSsrcsByRid[rid] ?? [])]) {
+        this.unbindRtxSsrc(rtxSsrc);
+        this.forgetLearnedSsrc(rtxSsrc);
+      }
+      delete this.rtxSsrcsByRid[rid];
+      delete this.retiredSsrcsByRid[rid];
+      delete this.mediaSsrcByRid[rid];
+    }
+    // A learned SSRC whose track did not survive is forgotten here and, via
+    // `takeForgottenSsrcs`, in the router (`RtpRouter.restoreRoutes`), so the
+    // same SSRC can be learned anew (for example as the fallback SSRC).
+    for (const ssrc of [...this.learnedTrackSsrcs]) {
+      if (ssrc in this.trackBySSRC) continue;
+      this.learnedTrackSsrcs.delete(ssrc);
+      this.forgetLearnedSsrc(ssrc);
+    }
     // A track the rolled-back description rebound gets its SSRC back.
     for (const [ssrc, track] of Object.entries(state.trackBySSRC)) {
-      if (!track.rid) track.ssrc = Number(ssrc);
+      if (!track.rid && !forgotten.includes(Number(ssrc))) {
+        track.ssrc = Number(ssrc);
+      }
     }
+    // Learned fallback SSRCs follow the tables: those still mapped to the
+    // default track stay while the m-line is without SSRC and RID (a
+    // pending description never touched it, see `deferredRemote`); the
+    // others are forgotten. The default track's SSRC is the newest kept.
+    for (const ssrc of this.fallbackSsrcs) {
+      if (this.trackBySSRC[ssrc] !== this.defaultTrack) {
+        this.fallbackStreams.delete(ssrc);
+      }
+    }
+    if (this.tracks.length > 0) this.releaseFallbackSsrcs();
     // Codec/RTX tables added or changed by a pending description are
     // dropped; current RTP is decoded exactly as before the transaction.
     this.restoreReceiveTables(state.receiveTables);
+    // A stream learned with a payload type only the rolled-back description
+    // gave is not a stream of the current session: it is forgotten too.
+    for (const [ssrc, stream] of [...this.fallbackStreams]) {
+      if (!this.codecs[stream.payloadType]) this.releaseFallbackSsrc(ssrc);
+    }
+    if (!this.tracks.includes(this.defaultTrack)) {
+      this.showNewestFallbackSsrc();
+    }
   }
 
   /**
@@ -374,10 +776,13 @@ export class RTCRtpReceiver {
     this.discardStagedReceive();
     clearTable(this.codecs);
     clearTable(this.ssrcByRtx);
+    const before = { ...this.ridFidMediaByRtx };
+    clearTable(this.ridFidMediaByRtx);
     this.prepareReceive(params);
+    this.unbindChangedFidRtx(before);
     const codec = primaryTrackCodec(this.kind, params.codecs);
     if (codec) {
-      for (const track of this.tracks) track.codec = codec;
+      for (const track of this.reportedTracks) track.codec = codec;
     }
     // Re-acquire before releasing the previous reference so a still-enabled
     // receiver keeps the same transport-wide history instead of recreating it.
@@ -435,8 +840,9 @@ export class RTCRtpReceiver {
   }
 
   addTrack(track: MediaStreamTrack) {
+    // An SSRC is any 32-bit value, 0 included: test for a missing one only.
     if (
-      track.ssrc &&
+      track.ssrc !== undefined &&
       !track.rid &&
       !this.trackBySSRC[track.ssrc] &&
       this.unboundTracks.length > 0
@@ -456,7 +862,7 @@ export class RTCRtpReceiver {
       if (t.rid) {
         return t.rid === track.rid;
       }
-      if (t.ssrc) {
+      if (t.ssrc !== undefined) {
         return t.ssrc === track.ssrc;
       }
     });
@@ -464,7 +870,7 @@ export class RTCRtpReceiver {
       return false;
     }
     this.tracks.push(track);
-    if (track.ssrc) {
+    if (track.ssrc !== undefined) {
       this.trackBySSRC[track.ssrc] = track;
       this.learnedTrackSsrcs.delete(track.ssrc);
     }
@@ -483,10 +889,13 @@ export class RTCRtpReceiver {
     this.nack.close();
     clearTable(this.mediaSsrcByRid);
     clearTable(this.ridByRtxSsrc);
+    clearTable(this.ridFidMediaByRtx);
+    this.stagedRidFidTable = undefined;
     clearTable(this.rtxSsrcsByRid);
     clearTable(this.repairedMediaByRtx);
     clearTable(this.retiredSsrcsByRid);
     this.forgottenSsrcs.length = 0;
+    this.droppedFidRtxSsrcs.length = 0;
     this.rejectedSsrcs.length = 0;
   }
 
@@ -556,9 +965,9 @@ export class RTCRtpReceiver {
   }
 
   getStatsRootIds(selector?: MediaStreamTrack) {
-    return this.tracks
+    return this.reportedTracks
       .filter((track) => (!selector ? true : track === selector))
-      .filter((track) => track.ssrc)
+      .filter((track) => track.ssrc !== undefined)
       .map((track) => this.getInboundRtpStatsId(track));
   }
 
@@ -571,8 +980,8 @@ export class RTCRtpReceiver {
     const emittedCodecIds = new Set<string>();
 
     // Collect stats for each track
-    for (const track of this.tracks) {
-      if (!track.ssrc) continue;
+    for (const track of this.reportedTracks) {
+      if (track.ssrc === undefined) continue;
 
       const streamStats = this.remoteStreams[track.ssrc];
 
@@ -792,6 +1201,21 @@ export class RTCRtpReceiver {
   };
 
   /**
+   * Internal (router): a packet of `ssrc` routed here is handled by its
+   * repaired RID `repairedRid`
+   * (tests/media/firefoxSimulcastRepairedRidRoute.test.ts "simulcast (RID) RTX routed by SSRC with a repaired RID (readsRepairedRid)").
+   */
+  readsRepairedRid(ssrc: number, repairedRid: string) {
+    if (!this.trackByRID[repairedRid]) return false;
+    if (ssrc in this.ridFidMediaByRtx) return true;
+    return (
+      !(ssrc in this.ridByRtxSsrc) &&
+      this.trackBySSRC[ssrc] === undefined &&
+      this.ssrcByRtx[ssrc] === undefined
+    );
+  }
+
+  /**
    * An RTX packet that names the RID it repairs (`repaired-rtp-stream-id`).
    * The RTX SSRC is bound to that RID; the packet is restored only when it
    * fills a hole of the RID's current media SSRC (see {@link mediaSsrcOfRtx}).
@@ -819,7 +1243,7 @@ export class RTCRtpReceiver {
       return;
     }
     this.bindRtxSsrc(packet.header.ssrc, repairedRid);
-    this.handleRTP(packet, extensions);
+    this.handleRTP(packet, extensions, undefined, repairedRid);
   };
 
   private isRetired(rid: string, ssrc: number) {
@@ -855,8 +1279,47 @@ export class RTCRtpReceiver {
     this.retire(rid, old);
     for (const rtxSsrc of [...(this.rtxSsrcsByRid[rid] ?? [])]) {
       if (this.repairedMediaByRtx[rtxSsrc] === old) {
-        this.unbindRtxSsrc(rtxSsrc);
-        this.retire(rid, rtxSsrc);
+        if (rtxSsrc in this.ridFidMediaByRtx) {
+          // A FID RTX SSRC stays the layer's
+          // (tests/media/firefoxSimulcastSsrc.test.ts "repaired RID がなくても、旧媒体 SSRC を修復した FID の RTX SSRC は、媒体 SSRC の切り替え後に新しい媒体の欠落を復元する").
+          delete this.repairedMediaByRtx[rtxSsrc];
+        } else {
+          this.unbindRtxSsrc(rtxSsrc);
+          this.retire(rid, rtxSsrc);
+        }
+      }
+    }
+  }
+
+  /**
+   * The RID carrying `media`, or having carried it before a media SSRC change
+   * (tests/media/firefoxSimulcastSsrc.test.ts "repaired RID がなく、切り替え前に RTX を受信していなくても、切り替え後に初めて届いた FID の RTX SSRC は新しい媒体の欠落を復元する").
+   */
+  private ridOfFidMedia(media: number) {
+    for (const [rid, current] of Object.entries(this.mediaSsrcByRid)) {
+      if (current === media) return rid;
+    }
+    for (const [rid, retired] of Object.entries(this.retiredSsrcsByRid)) {
+      if (retired.includes(media)) return rid;
+    }
+    return undefined;
+  }
+
+  /**
+   * An RTX SSRC whose FID pair the commit added, changed or removed forgets
+   * its repaired-RID binding
+   * (tests/media/firefoxSimulcastSsrc.test.ts "repaired RID で結合を学習した後に FID が加わり、さらに FID の媒体 SSRC が変わって確定しても、新しい媒体を学習するまでは旧媒体の欠落を復元しない").
+   */
+  private unbindChangedFidRtx(before: { [rtxSsrc: number]: number }) {
+    for (const rtx of new Set([
+      ...Object.keys(before),
+      ...Object.keys(this.ridFidMediaByRtx),
+    ])) {
+      const rtxSsrc = Number(rtx);
+      if (before[rtxSsrc] === this.ridFidMediaByRtx[rtxSsrc]) continue;
+      if (rtxSsrc in this.ridByRtxSsrc) this.unbindRtxSsrc(rtxSsrc);
+      if (!(rtxSsrc in this.ridFidMediaByRtx)) {
+        this.droppedFidRtxSsrcs.push(rtxSsrc);
       }
     }
   }
@@ -912,8 +1375,10 @@ export class RTCRtpReceiver {
     const described =
       this.trackBySSRC[ssrc] !== undefined ||
       this.tracks.some((track) => track.ssrc === ssrc) ||
-      Object.entries(this.ssrcByRtx).some(
-        ([rtx, media]) => Number(rtx) === ssrc || media === ssrc,
+      [this.ssrcByRtx, this.ridFidMediaByRtx].some((table) =>
+        Object.entries(table).some(
+          ([rtx, media]) => Number(rtx) === ssrc || media === ssrc,
+        ),
       );
     if (!described) {
       for (const table of [
@@ -933,6 +1398,22 @@ export class RTCRtpReceiver {
       }
     }
     this.forgottenSsrcs.push(ssrc);
+  }
+
+  /**
+   * Internal (router): FID RTX SSRCs a commit removed that the description
+   * no longer describes otherwise; their description routes go
+   * (tests/media/firefoxSimulcastRepairedRidRoute.test.ts "確定で FID の組が外れた RTX SSRC を BUNDLE の別 m-line が MID と repaired RID 付きで使うと、その m-line の RID のトラックへ復元される";
+   * tests/media/firefoxSimulcastRepairedRidRoute.test.ts "RID の m-line が FID の組を外して SSRC で送る記述に変わっても、a=ssrc の RTX として記述された RTX SSRC は経路を失わず復元される").
+   */
+  takeDroppedFidRtxSsrcs() {
+    if (this.droppedFidRtxSsrcs.length === 0) return [];
+    return [...new Set(this.droppedFidRtxSsrcs.splice(0))].filter(
+      (ssrc) =>
+        !(ssrc in this.ridFidMediaByRtx) &&
+        this.trackBySSRC[ssrc] === undefined &&
+        this.ssrcByRtx[ssrc] === undefined,
+    );
   }
 
   /**
@@ -971,11 +1452,21 @@ export class RTCRtpReceiver {
   private mediaSsrcOfRtx(
     rtx: RtpPacket,
     mediaCodec: RTCRtpCodecParameters,
+    repairedRid?: string,
   ): number | undefined {
     const rtxSsrc = rtx.header.ssrc;
     const bySdp = this.ssrcByRtx[rtxSsrc];
     if (bySdp !== undefined) return bySdp;
-    const rid = this.ridByRtxSsrc[rtxSsrc];
+    // The repaired RID, else the FID media SSRC's RID, else the bound RID
+    // (tests/media/firefoxSimulcastSsrc.test.ts "FID の RTX SSRC から、すでに受信済みの番号の遅延 RTX が来ても重複して配送しない").
+    const fidMedia = this.ridFidMediaByRtx[rtxSsrc];
+    const rid =
+      repairedRid ??
+      (fidMedia !== undefined
+        ? this.ridOfFidMedia(fidMedia)
+        : this.ridByRtxSsrc[rtxSsrc]);
+    // (tests/media/router.test.ts "同じ RID の媒体 SSRC が切り替わると旧 SSRC の欠落の要求と台帳は同時に消え、遅れて届いた旧 RTX は破棄される")
+    if (rid !== undefined && this.isRetired(rid, rtxSsrc)) return undefined;
     const media = rid === undefined ? undefined : this.mediaSsrcByRid[rid];
     if (media === undefined) return undefined;
     const slack = Math.round(
@@ -991,7 +1482,9 @@ export class RTCRtpReceiver {
     ) {
       return undefined;
     }
-    this.repairedMediaByRtx[rtxSsrc] = media;
+    if (this.ridByRtxSsrc[rtxSsrc] === rid) {
+      this.repairedMediaByRtx[rtxSsrc] = media;
+    }
     return media;
   }
 
@@ -1026,6 +1519,7 @@ export class RTCRtpReceiver {
     packet: RtpPacket,
     extensions: Extensions,
     track?: MediaStreamTrack,
+    repairedRid?: string,
   ) {
     if (this.stopped) {
       return;
@@ -1064,7 +1558,7 @@ export class RTCRtpReceiver {
       // Padding-only RTX (probe / bandwidth padding) carries no original
       // packet: TWCC above already observed it, nothing is delivered.
       if (packet.payload.length < 2) return;
-      const originalSsrc = this.mediaSsrcOfRtx(packet, mediaCodec);
+      const originalSsrc = this.mediaSsrcOfRtx(packet, mediaCodec, repairedRid);
       if (originalSsrc === undefined) {
         log("rtx media ssrc not resolved", { rtxSsrc: packet.header.ssrc });
         return;

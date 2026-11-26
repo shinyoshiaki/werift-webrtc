@@ -1,4 +1,5 @@
 import { SCTP_STATE } from "../../../sctp/src";
+import { type PeerConfig, peerConfigHasDtls13 } from "../api/peerConfig";
 import { debug, type Event } from "../imports/common";
 import type { TransceiverManager } from "../media";
 import type { NegotiationTransaction } from "../negotiationTransaction";
@@ -30,6 +31,7 @@ export class TransportActivation {
   private readonly topology: BundleTopology;
   private readonly host: {
     signalingState: () => RTCSignalingState;
+    config: () => PeerConfig;
     /** The transport a transceiver starts on (BUNDLE policy aware). */
     createTransport: () => RTCDtlsTransport;
   };
@@ -49,6 +51,7 @@ export class TransportActivation {
     topology: BundleTopology,
     host: {
       signalingState: () => RTCSignalingState;
+      config: () => PeerConfig;
       /** The transport a transceiver starts on (BUNDLE policy aware). */
       createTransport: () => RTCDtlsTransport;
     },
@@ -231,6 +234,17 @@ export class TransportActivation {
    */
   async connect() {
     log("start connect");
+    const config = this.host.config();
+    if (config.sped === true && !peerConfigHasDtls13(config)) {
+      throw new Error(
+        "PeerConfig.sped requires DTLS 1.3 in dtls.protocolVersions",
+      );
+    }
+    if (config.sped === true && config.dtls.helloRetryRequest) {
+      throw new Error(
+        "PeerConfig.sped cannot be combined with dtls.helloRetryRequest",
+      );
+    }
     const epoch = this.connectEpoch;
 
     const res = await Promise.allSettled(
@@ -248,19 +262,73 @@ export class TransportActivation {
         ) {
           return progressed;
         }
+        // The ICE generation awaited below may end meanwhile (restart(),
+        // resetRemoteGeneration()) or the transport retire (renegotiation,
+        // close()): its outcome then changes no state, whether it failed,
+        // was cancelled or connected. The connect() of the description that
+        // carries the new generation reports that one.
+        const generation = iceTransport.checksGeneration;
+        const replaced = () =>
+          iceTransport.checksGeneration !== generation ||
+          !this.secure.dtlsTransports.includes(dtlsTransport);
         if (!iceTransport.checksStarted) {
           progressed = true;
           this.secure.setConnectionState("connecting");
-          await iceTransport.start().catch((err) => {
-            log("iceTransport.start failed", err);
-            throw err;
-          });
+          // A connectionstatechange subscriber may have restarted ICE: the
+          // new generation's own connect() starts its checks.
+          if (replaced()) return false;
+          // SPED: the DTLS handshake rides on the ICE Binding exchange, so
+          // both start together instead of DTLS waiting for ICE.
+          const dtlsPromise =
+            config.sped === true &&
+            dtlsTransport.state === "new" &&
+            dtlsTransport.hasRemoteParameters
+              ? dtlsTransport.start()
+              : undefined;
+          const earlySctpPromise = dtlsPromise
+            ? this.startEarlySctp(dtlsTransport, config)
+            : undefined;
+          const error = await Promise.all([
+            iceTransport.start(),
+            dtlsPromise,
+            earlySctpPromise,
+          ]).then(
+            () => undefined,
+            (err: unknown) => err ?? new Error("ICE start failed"),
+          );
+          if (replaced()) return false;
+          if (error) {
+            log("iceTransport.start failed", error);
+            throw error;
+          }
           iceReady = true;
+          if (dtlsPromise) {
+            // As for a DTLS transport started after ICE (below): start()
+            // also returns when it closed meanwhile, which ends the attempt
+            // as failed while a live m-line uses it, and SCTP on it is
+            // ensured before this transport activation completes.
+            if (
+              (dtlsTransport.state as RTCDtlsTransport["state"]) !== "connected"
+            ) {
+              if (this.secure.dtlsTransports.includes(dtlsTransport)) {
+                throw new Error(`DTLS transport ${dtlsTransport.state}`);
+              }
+              return false;
+            }
+            if (
+              this.sctp.sctpTransport &&
+              this.sctp.sctpTransport.dtlsTransport.id === dtlsTransport.id
+            ) {
+              await this.sctp.connectSctp();
+            }
+            return progressed;
+          }
         } else if (iceTransport.state === "checking") {
           // Checks an earlier connect() (or a pranswer) started are awaited,
           // never started again.
           progressed = true;
           await iceTransport.checksSettled();
+          if (replaced()) return false;
           iceReady = ["connected", "completed"].includes(iceTransport.state);
           if (!iceReady) {
             throw new Error(`ICE transport ${iceTransport.state}`);
@@ -293,10 +361,17 @@ export class TransportActivation {
 
         progressed = true;
         this.secure.setConnectionState("connecting");
-        await dtlsTransport.start().catch((err) => {
-          log("dtlsTransport.start failed", err);
-          throw err;
-        });
+        const earlySctpPromise = this.startEarlySctp(dtlsTransport, config);
+        // Attach handlers to both starts immediately. A fingerprint failure
+        // can reject DTLS before the early SCTP association settles; awaiting
+        // them sequentially would then leave its rejection unhandled.
+        await Promise.all([
+          dtlsTransport.start().catch((err) => {
+            log("dtlsTransport.start failed", err);
+            throw err;
+          }),
+          earlySctpPromise,
+        ]);
 
         // start() also returns when the transport was closed meanwhile
         // (stop()): it never connected, so neither SCTP nor the connected
@@ -326,11 +401,45 @@ export class TransportActivation {
     );
 
     if (epoch !== this.connectEpoch) return;
-    if (res.find((r) => r.status === "rejected")) {
+    // A transport can fail while this call waits (for example a fingerprint
+    // re-validation failure); its earlier success must not report connected.
+    if (
+      res.find((r) => r.status === "rejected") ||
+      this.secure.dtlsTransports.some((t) => t.state === "failed")
+    ) {
       this.secure.setConnectionState("failed");
     } else if (res.some((r) => r.status === "fulfilled" && r.value)) {
       this.secure.setConnectionState("connected");
     }
+  }
+
+  /** Start or arm the SCTP role while SPED handshake writes become available. */
+  private startEarlySctp(dtlsTransport: RTCDtlsTransport, config: PeerConfig) {
+    const sctp = this.sctp.sctpTransport;
+    if (config.sped !== true || !sctp || sctp.dtlsTransport !== dtlsTransport) {
+      return Promise.resolve();
+    }
+    if (dtlsTransport.role === "client") {
+      // The passive association must be armed before an early server INIT.
+      return this.sctp.connectSctp();
+    }
+    if (
+      dtlsTransport.role === "server" &&
+      config.warp?.allowEarlyServerData === true
+    ) {
+      return dtlsTransport
+        .waitForWriteReady()
+        .then(() =>
+          dtlsTransport.isEarlyServerWriteAllowed()
+            ? this.sctp.connectSctp()
+            : undefined,
+        )
+        .catch((error) => {
+          // Early SCTP is optional; authenticated startup can retry it.
+          log("early SCTP start cancelled; retry after authentication", error);
+        });
+    }
+    return Promise.resolve();
   }
 
   /**
@@ -343,7 +452,6 @@ export class TransportActivation {
     if (
       !sctp ||
       sctp.dtlsTransport !== dtlsTransport ||
-      sctp.sctp.started ||
       sctp.sctp.associationState !== SCTP_STATE.CLOSED
     ) {
       return;
@@ -371,13 +479,26 @@ export class TransportActivation {
     await Promise.all(
       pending.map(async (transport) => {
         const { iceTransport } = transport;
+        // As in connect(): checks of an ended generation, or of a transport
+        // that is no longer pending only (promoted by the final answer or
+        // discarded), lead nowhere.
+        const generation = iceTransport.checksGeneration;
+        const replaced = () =>
+          iceTransport.checksGeneration !== generation ||
+          !this.negotiation.isPendingOnlyTransport(iceTransport.id);
         if (!iceTransport.checksStarted) {
           if (!iceTransport.getRemoteParameters()) return;
           iceTransport.connection.iceControlling =
             this.host.signalingState() === "have-remote-pranswer";
-          await iceTransport.start();
+          const error = await iceTransport.start().then(
+            () => undefined,
+            (err: unknown) => err ?? new Error("ICE start failed"),
+          );
+          if (replaced()) return;
+          if (error) throw error;
         } else if (iceTransport.state === "checking") {
           await iceTransport.checksSettled();
+          if (replaced()) return;
         }
         if (!["connected", "completed"].includes(iceTransport.state)) return;
         if (transport.state === "connecting") {

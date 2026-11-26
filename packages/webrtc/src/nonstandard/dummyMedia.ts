@@ -1,3 +1,6 @@
+import { randomInt } from "node:crypto";
+
+import { random16, random32 } from "../imports/common";
 import {
   createVp8PayloadDescriptor,
   RtpHeader,
@@ -11,12 +14,6 @@ const AUDIO_PAYLOAD = Buffer.from([0xf8, 0xff, 0xfe]);
 
 const DEFAULT_VIDEO_FPS = 30;
 const VIDEO_TIMESTAMP_STEP = 3_000;
-const DUMMY_SSRC_BASE = 0x1a2b3c00;
-const DUMMY_SEQUENCE_BASE = 0x4000;
-const DUMMY_SEQUENCE_STEP = 0x0100;
-const DUMMY_PICTURE_ID_BASE = 0x0100;
-const DUMMY_PICTURE_ID_STEP = 0x0100;
-let nextDummySourceId = 0;
 
 // Decodable VP8 frame bodies without the RTP payload descriptor (prepended per
 // frame): a 16x16 black stream encoded by libvpx in error-resilient mode
@@ -46,6 +43,11 @@ export interface DummySource {
   stop(): void;
 }
 
+/**
+ * Each dummy source picks a random SSRC and random initial sequence number
+ * (RFC 3550 5.1, 8.1), so sources from different `MediaDevices` or registers
+ * sent on one PeerConnection stay distinguishable.
+ */
 export function createDummyAudioTrack(
   options: Partial<DummyAudioOptions> = {},
 ): { track: MediaStreamTrack; source: DummySource } {
@@ -71,6 +73,7 @@ export function createDummyAudioTrack(
   return { track, source };
 }
 
+/** A dummy VP8 source; SSRC and numbering as {@link createDummyAudioTrack}. */
 export function createDummyVideoTrack(
   options: Partial<DummyVideoOptions> = {},
 ): { track: MediaStreamTrack; source: DummySource } {
@@ -78,16 +81,15 @@ export function createDummyVideoTrack(
   const keyframeIntervalFrames = options.keyframeIntervalFrames ?? fps;
   const intervalMs = 1_000 / fps;
   const track = new MediaStreamTrack({ kind: "video" });
+  // PictureID starts at a random 15-bit value and advances by 1 per frame.
+  const pictureIdBase = randomInt(0x8000);
 
   const source = new ScheduledRtpSource({
     track,
     intervalMs,
-    buildPacket: ({ sequenceNumber, timestamp, ssrc, iteration, sourceId }) => {
+    buildPacket: ({ sequenceNumber, timestamp, ssrc, iteration }) => {
       const isKeyframe = iteration % keyframeIntervalFrames === 0;
-      // Deterministic per-source PictureID, +1 per frame (15-bit wrap).
-      const pictureId =
-        (DUMMY_PICTURE_ID_BASE + sourceId * DUMMY_PICTURE_ID_STEP + iteration) &
-        0x7fff;
+      const pictureId = (pictureIdBase + iteration) & 0x7fff;
       return new RtpPacket(
         new RtpHeader({
           version: 2,
@@ -119,15 +121,12 @@ class ScheduledRtpSource implements DummySource {
       timestamp: number;
       ssrc: number;
       iteration: number;
-      sourceId: number;
     }): RtpPacket;
     nextTimestamp(timestamp: number): number;
   };
 
-  private readonly sourceId = nextDummySourceId++;
-  private readonly ssrc = (DUMMY_SSRC_BASE + this.sourceId) >>> 0;
-  private sequenceNumber =
-    (DUMMY_SEQUENCE_BASE + this.sourceId * DUMMY_SEQUENCE_STEP) & 0xffff;
+  private readonly ssrc = random32();
+  private sequenceNumber = random16();
   private timestamp = 0;
   private iteration = 0;
   private nextTickAt?: number;
@@ -142,7 +141,6 @@ class ScheduledRtpSource implements DummySource {
       timestamp: number;
       ssrc: number;
       iteration: number;
-      sourceId: number;
     }): RtpPacket;
     nextTimestamp(timestamp: number): number;
   }) {
@@ -182,7 +180,6 @@ class ScheduledRtpSource implements DummySource {
         timestamp: this.timestamp,
         ssrc: this.ssrc,
         iteration: this.iteration,
-        sourceId: this.sourceId,
       });
       this.props.track.writeRtp(packet);
 

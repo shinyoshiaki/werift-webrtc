@@ -1,13 +1,16 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
 import "buffer";
 import { Red } from "werift-rtp";
-import { browserName, Counter, peer, sleep } from "../fixture";
+import {
+  Counter,
+  firefoxUnsupported,
+  itSkipOnFirefox,
+  peer,
+  sleep,
+} from "../fixture";
 
 describe("mediachannel_red", () => {
-  if (browserName === "Firefox") {
-    it.skip("skip", () => {});
-    return;
-  }
+  const itRed = itSkipOnFirefox(firefoxUnsupported.encodedStreams);
 
   const receiverTransform = (
     receiver: RTCRtpReceiver,
@@ -40,7 +43,7 @@ describe("mediachannel_red", () => {
   };
 
   const mediachannel_red_client_answer = "mediachannel_red_client_answer";
-  it(
+  itRed(
     mediachannel_red_client_answer,
     async () =>
       new Promise<void>(async (done) => {
@@ -87,7 +90,7 @@ describe("mediachannel_red", () => {
   );
 
   const mediachannel_red_client_offer = "mediachannel_red_client_offer";
-  it(
+  itRed(
     mediachannel_red_client_offer,
     async () =>
       new Promise<void>(async (done) => {

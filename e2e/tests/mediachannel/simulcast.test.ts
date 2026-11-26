@@ -1,4 +1,4 @@
-import { peer, sleep, waitVideoPlay } from "../fixture";
+import { isFirefox, peer, sleep, waitVideoPlay } from "../fixture";
 
 describe("mediachannel_simulcast", () => {
   it("mediachannel_simulcast_answer", async () =>
@@ -199,9 +199,14 @@ describe("mediachannel_simulcast", () => {
       ];
       await transceiver.sender.setParameters(params);
       await pc.setLocalDescription(await pc.createAnswer());
-      // Chrome の simulcast answer は a=ssrc を持たず、RTX は rrid で対応付ける。
+      // Assert: answer は RTX を受け入れている
       expect(pc.localDescription!.sdp).toContain("rtx/90000");
-      expect(pc.localDescription!.sdp).not.toContain("a=ssrc-group:FID");
+      // Assert: Chrome の simulcast answer は a=ssrc を持たず、RTX は rrid で対応付ける。
+      // Firefox はレイヤーごとの a=ssrc-group:FID も載せる SDP 形式なので確認しない
+      // （どちらの形式でも、下の repaired で両レイヤーの RTX 復元を確認する）。
+      if (!isFirefox) {
+        expect(pc.localDescription!.sdp).not.toContain("a=ssrc-group:FID");
+      }
 
       pc.onicecandidate = ({ candidate }) => {
         peer

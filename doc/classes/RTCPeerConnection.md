@@ -15,6 +15,9 @@ reviewable diff does not depend on external PR text.
 - `addIceCandidate()` also validates `sdpMid` / `sdpMLineIndex` /
   `usernameFragment` against the applied remote description and appends
   candidates or end-of-candidates markers to the corresponding m-section.
+  An empty `sdpMid` with a numeric `sdpMLineIndex` (as Pion sends) is
+  resolved by the index, as libwebrtc and Firefox do; the W3C steps reject it with
+  OperationError. An empty `sdpMid` without an index is still rejected.
   The public API keeps werift's historical pre-SRD buffering behavior, while
   the WPT runner wraps the class to exercise strict spec rejection.
 - `bundlePolicy: "balanced"` is accepted for input compatibility but is
@@ -68,13 +71,13 @@ reviewable diff does not depend on external PR text.
 
 ### connectionStateChange
 
-> `readonly` **connectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"new"` \| `"connected"` \| `"connecting"` \| `"disconnected"` \| `"failed"`\]\>
+> `readonly` **connectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"connected"` \| `"disconnected"` \| `"new"` \| `"failed"` \| `"connecting"`\]\>
 
 ***
 
 ### iceConnectionStateChange
 
-> `readonly` **iceConnectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"new"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"failed"` \| `"checking"`\]\>
+> `readonly` **iceConnectionStateChange**: [`Event`](Event.md)\<\[`"closed"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"failed"` \| `"checking"`\]\>
 
 ***
 
@@ -112,6 +115,24 @@ same event object is passed here, to `onicecandidateerror` and to the
 
 ***
 
+### onIceGatheringError
+
+> `readonly` **onIceGatheringError**: [`Event`](Event.md)\<\[[`RTCIceGatheringErrorEvent`](../type-aliases/RTCIceGatheringErrorEvent.md)\]\>
+
+The gathering of one ICE transport reported an error (werift extension,
+not W3C, so there is no `on<event>` property or `addEventListener` type;
+see [RTCIceGatheringErrorEvent](../type-aliases/RTCIceGatheringErrorEvent.md)). New reasons may be added.
+
+#### See
+
+ - packages/webrtc/tests/transport/iceGatheringError.test.ts「without STUN / TURN: gathering completes with end-of-candidates and both reasons are reported」
+ - packages/webrtc/tests/transport/iceGatheringError.test.ts「an unreachable STUN server still gives only its 701 as icecandidateerror」
+ - packages/webrtc/tests/transport/iceGatheringError.test.ts「without BUNDLE each transport reports its own errors」
+ - packages/webrtc/tests/transport/iceGatheringError.test.ts「nothing is reported after close」
+ - packages/webrtc/tests/transport/iceGatheringError.test.ts「a transport a rollback discards (pending only) reports nothing」
+
+***
+
 ### onNegotiationneeded
 
 > `readonly` **onNegotiationneeded**: [`Event`](Event.md)\<\[\]\>
@@ -126,7 +147,7 @@ same event object is passed here, to `onicecandidateerror` and to the
 
 ### onTrack
 
-> `readonly` **onTrack**: [`Event`](Event.md)\<\[[`MediaStreamTrack`](MediaStreamTrack.md)\]\>
+> `readonly` **onTrack**: [`Event`](Event.md)\<\[[`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>\]\>
 
 ***
 
@@ -269,11 +290,11 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **connectionState**(): `"closed"` \| `"new"` \| `"connected"` \| `"connecting"` \| `"disconnected"` \| `"failed"`
+> **get** **connectionState**(): `"closed"` \| `"connected"` \| `"disconnected"` \| `"new"` \| `"failed"` \| `"connecting"`
 
 ##### Returns
 
-`"closed"` \| `"new"` \| `"connected"` \| `"connecting"` \| `"disconnected"` \| `"failed"`
+`"closed"` \| `"connected"` \| `"disconnected"` \| `"new"` \| `"failed"` \| `"connecting"`
 
 ***
 
@@ -329,11 +350,11 @@ v13.6.0, v12.17.0
 
 #### Get Signature
 
-> **get** **iceConnectionState**(): `"closed"` \| `"new"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"failed"` \| `"checking"`
+> **get** **iceConnectionState**(): `"closed"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"failed"` \| `"checking"`
 
 ##### Returns
 
-`"closed"` \| `"new"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"failed"` \| `"checking"`
+`"closed"` \| `"connected"` \| `"disconnected"` \| `"completed"` \| `"new"` \| `"failed"` \| `"checking"`
 
 ***
 
@@ -929,7 +950,7 @@ v0.1.26
 
 ##### trackOrKind
 
-[`Kind`](../type-aliases/Kind.md) \| [`MediaStreamTrack`](MediaStreamTrack.md)
+[`Kind`](../type-aliases/Kind.md) \| [`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\>
 
 ##### options?
 
@@ -1164,7 +1185,7 @@ Cannot be changed after construction. See [BundleCandidates](../type-aliases/Bun
 
 ##### certificateScope
 
-> **certificateScope**: `"process"` \| `"standard"`
+> **certificateScope**: `"standard"` \| `"process"`
 
 Which default DTLS certificate is used when neither `certificates` nor `dtls.keys` is given
 (see [CompatibilityOptionValues](../variables/CompatibilityOptionValues.md)). Cannot be changed after construction.
@@ -1192,7 +1213,8 @@ Also accepts the v0.27.0 name `"peerConnection"` (= `"standard"`).
 > **compatibility**: `"standard"` \| `undefined`
 
 Sets every compatibility option (`certificateScope`, `mLineReuse`,
-`transceiverPairing`, `keyFrameRequestRouting`, see
+`transceiverPairing`, `keyFrameRequestRouting`,
+`dtlsHandshakeValidation`, see
 [CompatibilityOptionValues](../variables/CompatibilityOptionValues.md)) to the specification / browser behavior
 at once. Cannot be changed after construction.
 - `undefined` (default): each option keeps its own default.
@@ -1207,10 +1229,10 @@ option given as `undefined` counts as not given.
 
 ```ts
 new RTCPeerConnection({ compatibility: "standard" });
-// certificateScope, mLineReuse, transceiverPairing and
-// keyFrameRequestRouting are all "standard"
+// certificateScope, mLineReuse, transceiverPairing,
+// keyFrameRequestRouting and dtlsHandshakeValidation are all "standard"
 new RTCPeerConnection({ compatibility: "standard", certificateScope: "process" });
-// certificateScope is "process", the other three are "standard"
+// certificateScope is "process", the others are "standard"
 ```
 
 It does not change `iceServers` / `iceUseDefaultStunServer`, which are not
@@ -1250,9 +1272,32 @@ ms
 
 > **dtls**: `object`
 
+###### dtls.helloRetryRequest
+
+> **helloRetryRequest**: `boolean` \| `undefined` = `config.dtls.helloRetryRequest`
+
 ###### dtls.keys?
 
 > `optional` **keys?**: [`DtlsKeys`](../type-aliases/DtlsKeys.md)
+
+###### dtls.protocolVersions
+
+> **protocolVersions**: [`DtlsVersion`](../enumerations/DtlsVersion.md)[] \| `undefined`
+
+##### dtlsHandshakeValidation
+
+> **dtlsHandshakeValidation**: `"standard"` \| `"lenient"`
+
+How strictly the DTLS 1.2 handshake validates the peer's messages (see
+[CompatibilityOptionValues](../variables/CompatibilityOptionValues.md)). Cannot be changed after construction.
+- `"lenient"` (default): a malformed `supported_versions` is ignored and
+  DTLS 1.2 negotiated, duplicate extensions are accepted and `use_srtp`
+  is read without length checks, as before the strict checks.
+- `"standard"`: RFC-strict; these fail the handshake (a malformed
+  `supported_versions` with a `protocol_version` alert).
+
+A `supported_versions` without an overlapping version fails either way,
+and DTLS 1.3 always validates strictly.
 
 ##### filterProbePaddingOnReceiveRtp
 
@@ -1289,6 +1334,18 @@ Prefer turn URL transport parameters or turnTransport.
 
 > **iceCandidatePoolSize**: `number`
 
+##### iceFailover
+
+> **iceFailover**: [`IceFailoverOptions`](../interfaces/IceFailoverOptions.md) \| `undefined`
+
+werift extension. Thresholds of the failover of the selected candidate
+pair without an ICE restart (with semi-aggressive nomination or
+renomination): how soon a pair is unwritable (`unwritableMinChecks`,
+`unwritableTimeout`) and how soon a selected pair that stopped receiving
+moves to a backup (`receivingTimeout`, `receivingSwitchingDelay`). Maps
+to `IceOptions.failover`; each unset or invalid value keeps its default
+(libwebrtc's: 5 checks, 5000 ms, 2500 ms, 1000 ms).
+
 ##### iceFilterCandidatePair
 
 > **iceFilterCandidatePair**: ((`pair`) => `boolean`) \| `undefined`
@@ -1299,6 +1356,20 @@ Prefer turn URL transport parameters or turnTransport.
 
 If provided, is called on each STUN request.
 Return `true` if a STUN response should be sent, false if it should be skipped.
+
+##### iceIncomingCheckTimeout
+
+> **iceIncomingCheckTimeout**: `number` \| `undefined`
+
+Seconds ICE waits for a connectivity check from the peer when it has no
+candidate pair of its own to check after both sides ended their
+candidates (the peer offered only active TCP candidates, as Firefox does
+for ICE-TCP, or none werift can reach). Without a check in that time the
+ICE transport fails. With `iceLite`, which sends no checks, ICE waits the
+same time whenever it has no candidate pair, also while it still
+gathers. The deadline is fixed when the wait begins; once gathering ended
+without a socket that could receive a check, ICE fails at once. Defaults
+to 30 when undefined; 0 fails at once.
 
 ##### iceInterfaceAddresses
 
@@ -1535,6 +1606,20 @@ Max queued packets when enabled. Oldest packets are dropped. Default 256.
 
 > **mtu**: `number`
 
+##### sped?
+
+> `optional` **sped?**: `boolean`
+
+Opt-in SPED (DTLS handshake embedded in ICE Binding).
+Omit or false: ICE completes, then DTLS starts (current serial path).
+true: this PeerConnection only overlaps ICE checks with DTLS 1.3 handshake.
+Requires explicit DTLS 1.3 in `dtls.protocolVersions`
+(`dtls.protocolVersions` defaults to empty / DTLS 1.2 only).
+Cannot be combined with `dtls.helloRetryRequest: true`
+(SPED uses ICE-authenticated address validation, not a DTLS cookie).
+Both are validated by the constructor and `setConfiguration()`, which
+throw synchronously and leave the configuration unchanged.
+
 ##### transceiverPairing
 
 > **transceiverPairing**: `"standard"` \| `"byKind"`
@@ -1574,6 +1659,10 @@ after construction.
 Preferred IP family of the TURN/UDP socket, applied only when the TURN
 server is a hostname. Ignored for an IP literal server, whose own family
 always selects the socket. Defaults to 4 when undefined.
+
+##### warp
+
+> **warp**: \{ `allowEarlyServerData?`: `boolean`; `earlyMediaPolicy?`: `"buffer"` \| `"drop"`; `sendBeforeNomination?`: `boolean`; \} \| `undefined`
 
 ***
 
@@ -1626,7 +1715,7 @@ v1.0.0
 
 ##### selector?
 
-[`MediaStreamTrack`](MediaStreamTrack.md) \| `null`
+[`MediaStreamTrack`](MediaStreamTrack.md)\<[`Kind`](../type-aliases/Kind.md)\> \| `null`
 
 #### Returns
 
