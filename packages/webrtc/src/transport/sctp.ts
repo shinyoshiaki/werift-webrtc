@@ -1165,7 +1165,7 @@ export class RTCSctpTransport {
     }
   }
 
-  async stop(_ignored?: { closingChannels?: boolean }) {
+  async stop() {
     const closedAlready = this.sctp.state === "closed";
     this.markStopped();
     this.dtlsTransport.dataReceiver = () => {};
