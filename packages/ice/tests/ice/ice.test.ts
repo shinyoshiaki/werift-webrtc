@@ -1090,6 +1090,31 @@ describe("ice", () => {
     }
   });
 
+  test("once the checks began only a role conflict changes the role; restartRemote() lets offer/answer assign it again", async () => {
+    // Arrange: controlling の agent が現在の generation の check を始めている。
+    const a = createTestConnection(true);
+    (a as unknown as { checksBegun: boolean }).checksBegun = true;
+    try {
+      // Act: offer/answer がロールを設定する。
+      a.iceControlling = false;
+      // Assert: check 中は変わらない。
+      expect(a.iceControlling).toBe(true);
+
+      // Act: ロール競合の修復で切り替える。
+      (a as unknown as { switchRole(value: boolean): void }).switchRole(false);
+      // Assert: 修復は check 中でもロールを変える。
+      expect(a.iceControlling).toBe(false);
+
+      // Act: 相手側だけの restart の後に offer/answer がロールを設定する。
+      a.restartRemote();
+      a.iceControlling = true;
+      // Assert: 新しい remote generation ではロールを決め直せる。
+      expect(a.iceControlling).toBe(true);
+    } finally {
+      await a.close();
+    }
+  });
+
   test(
     "test_connect_role_conflict_both_controlled",
     async () => {

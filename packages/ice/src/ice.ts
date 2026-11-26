@@ -649,16 +649,8 @@ export class Connection implements IceConnection {
     if (this.iceLite) {
       value = false;
     }
-    // The offer/answer role. RFC 8445 §6.1.1: once determined, the roles
-    // persist for the session. A later offer or answer without an ICE restart
-    // keeps the role of a generation whose checks began or whose pair is
-    // selected: changing it there leaves both agents controlling or both
-    // controlled, and once the checks are done nobody nominates (the peer
-    // waits for a USE-CANDIDATE that never comes). Only a role conflict
-    // repairs the role then (`switchRole`). restart() and restartRemote()
-    // clear both, so offer/answer can assign the role of the new generation.
-    // Test: tests/ice/ice.test.ts "an offer/answer without an ICE restart
-    // keeps the roles of the checks in progress (RFC 8445 §6.1.1)".
+    // RFC 8445 §6.1.1. tests/ice/ice.test.ts "an offer/answer without an ICE restart keeps the roles of the checks in progress (RFC 8445 §6.1.1)"
+    // tests/ice/ice.test.ts "once the checks began only a role conflict changes the role; restartRemote() lets offer/answer assign it again"
     if (this.nominated || this.checksBegun) {
       return;
     }

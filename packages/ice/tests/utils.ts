@@ -698,13 +698,6 @@ export async function createConnectedPair(
   return { a, b };
 }
 
-/**
- * Shared Arrange: a controlling agent `a` and a controlled agent `b` with one
- * loopback host pair, their candidates exchanged and both `connect()` calls
- * started; `connecting` settles when both agents selected a pair.
- * `endOfCandidates: false` trickles the candidates without end-of-candidates,
- * so regular nomination waits for `nominationDelayMs` after the pair succeeds.
- */
 export async function startConnectingPair(
   options: Partial<IceOptions> = {},
   optionsB: Partial<IceOptions> = options,
