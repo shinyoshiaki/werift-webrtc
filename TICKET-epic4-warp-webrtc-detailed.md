@@ -1,0 +1,578 @@
+# Epic 4: WARP-enabled WebRTC transport を完成させる
+
+- 親 Issue: [shinyoshiaki/werift-webrtc#659](https://github.com/shinyoshiaki/werift-webrtc/issues/659) / Epic 4
+- 実装仕様: リポジトリ直下 `epic4-warp-webrtc-detailed.md`
+- 対象ブランチ: `warp`（調査基準 `9200f25512c656521e181ae5a3b49070ee4bfc65`）
+- 前提: Epic 1（DTLS 1.3 endpoint）、Epic 2（WebRTC DTLS 1.3）、Epic 3（ICE/SPED carrier）は実装済み
+- 主対象: `packages/dtls`、`packages/webrtc`、必要最小限の `packages/ice`
+
+### スコープ境界
+
+- 既存の汎用 SDP/BUNDLE 再交渉・extmap・track/callback API・E2E 自体の問題と、その修正に伴う拡張は [別チケット](TICKET-webrtc-existing-negotiation-issues.md) へ分離する。Epic 4 では当該拡張を取り除き、基準 `warp` の挙動を維持する。fingerprint/early traffic/restart の安全性に必要な最小限の BUNDLE tag 選択・transport cleanup と WARP 固有の修正は残す。
+- **TURN relay 使用時の WARP は本タスクのスコープ外**とする。relay candidate pair 上での SPED 搬送・WARP 接続成立・early traffic・direct DTLS carrier fallback の新規実装および相互接続検証は、いずれも完了条件に含めない。
+- すでに存在する TURN relay 向け WARP/SPED 関連実装を削除する必要はない。
+- 本タスクで TURN について求めるのは、`sped: false` の通常の WebRTC TURN relay 経路を回帰させないことだけである。
+
+## 1. タスクの目的と背景
+
+### 目的
+
+既存の DTLS 1.3 と SPED を `RTCPeerConnection` レイヤーで安全に統合し、`sped: true` の接続では ICE connectivity check と DTLS 1.3 handshake を並行して進める。その上で、両 JSEP role における DataChannel・RTP・RTCP の双方向通信、明示 opt-in の server 0.5-RTT outbound、DTLS 1.3 から 1.2 への direct fallback、ICE restart を成立させる。
+
+最重要要件は、DTLS の暗号学的認証と WebRTC の peer 認証を分離し、**SDP fingerprint 検証前には受信 application data、RTP、RTCP を一件も上位へ配送しない**ことである。
+
+### 現状調査で確認した基盤とギャップ
+
+| 領域 | 実装済み | Epic 4 で解消するギャップ |
+| --- | --- | --- |
+| PC 起動 | `packages/webrtc/src/peerConnection.ts` は `sped: true` で ICE と DTLS を `Promise.all` により並行起動し、`connectEpoch` で古い接続完了を抑止する | readiness、early traffic、transport-local attempt を接続判定へ組み込む |
+| SPED | `packages/ice/src/sped/runtime.ts` は generation/session epoch、stale inject rejection、L1/L2・RTT・MTU reset、fallback/abort を持つ | diagnostics と WebRTC 上位 queue/readiness の generation 連動を追加する |
+| DTLS 1.3 | server Finished 後に epoch 3 write key が入り、未接続でも送信可能。early app queue は 256 records / 256 KiB に制限済み | `connected` が複数の意味を兼ねる。write/auth/final ACK を個別 milestone にする。queue に retention time がない |
+| fingerprint | `RTCDtlsTransport.completeHandshake()` は DTLS `onConnect` 後に `verifyRemoteCertificateFingerprint()` を呼ぶ | DTLS engine の `markConnected()` が `onConnect` の直後に early data を同期 flush するため、fingerprint 検証前に `dataReceiver` へ届き得る |
+| SRTP | `updateSrtpSession()` / `startSrtp()` が local/remote keys と media listener を一括有効化する | outbound と inbound の利用許可を分離し、inbound は fingerprint gate 後だけ復号・配送する |
+| SCTP | `connectPromise` による多重開始防止がある | initiator と stream ID parity が ICE role 依存。失敗した Promise が残り retry 不能になり得る |
+| fallback | DTLS association 自体は `[1.3, 1.2]` の dual-stack ownership を持つ | `startWithSped()` が `spedHandshakeProtocolVersions()` で実質 1.3-only に狭め、SPED から通常 DTLS 1.2 へ commit できない |
+| stats | transport/ICE/DTLS/SRTP の標準的な項目がある | WARP/SPED/early queue/retransmission/handshake RTT の read-only diagnostics がない |
+
+### レイヤー境界
+
+```text
+RTCPeerConnection          接続試行・ICE/DTLS/SCTP orchestration
+  └─ RTCDtlsTransport      SDP fingerprint、application/media release gate
+       └─ DtlsSocket       DTLS version selection、暗号学的 readiness
+            └─ ICE/SPED    carrier、nomination、ICE generation
+```
+
+- SDP の概念は generic DTLS engine に持ち込まない。
+- DTLS certificate / CertificateVerify / Finished の検証完了を、SDP fingerprint による WebRTC peer 認証完了と同一視しない。
+- SPED wire format、STUN 認証順序、L1/L2 の Epic 3 semantics は変更しない。
+
+## 2. 実装すべき具体的な機能・変更内容
+
+### 2.1 DTLS 1.3 readiness を三段階に分離する
+
+`packages/dtls/src/engine/v1_3` に単調増加する readiness state と一度だけ発火する latch/event を追加する。
+
+```ts
+interface DtlsReadiness {
+  writeReady: boolean;
+  peerHandshakeAuthenticated: boolean;
+  handshakeComplete: boolean;
+}
+```
+
+- `writeReady`: local application traffic key が利用可能で、該当 Finished flight が carrier に渡された状態。
+- `peerHandshakeAuthenticated`: peer Certificate、CertificateVerify、Finished を暗号学的に検証済み。SDP fingerprint は含めない。
+- `handshakeComplete`: 最終 flight の loss recovery が完了した状態。
+
+milestone の設定位置は次で固定する。
+
+| role | milestone | 設定位置 |
+| --- | --- | --- |
+| server | `writeReady` | `flight/server/flight4.ts` で server Finished flight 送信と epoch 3 write key install の後 |
+| client | `peerHandshakeAuthenticated` | `flight/client/flight5.ts` で server Certificate/CV/Finished 検証成功後 |
+| client | `writeReady` | client Finished flight を carrier に渡し、write epoch を 3 にした後 |
+| server | `peerHandshakeAuthenticated` | `flight/server/flight5.ts` で client Finished（相互認証時は client cert/CV も）検証成功後 |
+| client | `handshakeComplete` | `record-rx.ts` で client final flight の pending records が ACK により全て消えた後 |
+| server | `handshakeComplete` | client Finished を含む ACK の送信成功後 |
+
+`DtlsSocket` から internal に以下を待機できるよう bridge する。既に milestone 済みなら即時 resolve し、subscribe 前通過 race を起こさない latch とする。
+
+```ts
+waitForWriteReady(): Promise<void>
+waitForPeerHandshakeAuthenticated(): Promise<void>
+waitForHandshakeComplete(): Promise<void>
+```
+
+既存の `connected` / `onConnect` は互換 view として残すが、新規の WebRTC 制御では readiness 判定に使わない。DTLS 1.2 は従来の単一完了点を各 readiness へ対応付け、early semantics は導入しない。
+
+### 2.2 early application data queue を安全な共通部品にする
+
+現在の record 数・byte 数上限を維持し、retention を追加する。
+
+```text
+max records: 256
+max bytes:   256 KiB
+retention:   2 seconds
+```
+
+- queue full 時は新しく来た record を drop し、古い record を追い出さない。
+- head が期限切れなら queue 全体を破棄する。後続だけを配送して ordered stream を欠損させない。
+- overflow/timeout は handshake 自体を失敗させない。
+- fingerprint mismatch、invalid CertificateVerify/Finished、fatal alert、close、SPED fallback、未認証中の ICE restart、generation change で必ず queue と timer を破棄する。
+- timer は close/abort 後に callback が state を更新しないよう lifecycle disposer に所有させる。
+
+`early-data-buffer.ts` 等の小さな bounded queue に抽出し、DTLS application data と encrypted media の上限・期限・統計を同じ規則で扱える構成を推奨する。
+
+### 2.3 `RTCDtlsTransport` に WebRTC 認証境界を追加する
+
+`packages/webrtc/src/transport/dtls.ts` に WebRTC 側 readiness を保持する。
+
+```ts
+interface WebRtcDtlsReadiness {
+  writeReady: boolean;
+  peerAuthenticated: boolean;
+  handshakeComplete: boolean;
+}
+```
+
+`peerAuthenticated` は次の両方が成立した時だけ true にする。
+
+```text
+DTLS peerHandshakeAuthenticated
+AND
+SDP fingerprint match
+```
+
+変更内容:
+
+1. 現在の `dtls.onData -> dataReceiver` 直結を廃止し、`InboundApplicationGate` を挟む。
+2. `peerAuthenticated === false` の protected application data は bounded queue に保持する。
+3. fingerprint match 後に gate を authenticate し、受信順のまま SCTP へ drain する。
+4. fingerprint mismatch 時は gate を abort し、一件も配送せず DTLS を `failed`、SPED を abort、DTLS を close する。
+5. `RTCDtlsTransport.state = "connected"` と `start()` の resolve は `peerAuthenticated` 到達時とする。final ACK は待たない。
+6. early server outbound 中も public state は `connecting` のままにする。
+7. `waitForWriteReady()`、`waitForPeerAuthenticated()`、`waitForHandshakeComplete()` は internal latch とし、上位 orchestration だけで使用する。
+
+### 2.4 early server outbound を明示 opt-in にする
+
+`PeerConfig` / `RTCPeerConnectionConfig` に以下を追加し、clone/getConfiguration 相当の経路では nested object を defensive copy する。
+
+```ts
+warp?: {
+  allowEarlyServerData?: boolean;
+  earlyMediaPolicy?: "drop" | "buffer";
+}
+```
+
+既定値:
+
+```ts
+warp: {
+  allowEarlyServerData: false,
+  earlyMediaPolicy: "drop",
+}
+```
+
+- `allowEarlyServerData: true` は `sped: true` かつ DTLS 1.3 を含む設定でのみ許可する。不正な組み合わせは接続開始前に明示エラーにする。
+- server の application/SRTP write permission は `peerAuthenticated || (allowEarlyServerData && writeReady)`。
+- client は role にかかわらず SDP fingerprint 検証前に application/media を送らない。
+- DTLS 1.2 が選択された場合は early mode を自動停止し、legacy path へ移る。
+
+### 2.5 DTLS-SRTP の key install と read/write permission を分離する
+
+`RTCDtlsTransport` で exporter からの session key 生成と利用許可を別状態にする。
+
+```ts
+private srtpKeysInstalled = false;
+private srtpWriteReady = false;
+private srtpReadReady = false;
+```
+
+- key material は exporter が利用可能になった時に一度だけ作る。
+- outbound SRTP/SRTCP は、通常は `peerAuthenticated` 後、early server opt-in 時だけ server `writeReady` 後に許可する。
+- central ICE demux の media listener は一度だけ早期登録し、`srtpReadReady` 前の packet は policy により encrypted のまま drop または buffer する。
+- `earlyMediaPolicy: "buffer"` は application queue と同じ 256 packets / 256 KiB / 2 秒上限を適用し、fingerprint match 後に decrypt して `onRtp` / `onRtcp` を発火する。
+- fingerprint 不一致や SRTP authentication error では payload を上位へ渡さない。
+- DTLS role に基づき local write key と peer read key、peer write key と local read key が一致することをテストする。
+
+### 2.6 SCTP/DataChannel role と開始条件を修正する
+
+`packages/webrtc/src/transport/sctp.ts` の `isServer` が ICE controlling/controlled を参照する実装を廃止し、DTLS role を唯一の基準にする。
+
+```text
+DTLS server: SCTP active initiator、DataChannel stream ID は odd
+DTLS client: SCTP passive、DataChannel stream ID は even
+```
+
+- `setup:active` と `setup:passive` の双方で同じ規則を適用し、ICE role は SCTP role/parity に影響させない。
+- early server mode では server `writeReady` 後に SCTP INIT を開始できるようにする。passive 側は gate drain 前に受信可能状態へ arm する。
+- `packages/webrtc/src/sctpManager.ts` の `connectPromise` は成功時だけ再利用し、失敗時には `undefined` に戻して fallback/restart 後に retry 可能にする。
+- early mode 無効時は従来どおり DTLS peer authentication 後に SCTP を開始する。
+
+### 2.7 SPED + DTLS 1.2 fallback を association level で完成させる
+
+`startWithSped()` が protocol versions を 1.3-only に狭める構造を除去し、`DtlsSocket` を version-selection owner とする。
+
+```text
+DtlsSocket [V1_3, V1_2]
+  ├─ 1.3 candidate: SPED handshake carrier
+  └─ 1.2 candidate: ordinary direct transport
+```
+
+- peer が 1.3/SPED 対応なら 1.3 candidate を commit する。
+- 非 SPED または 1.2-only peer では SPED を止め、通常 DTLS 1.2 の direct path を commit する。
+- 1.2 commit 時に SPED L1/L2、carrier timer、early queue、early send permission を破棄する。
+- Epic 3 の direct fallback invariant を維持し、最初に生成した ClientHello flight の同じ `Buffer` を re-serialize せず direct transport へ送る。
+- 1.2 engine 自体へ SPED/readiness/early data の意味を持ち込まない。
+- TURN relay 使用時の WARP は対象外とし、relay pair 上の SPED embedding、WARP 接続、early traffic、direct DTLS carrier fallback の成立を要求しない。既存実装は削除しなくてよい。
+
+### 2.8 ICE restart と非同期 callback を試行単位で隔離する
+
+既存の `RTCPeerConnection.connectEpoch` と SPED generation guard に加え、`RTCDtlsTransport` が次を持つ。
+
+```ts
+interface TransportAttempt {
+  id: number;
+  iceGeneration: number;
+}
+```
+
+- readiness event、fingerprint continuation、queue drain、SCTP start、stats 更新の全 callback で current attempt/generation を確認する。
+- handshake 中の restart は旧 application/media queue、pending notification、diagnostics、timer を破棄し、SPED runtime を新 generation で reseed する。
+- generation N の injected packet が generation N+1 の readiness、DTLS、SCTP、media に影響しないようにする。
+- 認証済み DTLS/SCTP association がある状態の ICE restart では association を不用意に作り直さず、新 selected pair の接続を待つ。
+
+### 2.9 WARP diagnostics を stats に追加する
+
+`RTCTransportStats` に将来の標準 field と衝突しにくい `warp*` prefix の optional field を追加する。
+
+```ts
+warpSpedState?: "disabled" | "probing" | "active" | "fallback";
+warpCarrier?: "direct" | "sped";
+warpHandshakeRttMs?: number;
+warpDtlsRetransmissions?: number;
+warpSpedRetransmissions?: number;
+warpEarlyBufferedPackets?: number;
+warpEarlyBufferedBytes?: number;
+warpEarlyDroppedPackets?: number;
+warpEarlyDroppedBytes?: number;
+warpEarlyServerSendUsed?: boolean;
+iceGeneration?: number;
+```
+
+- DTLS には flight 単位の `retransmitCount` と別に association lifetime 累計 `totalRetransmitCount` を追加する。
+- SPED runtime にも累計 retransmission と state/carrier の snapshot getter を追加する。runtime 本体は WebRTC public API に export しない。
+- `warpHandshakeRttMs` は `peerAuthenticatedAt - handshakeStartedAt` とし、ICE RTT と混同しない。
+- stats 取得は read-only snapshot とし、protocol state を変化させない。
+
+## 3. 技術的な実装アプローチ
+
+### 推奨実装順
+
+1. **DTLS readiness**: state/event/latch と role 別 milestone を実装し、DTLS package の既存テストを green にする。
+2. **fingerprint gate**: application data の直結を外し、early send をまだ有効化せず「fingerprint 前は配送ゼロ」を先に保証する。
+3. **directional SRTP**: key install、write permission、read permission、encrypted media queue を分離する。
+4. **SCTP role**: ICE role 依存を除去し、両 JSEP role で DataChannel を成立させる。
+5. **early server traffic**: opt-in config と SCTP/RTP/RTCP の server 0.5-RTT outbound を有効化する。
+6. **dual-stack fallback**: association carrier ownershipを整理し、1.3/SPED から 1.2/direct への transition を実装する。
+7. **generation isolation**: transport attempt を全非同期処理へ伝播し、restart race をテストする。
+8. **stats/interoperability**: diagnostics を追加後、外部 interop と全 regression を実行する。
+
+### 主な変更ファイル
+
+| パッケージ | ファイル | 変更の中心 |
+| --- | --- | --- |
+| dtls | `src/engine/v1_3/connection-base.ts` | readiness、latch、queue timer、累計 retransmission、timestamps |
+| dtls | `src/engine/v1_3/flight/server/flight4.ts` | server `writeReady` |
+| dtls | `src/engine/v1_3/flight/server/flight5.ts` | server peer handshake auth |
+| dtls | `src/engine/v1_3/flight/client/flight5.ts` | client peer handshake auth / `writeReady` |
+| dtls | `src/engine/v1_3/record-rx.ts` | final ACK による completion、early queue expiration |
+| dtls | `src/engine/v1_3/types.ts` | readiness/retention 定数と型 |
+| dtls | `src/socket.ts`、`src/client.ts`、`src/server.ts` | milestone bridge、dual association/carrier ownership |
+| webrtc | `src/transport/dtls.ts` | fingerprint/application/media gate、directional SRTP、attempt、stats |
+| webrtc | `src/peerConnection.ts` | `warp` config、parallel completion、early SCTP、stale attempt rejection |
+| webrtc | `src/secureTransportManager.ts` | 必要な config のみ transport へ伝播 |
+| webrtc | `src/transport/sctp.ts` | DTLS role 基準の initiator/parity |
+| webrtc | `src/sctpManager.ts` | retry-safe early start |
+| webrtc | `src/media/stats.ts` | optional WARP stats |
+| ice | `src/sped/runtime.ts` | diagnostics snapshot、累計 counter、generation notification |
+
+DTLS 1.3 engine では `Dtls13Connection extends Dtls13ConnectionBase` の一段継承だけを維持し、flight/record 処理は `Dtls13Host` を受ける関数として追加する。
+
+## 4. 制約・注意点
+
+### Security invariants
+
+- `peerAuthenticated === false` の間は DataChannel message、`onRtp`、`onRtcp` を一件も発火しない。
+- client は SDP fingerprint 検証前に application data、SRTP、SRTCP を送信しない。
+- early outbound は明示 opt-in された DTLS server だけに許可し、その間も public DTLS state は `connecting` とする。
+- fingerprint mismatch、invalid CV/Finished、fatal alert、close/restart では全 pre-auth queue と timer を確実に破棄する。
+- SDP fingerprint の知識を `packages/dtls` に導入しない。
+
+### Compatibility invariants
+
+- `sped: false`、`dtls: {}` の既定経路は ICE → DTLS → SCTP の直列、DTLS 1.2 only のまま変えない。
+- DTLS role、ICE controlling/controlled、offerer/answerer は独立した軸として扱う。`offerer === DTLS client` を仮定しない。
+- `setup:active`（offerer=DTLS server）と `setup:passive`（offerer=DTLS client）をともに扱う。
+- Chromium の通常 DTLS 1.3、OpenSSL DTLS 1.2、`sped: false` の通常の TURN relay 経路、既存 WebRTC convenience behavior を回帰させない。
+- WPT 固有の厳格化が必要な場合は `packages/webrtc/tools/wpt-runner` 内に閉じ、通常 API へ漏らさない。
+- SPED internals、carrier、L1/L2、wire codepoint を public barrel から export しない。`IceOptions.sped` も追加しない。
+- TURN relay 使用時の WARP 全般は対象外。これには TURN ChannelData/Data Indication への SPED embedding、relay pair 上の WARP 接続、early traffic、direct DTLS carrier fallback の実装・検証を含む。既存実装の削除は不要。SNAP、PSK 0-RTT、CID、PQ KEX も対象外。
+
+### 外部 interoperability の前提
+
+- 現在の `packages/ice/tools/pion-sped` は released `pion/stun v3.1.7` / `pion/ice v4.4.1` の DATA/ACK codec interop を検証するものに限定される。
+- released Pion ICE agent は SPED を送信しないため、`packages/ice/tools/pion-ice-agent` と `packages/webrtc/tests/integrate/sped-pion-ice.test.ts` が現時点で証明できるのは、Pion の非 SPED Binding Response を検出して同一 ClientHello bytes で direct fallbackし、DTLS 1.3 を完了する経路である。
+- Pion 同士を含む full SPED agent orchestration（controlling/controlled、Full/Lite、SPED 上の nomination/restart）を完了条件として実行する場合は、agent inject 対応済みの upstream release または再現可能な固定 commit/harness を先に用意する。未提供の外部機能を local mock で代替して interop 完了と扱わない。
+
+### 実装・テスト上の注意
+
+- `Event` だけで readiness を待たず、状態確認付き latch を使ってイベント通過 race を防ぐ。
+- queue は encrypted/protected bytes を保持し、認証前に復号済み media を上位へ露出しない。
+- final ACK loss は public connected を取り消さず、`handshakeComplete=false` のまま再送を継続する。
+- test code は Arrange / Act / Assert の三段階とし、Arrange helper は package 内の単一共通ファイルへ寄せる。Act / Assert には意図が分かる粒度の日本語コメントを付ける。
+- public config/stats/Typedoc surface を変更するため、該当 docs/example と生成 docs を更新し `npm run doc:check` を通す。
+
+## 5. 完了条件
+
+### 機能・セキュリティ
+
+- [x] DTLS 1.3 の `writeReady`、`peerHandshakeAuthenticated`、`handshakeComplete` が role ごとの正しい順序で一度だけ遷移する。（`packages/dtls/tests/e2e/self_readiness_latch.test.ts`、`self13_final_ack_retry.test.ts`。`reviews/71cc0e0d-warp-webrtc-integration.md` §4.1.1）
+- [x] `RTCDtlsTransport.start()` は SDP fingerprint 一致後に resolve し、`state` はその時点で `connected` になる。final ACK は resolve 条件にしない。（`packages/webrtc/tests/transport/dtls.test.ts` › `DTLS 1.3 final ACK 後の restart は上位 handshakeComplete waiter を引き継ぐ`。`reviews/71cc0e0d-warp-webrtc-integration.md` 付録 A.3）
+- [x] fingerprint mismatch を注入した early DataChannel/RTP/RTCP テストで、上位受信件数がすべて 0 のまま失敗する。（`packages/webrtc/tests/integrate/sped.test.ts` › `WARP fingerprint mismatch releases no real PeerConnection SCTP, RTP, or RTCP`）
+- [x] application/media queue の records/packets、bytes、2 秒 retention、ordering、overflow、timeout、abort/close/restart cleanup がテストされる。（`early_data_buffer.test.ts`、`self13_early_server_appdata.test.ts`、`dtls.test.ts`。`reviews/71cc0e0d-warp-webrtc-integration.md` 付録 A.4）
+- [x] early mode 無効時は `writeReady` だけで送信せず、peer authentication 後に通常送信する。（`packages/webrtc/tests/integrate/earlyOutboundBoundary.test.ts`）
+- [x] early mode 有効時は DTLS server が public state `connecting` のまま SCTP、RTP、RTCP を送信でき、受信側は fingerprint 検証後にのみ公開する。（`sped.test.ts` › `WARP early server traffic is held by the real PeerConnection authentication boundary`、`warpEarlyMedia.test.ts`）
+- [x] DTLS client/server の exporter key direction が SRTP/SRTCP の read/write direction と一致する。（両方向の RTP / RTCP: `dtls13.test.ts` › `ICE restart 後も DTLS 1.3 の DataChannel / RTP / RTCP が使える`、Chromium の `e2e/tests/dtls/media.test.ts`）
+
+### 接続・fallback・restart
+
+- [x] 2 つの実 `RTCPeerConnection` により、`setup:active` / `setup:passive`、Full×Full / Full×Lite、SPED on/off、1.3 only / `[1.3,1.2]` を parameterize して接続できる。（`packages/webrtc/tests/integrate/connectionMatrix.test.ts`、16 通り）
+- [x] 全 role mapping で DataChannel の open、text/binary、複数 message、bidirectional ordering が成立し、stream ID parity が DTLS role に一致する。（`connectionMatrix.test.ts`、`sped.test.ts` › `SPED [1.3,1.2] answerer=%s は DTLS 1.2-only peer へ fallback し、DataChannel が DTLS role の parity で双方向に通る`）
+- [x] RTP/RTCP が双方向に通り、SRTP auth failure、replay、sequence rollover/ROC を安全に扱う。（`packages/rtp/tests/srtp/replay.test.ts`、`dtls13.test.ts`。`reviews/71cc0e0d-warp-webrtc-integration.md` 付録 A.6）
+- [x] SPED 非対応または DTLS 1.2-only peer に対し、同一 serialized ClientHello flight で direct DTLS 1.2 fallback できる。（`spedStandardDtlsFallback.test.ts`、`packages/dtls/tests/e2e/self13_dual_fallback_ch_wire.test.ts`、`sped-pion-ice.test.ts`、`legacyWeriftRelease.test.ts`）
+- [x] handshake 中の ICE restart で旧 generation の injected packet、queue、readiness callback が無視される。（`packages/dtls/tests/e2e/self13_rx_generation.test.ts`、`dtls.test.ts` の restart ケース、`transportFaultMatrix.test.ts`）
+- [x] 認証完了後の ICE restart で既存 DTLS/SCTP が利用可能なまま、新 selected candidate pair と generation に更新される。（`transportFaultMatrix.test.ts` › `新しい selected pair (別の 5-tuple) へ移り、同じ SCTP association を維持する`、`spedMigratedKeyUpdate.test.ts`）
+- TURN relay 使用時の WARP は完了条件に含めない。既存実装は残してよく、`sped: false` の通常の TURN relay 経路の非回帰のみを検証対象とする。
+
+### 検証コマンド
+
+狭い package validation から順に実行する。
+
+```bash
+cd packages/dtls && npm run type && npm test
+cd packages/webrtc && npm run type && npm test
+cd packages/ice && npm run type && npm test
+npm run type
+npm run test:small
+npm run doc:check
+```
+
+外部環境が利用可能な場合は次も完了させる。
+
+```bash
+cd packages/dtls && npm run test:boringssl:docker
+cd packages/ice && npm run test:pion-sped
+cd packages/webrtc && npm run test:pion-ice-agent
+npm run install:browsers
+npm run e2e
+```
+
+- [ ] BoringSSL client/server の DTLS 1.3、CertificateVerify/Finished、application data、exporter、KeyUpdate、negative cases が通る。（2026-11-22: `test:boringssl:docker` 5/5 で handshake・CertificateVerify/Finished・双方向の application data を確認。exporter・KeyUpdate・negative cases は既存 harness が未対応のため外部実装とは未確認で、ローカルの self テストのみ）
+- [x] released Pion の DATA/ACK codec interop と、非 SPED Pion ICE agent に対する同一-flight direct fallback harness が通る。full SPED agent harness が利用可能なら controlling/controlled、Full/Lite、restart も追加で通る。（2026-11-22: `test:pion-sped` 5/5、`test:pion-ice-agent` 2/2。full SPED agent harness は upstream 未対応で未実施）
+- [x] OpenSSL DTLS 1.2 と `[1.3,1.2] -> 1.2`、Chromium の通常 DTLS 1.3、SPED 無効の TURN/E2E が回帰しない。（2026-11-22、HEAD `a444bc2ff` + テスト修正: `npm run e2e` 77 + 31 passed、`examples/turn-loopback` の `chrome-e2e` 3 passed、`test:pion-turn` 成功、`packages/dtls` の OpenSSL テストを含む `test:small` 成功。`reviews/71cc0e0d-warp-webrtc-integration.md` §9.1）
+- [x] `npm run type`、`npm run test:small`、`npm run doc:check` が成功する。変更がフルスタックに及ぶため、実行可能なら最終的に `npm run ci` も成功する。（2026-11-22、HEAD `a444bc2ff` + テスト修正: `npm run ci` が終了コード 0。`reviews/71cc0e0d-warp-webrtc-integration.md` §9.1）
+
+## 6. 追加要件: `sped: false` 既定経路の非回帰（レビュー 10 の指摘への対応）
+
+### 背景
+
+- 深いレビュー（差分全体を読んだもの）で、SPED/early 用に入れた中断処理（cancel・revoke・discard・attempt の付け替え）が、SPED を使わない既定経路にも作用していることが分かった。§4 Compatibility invariants の「`sped: false` の既定経路を変えない」と、§5 の「SPED 無効の経路が回帰しない」に反する。
+- これまでの修正は指摘された項目だけを直していたため、次の深いレビューで別の回帰が見つかるという状態だった。このため、指摘 4 件の修正に加えて、既定経路の非回帰を自分で点検し、証跡を残すことを要件とする。
+
+### 修正すべき指摘
+
+1. **ICE restart で一時的に `failed` になる:** SPED でない transport の restart 処理が `onEarlyApplicationAttemptCancelled` を発火し、SCTP の `cancelStart` が確立前の通常 association を閉じていた。early の attempt は SPED 専用なので、非 SPED の経路では発火しない。
+2. **SCTP の送信失敗で association を閉じる:** INIT_ACK の送信失敗、T1 再送の失敗、`retransmitStartNow` の失敗で `cancelStart` していた（SCTP パッケージ単体の利用にも影響）。中断するのは early の送信許可が取り消された場合（専用の error 型）だけにし、それ以外は `warp` と同じく損失として T1 再送に任せる。
+3. **restart 後に `connect()` の失敗が捨てられ、`start()` が終わらない:** 同じ DTLS socket の `connect()` の失敗は、attempt が変わっていても現在の失敗として `failed` / reject にする。
+4. **不正な設定の組み合わせが接続開始前に明示エラーにならない（§2.4）:** 検証を `connect()` の中から constructor / `setConfiguration` に移し、同期的に throw する。否定テストを追加する。
+
+### 自己点検の要件
+
+- `warp...HEAD` の差分から、SPED/early 用の処理が SPED を使わない経路から届く箇所をすべて洗い出し、表にする。
+- 障害注入テスト群を作り、`warp` と HEAD の両方で `connectionState` の遷移を比べる。最低限の組み合わせ:
+  - restart のタイミング: DTLS 接続中、SCTP の COOKIE_WAIT 中、SCTP の COOKIE_ECHOED 中
+  - INIT_ACK または COOKIE_ACK の喪失
+  - 送信失敗の注入
+  - DTLS の役割: client と server
+- 結果を `reviews/71cc0e0d-warp-webrtc-integration.md`（付録 A）に「`sped:false` 非回帰の証跡」として記録し、`baseCommit` を最新に合わせる。
+
+### 完了条件
+
+- [x] 指摘 1–4 を修正し、それぞれ回帰テストがある（修正前のコードでは失敗する）。
+- [x] SPED/early 用処理の到達点検表がある（`reviews/71cc0e0d-warp-webrtc-integration.md` 付録 A.7.1）。点検で見つかった追加の回帰 3 件（非 SPED の DTLS 受信を現 generation に限定していた点、DTLS 1.3 engine の受信世代フィルタ、`sped:false` でも early 送信許可の取消しを発火し得た点）も修正済み。
+- [x] 障害注入マトリクス（DTLS 既定 / 1.3 × role 2 通り × 11 シナリオ = 44 件）を `packages/webrtc/tests/integrate/spedFalseNonRegression.test.ts` として常設し、`warp`・修正前・修正後の比較を記録した（同 §7.2）。修正後は 44/44 成功で、`warp` で失敗していた INIT 送信失敗の 4 件も解消した。
+- [x] `npm run type`、`npm run test:small`、`npm run e2e`、`npm run wpt --workspace packages/webrtc` が成功する。
+
+## 7. 追加要件: 再レビューを通すための証跡整備（レビュー 1–4 の振り返り）
+
+### 背景（なぜ通らなかったか）
+
+| 要因 | 内容 |
+|---|---|
+| ① 深いレビューのたびに新しい回帰 | 差分全体を読み障害注入で再現するレビューが、毎回本物の回帰を見つけた（`sped:false` の restart で `failed`、SPED の restart で認証後の SCTP が取り消される）。どれも SPED / early 用の cancel 処理が対象外の経路にまで効いていた、同じ種類の問題だった。 |
+| ② 証跡の引き継ぎが途切れた | レビュアーの交代で、前のレビュアーの再現スクリプト（`/tmp` にあり、もう残っていない）を再実行できず、「マトリクスが P1 と同じタイミングかは未確認」として結論が保留になった。 |
+| ③ 手順上の矛盾 | 実行中の自分自身のレビューを見て保留にし、回数だけを消費した。 |
+| ④ 回数の上限 | ①–③と、利用上限エラーや古いコードを前提にした指摘などの基盤側のノイズで、上限（3）を使い切った。 |
+
+### 要件
+
+1. **再レビュー前の修正は最小限にする:** 直すのは `packages/sctp/src/sctp.ts` の JSDoc のずれ 2 か所（`SCTPStartCancelledError` の説明が `SCTPSendPermissionRevokedError` の上に、`cancelStart` の説明が `cancelStartIfPermissionRevoked` の上に重なっていた）だけにする。差分を増やすと新しい指摘を呼び込むため、新しい機能修正は入れない。
+2. **レビュアーに渡す証跡をリポジトリの中に置く:** `reviews/71cc0e0d-warp-webrtc-integration.md`（付録 A）に次を記録し、`baseCommit` を最終的な HEAD に合わせる。
+   - P1 のシナリオと対応するテストの対照
+   - マトリクスが P1 を検出できること（`packages/webrtc/src/transport/sctp.ts` を修正前 `6b2e88a5` に戻すと 13 件失敗、HEAD では 0 件）と、そのまま実行できるコマンド
+   - 同じ種類の取りこぼしの点検結果（`SCTPSendPermissionRevokedError` が認証後の association に届く経路の有無）
+3. **最終 HEAD でまとめて検証する:** `npm run type`、`npm run test:small`、`npm run doc:check`、`npm run e2e`、`npm run wpt --workspace packages/webrtc` を実行し、結果を同じ文書に記録する。
+
+### 完了条件
+
+- [x] JSDoc 2 か所を本来の宣言の上に戻した。コードの変更はない。
+- [x] `reviews/71cc0e0d-warp-webrtc-integration.md` 付録 A.9 に、P1 とテストの対照、検出性の確認（修正を外すと 90 件中 13 件失敗、HEAD では 90/90 成功）、再現コマンド、取りこぼしの点検結果を記録し、`baseCommit` を更新した。
+- [x] 同 §9.3 に最終検証の結果を記録した（`type`、`lint:imports`、`test:small`、マトリクス `--retry=0`、`doc:check`、`e2e`、`wpt` がすべて成功）。
+
+## 8. 追加要件: レビュー範囲と承認基準の固定（レビュー #1–#8 の振り返り）
+
+### 背景（なぜ毎回通らないか）
+
+| 要因 | 根拠 |
+|---|---|
+| ① 差分が大きすぎる | `warp...HEAD` は 162 ファイル・+83k 行で、うち約 63k 行は `docs/rfc`・`docs/w3c` の原文コピー。チケット外の `e2e/`・`scripts/`・`package.json`・`AGENTS.md` も含み、差分全体のレビューでチケット外の箇所が指摘され続けた。 |
+| ② merge 由来の回帰の繰り返し | #2・#3（warp merge 後の replay とテストヘルパーの不整合、145 件失敗）、#3（submodule の巻き戻し、installer の `env` 重複）、#8（`e2e/ensure-browser.js` の `env` 消失）。8 回中 3 回の阻害要因が、チケットのロジックではなく merge 解消の残骸だった。 |
+| ③ 承認基準の変動 | #4 が承認した `dad4fc09` を、#5 が property 検証と公開 API での再現で否認した。レビュアーのモデルと検証の深さが毎回違い、深いレビューほど新しい論点が出る（§7 の①と同じ構図）。 |
+| ④ 既存挙動・環境依存の蒸し返し | 同一 generation 内の ICE candidate の重複登録は既存挙動。leak property の揺らぎは複数 NIC の環境（Tailscale）に依存し、`warp` でも再現する。 |
+
+### 要件
+
+1. **installer 関連をこのチケットから外す（A-1）:** `e2e/ensure-browser.js`、`e2e/vitest.config.mts`、`e2e/vitest.dtls.config.mts`、`scripts/install-playwright-browsers.js` を `warp` の状態に戻し、`e2e/playwright-browsers.js` と `scripts/playwright-host-platform.js` を削除する。再導入は `TICKET-playwright-host-platform-installer.md` で扱う。
+2. **レビュー対象を明確にする（B）:** 次はレビュー対象外とする。
+   - `docs/rfc/`・`docs/w3c/`: 仕様照合用の原文の参考資料（約 63k 行）。werift のコードでもドキュメントでもない。
+   - `doc/`・`packages/*/doc/`: `npm run doc` の生成物。`npm run doc:check` がソースとの一致を保証する。
+   - チケット外として残す差分: `package.json` と `import-test/package.json` の非 auditing install（`4393d889`、AGENTS.md の規則 15）、`AGENTS.md`（develop merge 由来）。
+3. **merge のたびに残骸を点検する（C）:** merge の後に次を実行し、チケット外の差分と未使用の import がないことを確認して、結果を `reviews/71cc0e0d-warp-webrtc-integration.md` 付録 A.11 に記録する。
+   ```bash
+   git diff --stat warp -- e2e scripts integration
+   git diff warp --submodule=short -- integration third_party
+   npm run lint:imports
+   ```
+4. **承認基準を固定する（D）:**
+   - 既知の対象外事項:
+     - 同一 generation 内の ICE candidate の重複登録 → `TICKET-webrtc-existing-negotiation-issues.md` §5。
+     - `setConfiguration({ iceServers })` が準備中の transport に届かない（`updateIceServers()`、`warp` と同じコード）→ 同 §6。同じ型の WARP 設定の漏れはこのチケットで直した（§9）。
+     - leak property の ±1 の揺らぎ（prflx の学習有無）→ 下の「leak probe の計測方針」と、`warp` との比較証跡（`reviews/71cc0e0d-warp-webrtc-integration.md` 付録 A.11.3）。
+   - leak probe の計測方針（`packages/webrtc/tests/pbt/leak/leakProbe.ts`）:
+     - シグナリングされた candidate と、その pair は厳密に数える（`ice.remoteCandidates`、`ice.checkList`）。2 回目の後の値から増えたら失敗。
+     - prflx は上限付きで数える（`ice.prflxCandidates`、`ice.prflxPairs`）。prflx は相手の check の送信元（相手のインターフェース IP とソケット port の組）から学習する。wildcard に bind したソケットは経路によって送信元 IP が変わるため、学習するかどうかは check の順序で揺れる。上限は「相手の host IP 数 × host port 数」（pair はさらに × local socket 数）で、これを超えては増えない。
+     - 旧 generation の prflx が restart で破棄されることは `packages/ice/tests/ice/restart-generation.test.ts` で固定する。`restartRemote` 後に旧 remote ufrag の遅れた check が prflx を作る実際の漏れは、`ice.ts` の retired remote ufrag で修正した。
+     - 固定 cycle 専用の template（`fixedOnly`）は seed の抽選から外し、seed の replay を `warp` と同じ cycle に保つ。
+   - 固定の検証コマンド:
+     ```bash
+     npm run type
+     npm run lint:imports
+     npm run test:small
+     npm run doc:check
+     npm run e2e
+     npm run wpt --workspace packages/webrtc
+     (cd packages/webrtc && WERIFT_NEGOTIATION_LEAK_SEED=1 WERIFT_NEGOTIATION_LEAK_SEEDS=200 \
+       WERIFT_NEGOTIATION_LEAK_SHRINK=0 npx vitest run tests/pbt/leak/negotiationLeakProperty.test.ts --retry 0)
+     ```
+   - 承認の判断は、この固定コマンドの結果と、上の対象外事項を除いたチケット範囲（§1–§6）の指摘で行う。対象外事項に該当する指摘は、このチケットではなく参照先のチケットで扱う。
+
+### 完了条件
+
+- [x] installer 関連 6 ファイルを `warp` の状態に戻し（2 ファイルは削除）、`TICKET-playwright-host-platform-installer.md` を作成した。`git diff --stat warp -- e2e scripts integration` は空になった。
+- [x] `TICKET-webrtc-existing-negotiation-issues.md` の installer の記述を新チケットへの参照に改め、同一 generation の ICE 重複を §5 に追加した。
+- [x] `reviews/71cc0e0d-warp-webrtc-integration.md` 付録 A.11 に、merge 残骸の点検結果、leak probe の計測方針と seed 1〜200 の結果、`warp` との比較、固定の検証コマンドの結果を記録した。
+
+## 9. 追加要件: 同じ型の漏れの一括点検（レビュー #1–#7 の振り返り）
+
+### 背景（なぜ指摘が続くか）
+
+| # | モデル | 判定 | 指摘の型 |
+|---|---|---|---|
+| 1 | sol | 非承認 | チケット外の installer（§8 の A-1 で除外済み） |
+| 2 | luna | 承認 | — |
+| 3 | sol | 非承認 | `restart()` には旧経路の保持を入れたが、`restartRemote()` には入れていなかった（**対になる操作の片方だけ**） |
+| 4 | luna | 承認 | — |
+| 5 | sol | 非承認 | 受信の制限が「自分が選んだ経路」だけを前提にしていた（**相手側の経路を見落とし**） |
+| 6 | luna | 承認（関連テストだけで判断） | — |
+| 7 | sol | 非承認 | 設定の変更が使用中の transport にしか届かない（**準備中の transport を見落とし**） |
+
+- luna の承認の直後に sol が非承認にしている。sol は公開 API の操作を組み合わせた独自の再現、`--retry=0`、`warp` との比較まで行うので、承認の可否を実質的に決めているのは sol である。
+- #3・#5・#7 は §8 の「対象外」に当てはまらない。どれもこのチケットで入れたコードの不完全さで、承認基準を固定しても防げない。
+- 共通の根本原因: このチケットは transport ごとに多くの状態を追加した（WARP 設定、SPED の受信ゲート、early データの buffer、replay window、旧経路の保持、readiness）。一方で、transport を保持する集合（live、prepared、pendingOnly、speculative、rollback の baseline）も、対になる操作（local/remote の restart、offer/answer、pranswer/answer、DTLS client/server、自分/相手の経路）も複数ある。新しい状態を代表的な 1 経路にしか入れないと、組み合わせのどこかに穴が残る。
+- 修正のたびに修正箇所の周辺だけを検証していたため、同じ型の別の箇所は次の sol レビューで初めて見つかっていた。
+
+### 要件
+
+1. **#7 を型ごと直す（A）:** `SecureTransportManager.openDtlsTransports`（作成済みで閉じていない全 transport）を追加し、`setConfiguration` の WARP 設定の更新はこれを通す。回帰テストは #7 の再現手順（3 本の m-line を BUNDLE した接続の分割 offer → `createAnswer` → 設定変更 → `setLocalDescription`）を `packages/webrtc/tests/integrate/warpConfiguration.test.ts` に置き、Arrange は `warpArrange.ts` に置く。`updateIceServers()` の同じ型の不具合は `warp` と同じ既存の問題なので直さず、`TICKET-webrtc-existing-negotiation-issues.md` §6 と §8 の対象外一覧に記録する。
+2. **同じ型を自分で洗い出す（B）:** このチケットが追加した transport ごとの状態を行にし、「どの transport に反映されるか（live / prepared / pendingOnly・speculative / baseline / 停止済み）」と「対になる操作の両方を通るか」を列にした表を `reviews/71cc0e0d-warp-webrtc-integration.md` 付録 A.12 に置く。すべてのマスについて、反映される・されない理由をコードの位置かテストで示す。
+3. **sol と同じ検証を PBT に組み込む（C）:** `tests/pbt/model` に、操作列のどこにでも入る `setConfiguration({ warp })` の操作と、description の操作のたびに「開いているすべての transport の `config.warp` が `getConfiguration().warp` と一致する」ことを検査する invariant を追加する。#7 の順序は固定 scene にする。
+4. **依頼前の確認を sol と同じ深さにする（D）:** CLI レビューを依頼する前に、次を実行して `reviews/71cc0e0d-warp-webrtc-integration.md`（付録 A）に記録する。
+   - 全体のテストを `--retry=0` で実行する（`test:small` は vitest の既定 `retry: 1` を使うため、`npx vitest run --retry 0` でも実行する）。
+   - `transportFaultMatrix.test.ts` を `--retry=0` で実行する。
+   - 指摘されたシナリオを `warp` の一時 worktree と比較する。
+5. **自動コミットで不要なファイルが混入するのを防ぐ（E）:** スクラッチや診断用のファイルは worktree の外（`/tmp` など）に置くか、作ったらすぐ消す。
+
+### 完了条件
+
+- [x] `openDtlsTransports` を追加し、WARP 設定の更新をそれに通した。`warpConfiguration.test.ts` は修正を外すと失敗する（準備中の transport が `true` / `"buffer"` のまま）。
+- [x] `TICKET-webrtc-existing-negotiation-issues.md` §6 に `updateIceServers()` を追加し、§8 の対象外一覧に載せた。
+- [x] `reviews/71cc0e0d-warp-webrtc-integration.md` 付録 A.12 に、反映先と対になる操作の表を記録した。
+- [x] model property に `warpPolicy` の操作、invariant、固定 scene を追加した。固定 scene は修正を外すと invariant で失敗する。
+- [x] D の確認結果を `reviews/71cc0e0d-warp-webrtc-integration.md` 付録 A.12.4 に記録した。
+
+
+## 10. 追加要件: Finished の直後に同じ経路でアプリケーションデータを送る（opt-in）
+
+### 背景
+
+DTLS client は自分の Finished を送った直後から DTLS 上は送信できますが、認証後のアプリケーションデータ（SCTP の INIT_ACK・COOKIE_ACK・DataChannel のデータ）と media は、ICE の nomination と consent がそろうまで SPED transport のキューで待っていました。DTLS client が ICE controlled になる通常の役割では、Finished を載せた Binding への応答が返るまで約 1 RTT 余分に待ちます。
+
+仕様上は待つ必要がありません。RFC 8445 §12.1 は「An ICE agent MAY send data on any valid pair before selected pairs have been produced for the data stream.」とし、SPED draft-00 §3.1.2.2 は client が server の ACK を待たずに暗号化データを送り始めてよいとします。valid pair（自分の接続確認が成功した pair）は RFC 7675 §5.1 の最初の consent も満たします。
+
+### 要件
+
+1. **opt-in の設定:** `PeerConfig.warp.sendBeforeNomination`（既定 `false`）。`sped: true` が必要で、満たさない組み合わせは constructor と `setConfiguration()` で同期的に throw し、設定は変えない。`setConfiguration()` での変更は開いている全 DTLS transport に反映する。
+2. **送信経路:** 自分の DTLS handshake が完了し（DTLS client は自分の Finished の直後）、相手を認証した後は、ICE がまだ selected pair を作っていない間、アプリケーションデータと media を valid pair（現世代・非 relay で、自分の接続確認が成功した pair）で送る。優先順は、宛先が指す pair → SPED の handshake 経路 → 優先度の最も高い valid pair。
+3. **送らない場合:** selected pair が一度でもできた後（ICE restart 中は以前の selected pair が selected pair）は、selected pair だけを使う（RFC 8445 §12.1）。relay pair は使わない（TURN 上の WARP はスコープ外）。相手の request を受けただけの pair（自分の接続確認は未成功）は使わない。
+4. **相互接続:** 受信側が nomination 前のデータを捨てても、通常の損失として扱われる（SCTP は再送）だけで接続は壊れない。werift の受信側は、認証済み pair から届く DTLS / media を nomination 前でも受け付ける。
+5. **診断:** 使ったかどうかを `RTCTransportStats.warpPreNominationSendUsed` に出す。
+6. **確認範囲:** werift 同士で使えることを最低限とし、その他の実装とも可能な範囲で動作を確認する。
+
+### 完了条件
+
+- [x] `PeerConfig.warp.sendBeforeNomination` を追加し、`sped` なしでは同期的に throw する。`setConfiguration()` で既存の transport に反映される（`packages/webrtc/tests/integrate/warpSendBeforeNomination.test.ts`）。
+- [x] SPED transport の単体テストで、valid pair への送信、consent のない pair では待つこと、opt-in なしでは待つこと、selected pair ができた後（restart 相当を含む）は他の pair を使わないこと、relay を使わないことを確認した（`packages/webrtc/tests/transport/sped.test.ts`）。
+- [x] werift 同士: DTLS client の nomination を保留したまま、SCTP / DataChannel が開き、双方向の message と client からの RTP が届く。opt-in なしでは開かない（`warpSendBeforeNomination.test.ts`）。
+- [x] Chromium（SPED 無効、DTLS 1.3）: werift の nomination を保留したまま DataChannel の ping / pong が通り、`warpPreNominationSendUsed: true`（`e2e/tests/dtls/datachannel.test.ts`）。
+- [x] 公開済みの `werift@0.26.0`（SPED 非対応、DTLS 1.2）: 現行の nomination を保留したまま DataChannel が開き双方向に届く（`legacyWeriftRelease.test.ts`、`npm run test:legacy-werift`）。
+- [x] released `pion/ice` v4.4.1 agent（controlling）: werift（controlled）の nomination を保留したまま、DTLS 完了後の application data が Pion ICE 経由で届く（`sped-pion-ice.test.ts`、`npm run test:pion-ice-agent`）。
+- [x] `packages/webrtc/README.md`、`changelog.md`、`PeerConfig` の JSDoc、`reviews/71cc0e0d-warp-webrtc-integration.md` 付録 A.25 に記載した。
+- [x] 生成 docs（`npm run doc` / `doc:check`）の更新。`erasableSyntaxOnly` の型エラーを解消した後に再生成し、2026-11-22 に `npm run doc:check` が成功（`reviews/71cc0e0d-warp-webrtc-integration.md` 付録 A.26、§9.1）。
+- [x] 相手側の SPED を有効にした組み合わせ（Chromium、pion/webrtc の SPED 実装）での確認。§11 で実施した。
+
+## 11. 追加要件: SPED を有効にした相手との相互接続（Chromium / Pion の最新版）
+
+### 背景
+
+§10 までは、相手側も SPED を有効にした組み合わせを「相手側の実装が実験段階」として未確認にしていた。2026-11-23 に調べたところ、どちらも検証できる状態だった。
+
+- Chromium: E2E が使う Chromium 156（Chrome for Testing 156.0.8078.4）は field trial `WebRTC-IceHandshakeDtls` で SPED を有効にでき、offer に `a=ice-options:trickle sped googspedv1` を出す。answer に SPED の option を出すのは、offer に option があるときだけ（libwebrtc の `TransportDescriptionFactory`）。
+- Pion: pion/ice#876 はマージ済み。WebRTC 層の pion/webrtc#3362（draft、fippo/pion-webrtc の `sped`）は、リリース候補の pion/ice v5・pion/dtls v4 の上でビルドできる。`SettingEngine.EnableSped(true)` で有効になり、ICE option `sped` を出す。
+
+### 要件
+
+1. Chromium（SPED 有効）と werift（`sped: true`）を、両方向の offer / answer で、DTLS 1.3 と `[1.3, 1.2]` について接続し、DataChannel と media（SRTP の video と RTCP）を双方向に流す。werift の `warpSpedState` が `active` であること（`fallback` ではないこと）で、SPED で handshake したことを確かめる。
+2. pion/webrtc#3362 のブランチをビルドし、werift（`sped: true`）と両方向・両 DTLS 設定で DataChannel を双方向に流す opt-in の相互接続テストを追加する。SPED で handshake したことは 1 と同じ方法で確かめる。
+3. 接続できない、または SPED が成立しない場合は、原因が werift 側か相手側かを切り分ける。werift 側で直すべきものはこのチケットで直す。
+4. 既定の E2E と既存の相互接続（`sped: false`、Chromium の SPED 無効、旧 werift、Pion ICE agent）を回帰させない。
+
+### 見つかった問題と対応
+
+- **werift が ICE option を出していなかった（werift 側で修正）:** draft-00 は ICE option を定めていないため、werift は SPED を in-band だけで判定し、SDP に何も出していなかった。Chromium と Pion は offer に `sped` が無いと SPED を使わないので、werift が offerer のときは SPED が成立しなかった（Chromium は answer で SPED を無効にし、werift は fallback した）。`sped: true` の PeerConnection は offer / answer に `a=ice-options:sped` を出すようにした（`packages/webrtc/src/sdpManager.ts`。DTLS transport の作成前の `setConfiguration({ sped })` の変更にも追従する）。
+- **ACK だけの Binding を SPED 非対応と判定していた（werift 側で寛容に）:** pion/webrtc#3362 は、こちらの flight を ACK したのに自分の flight がまだ無いとき、DTLS-IN-STUN-ACK だけを付けて DATA を付けない Binding を送る。draft §3.3.2.1 は、SPED が active の間はすべての Binding に DATA（空でもよい）を付けることを求めるので、これは Pion 側の逸脱である。werift は §4.3 step 1 どおり「最初の認証済み Binding に DATA が無い」ことを非対応と判定して fallback していた（Pion が offerer、werift が answerer のとき、8 回中 4 回）。ACK を送るのは SPED に対応した実装だけなので、DATA か ACK のどちらかがあれば SPED 対応と判定するようにした（`packages/ice/src/sped/draft00/session.ts` の `carriesSped()`）。修正後は同じ構成で 10 回中 10 回とも SPED が成立した。
+- **既存の E2E の確認が空振りしていた（テストを修正）:** DTLS E2E は「Chromium は SPED を広告しない」ことを `goog-sped-v1` という文字列で確かめていたが、Chromium 156 の option 名は `sped` / `googspedv1` なので、常に通っていた。option の判定を共通化し（`e2e/tests/dtls/fixture.ts` の `hasSpedOption()`）、werift が `sped: true` のときだけ広告することも確かめるようにした。
+
+### 追加したテストとコマンド
+
+- `e2e/tests/sped/`（`vitest.sped.config.mts`、`cd e2e && npm run sped:ci`）: Chromium を `WebRTC-IceHandshakeDtls/Enabled/` で起動する opt-in の suite。CI と `npm run e2e` には含めない。
+- `packages/webrtc/tools/pion-webrtc-sped/`（`build.sh` で pion/webrtc#3362 の固定 commit を Docker の `golang:1.24` でビルド）と `packages/webrtc/tests/integrate/sped-pion-webrtc.test.ts`（`npm run test:pion-webrtc-sped`、`WERIFT_PION_WEBRTC_SPED`）。
+- `packages/webrtc/tests/integrate/iceOptions.test.ts`（`sped` の ICE option）と `packages/ice/tests/sped/session.test.ts`（ACK だけの Binding）。
+
+### 完了条件
+
+- [x] Chromium（SPED 有効）↔ werift `sped: true` の DataChannel と media が、両方向・DTLS 1.3 / `[1.3, 1.2]` で通り、werift の `warpSpedState` が `active`（`npm run sped:ci`）。（2026-11-23: `npm run sped:ci` 8/8。DataChannel 4、media 4）
+- [x] pion/webrtc#3362 ↔ werift `sped: true` の DataChannel が、両方向・DTLS 1.3 / `[1.3, 1.2]` で通り、werift の `warpSpedState` が `active`（`npm run test:pion-webrtc-sped`）。（2026-11-23: 4/4。ACK の修正後に単独で 25 回・4 並列で 16 回実行し、失敗は修正直後の 1 回だけで原因は特定できていない。`reviews/71cc0e0d-warp-webrtc-integration.md` §4.3.6）
+- [x] werift 側の修正（`a=ice-options:sped`、ACK による SPED 対応の判定）に単体テストがあり、README・`changelog.md`・生成 docs・AGENTS（`e2e` / `packages/webrtc`）に記載した。（`iceOptions.test.ts`、`packages/ice/tests/sped/session.test.ts`）
+- [x] `npm run ci`（既定の E2E を含む）と、既存の相互接続（旧 werift、Pion ICE agent、Pion SPED codec）が回帰しない。（2026-11-23: lint:imports・型・build・`npm run test`（全パッケージと E2E 77 + 31）が成功。`doc:check` は生成 docs が未コミットのため差分ありで止まるので、`npm run doc` の再実行で差分が変わらないことを確認した。`test:legacy-werift` 22/22、`test:pion-ice-agent` 2/2、`test:pion-sped` 5/5）

@@ -1,0 +1,13 @@
+
+[req]
+distinguished_name = dn
+req_extensions = v3_req
+prompt = no
+[dn]
+CN = large-cert.example.test
+O = Werift DTLS Test
+[v3_req]
+subjectAltName = DNS:host0.example.test,DNS:host1.example.test,DNS:host2.example.test,DNS:host3.example.test,DNS:host4.example.test,DNS:host5.example.test,DNS:host6.example.test,DNS:host7.example.test,DNS:host8.example.test,DNS:host9.example.test,DNS:host10.example.test,DNS:host11.example.test,DNS:host12.example.test,DNS:host13.example.test,DNS:host14.example.test,DNS:host15.example.test,DNS:host16.example.test,DNS:host17.example.test,DNS:host18.example.test,DNS:host19.example.test,DNS:host20.example.test,DNS:host21.example.test,DNS:host22.example.test,DNS:host23.example.test,DNS:host24.example.test,DNS:host25.example.test,DNS:host26.example.test,DNS:host27.example.test,DNS:host28.example.test,DNS:host29.example.test,DNS:host30.example.test,DNS:host31.example.test,DNS:host32.example.test,DNS:host33.example.test,DNS:host34.example.test,DNS:host35.example.test,DNS:host36.example.test,DNS:host37.example.test,DNS:host38.example.test,DNS:host39.example.test,DNS:host40.example.test,DNS:host41.example.test,DNS:host42.example.test,DNS:host43.example.test,DNS:host44.example.test,DNS:host45.example.test,DNS:host46.example.test,DNS:host47.example.test,DNS:host48.example.test,DNS:host49.example.test,DNS:host50.example.test,DNS:host51.example.test,DNS:host52.example.test,DNS:host53.example.test,DNS:host54.example.test,DNS:host55.example.test,DNS:host56.example.test,DNS:host57.example.test,DNS:host58.example.test,DNS:host59.example.test,DNS:host60.example.test,DNS:host61.example.test,DNS:host62.example.test,DNS:host63.example.test,DNS:host64.example.test,DNS:host65.example.test,DNS:host66.example.test,DNS:host67.example.test,DNS:host68.example.test,DNS:host69.example.test,DNS:host70.example.test,DNS:host71.example.test,DNS:host72.example.test,DNS:host73.example.test,DNS:host74.example.test,DNS:host75.example.test,DNS:host76.example.test,DNS:host77.example.test,DNS:host78.example.test,DNS:host79.example.test
+basicConstraints = CA:FALSE
+keyUsage = digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth, clientAuth

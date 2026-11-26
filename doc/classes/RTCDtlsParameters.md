@@ -20,7 +20,7 @@
 
 ##### role
 
-`"auto"` \| `"server"` \| `"client"`
+`"auto"` \| `"client"` \| `"server"`
 
 #### Returns
 
@@ -36,4 +36,4 @@
 
 ### role
 
-> **role**: `"auto"` \| `"server"` \| `"client"`
+> **role**: `"auto"` \| `"client"` \| `"server"`

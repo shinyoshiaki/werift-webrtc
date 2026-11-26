@@ -18,6 +18,10 @@ export const MESSAGE_INTEGRITY_SHA256 = 0x001c;
 export const SOFTWARE = 0x8022;
 export const FINGERPRINT = 0x8028;
 
+/** IANA META-DTLS-IN-STUN / META-DTLS-IN-STUN-ACKNOWLEDGEMENT (SPED; not registered in ATTRIBUTES). */
+export const DTLS_IN_STUN_DATA = 0xc070;
+export const DTLS_IN_STUN_ACK = 0xc071;
+
 /** The short-term credential (ice-pwd) the messages are signed with. */
 export const integrityKey = Buffer.from("remote-password", "utf8");
 export const wrongIntegrityKey = Buffer.from("wrong-password", "utf8");
@@ -129,4 +133,34 @@ export function appendFingerprint(message: Buffer) {
   const value = Buffer.alloc(4);
   value.writeUInt32BE((crc32(checkData) ^ FINGERPRINT_XOR) >>> 0);
   return appendAttribute(message, attributeBytes(FINGERPRINT, value));
+}
+
+/** An ICE connectivity-check Binding request signed with MESSAGE-INTEGRITY (and FINGERPRINT when asked). */
+export function signedBindingRequest(
+  key: Buffer,
+  { fingerprint }: { fingerprint: boolean },
+) {
+  const request = new Message(methods.BINDING, classes.REQUEST);
+  request
+    .setAttribute("USERNAME", "abcd:efgh")
+    .setAttribute("PRIORITY", 1853824767)
+    .setAttribute("ICE-CONTROLLING", 1n)
+    .addMessageIntegrity(key);
+  if (fingerprint) {
+    request.addFingerprint();
+  }
+  return request;
+}
+
+/** A signed Binding request carrying SPED DATA / ACK before MESSAGE-INTEGRITY. */
+export function signedSpedBindingRequest(dataValue: Buffer, key: Buffer) {
+  const request = new Message(methods.BINDING, classes.REQUEST);
+  request
+    .setAttribute("USERNAME", "abcd:efgh")
+    .setAttribute("PRIORITY", 1853824767)
+    .setAttribute("ICE-CONTROLLING", 1n);
+  request.appendRawAttribute(DTLS_IN_STUN_ACK, Buffer.alloc(0));
+  request.appendRawAttribute(DTLS_IN_STUN_DATA, dataValue);
+  request.addMessageIntegrity(key).addFingerprint();
+  return request;
 }

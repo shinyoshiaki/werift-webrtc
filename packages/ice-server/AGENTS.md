@@ -17,13 +17,15 @@ Instructions for coding agents working in `packages/ice-server`.
 3. Keep Chrome E2E Arrange helpers centralized in `chrome-e2e/tests/fixture.ts`.
 4. Add Japanese comments in Chrome E2E Act / Assert phases when the operation order or expectation is not obvious at a glance.
 5. Update the package README or harness docs when package scripts or browser validation entrypoints change.
-6. Keep `chrome-e2e` browser bootstrap helpers aligned with `vitest.config.mts` so tests can use either a bundled Playwright Chromium or an explicit system Chrome path. Bundled Chromium is installed under `chrome-e2e/node_modules/.cache/ms-playwright` (`chrome-e2e/browsers-path.js`) unless `PLAYWRIGHT_BROWSERS_PATH` is set, so shared-cache garbage collection by other Playwright installs cannot remove it.
+6. Keep `chrome-e2e` browser bootstrap helpers aligned with `vitest.config.mts` so tests can use either a bundled Playwright Chromium or an explicit system Chrome path. Browsers are installed once from the repository root; this package should only reuse that shared install.
+7. Keep the Chrome harness dependency bootstrap cache-friendly and non-auditing so package tests do not spend the CI timeout on repeated registry audits.
 
 ## Don't
 
 * Do not move package-specific browser interop tests into the repository-root `e2e` app.
 * Do not add catch-and-ignore handling around TURN authentication, allocation, permission, or relay errors.
 * Do not duplicate peer-connection setup across multiple Chrome E2E files when the shared helper can own it.
+* Do not export STUN wire-order internals (`WireAttribute`, `getRawAttributeValue`) from `src/index.ts`.
 
 ## Commands
 

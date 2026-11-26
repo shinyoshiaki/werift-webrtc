@@ -27,6 +27,72 @@ import {
   type methods,
 } from "./const";
 
+/**
+ * One STUN attribute in on-wire order (known or comprehension-optional raw).
+ * RFC 8489 HMAC covers attributes that precede MESSAGE-INTEGRITY, so unknown
+ * optional attributes must sit in this list before integrity — not in a trailing dump.
+ * Internal: not part of the ice-server / ice public API.
+ * @internal
+ */
+export type WireAttribute =
+  | {
+      kind: "known";
+      name: AttributeKey;
+      value: unknown;
+    }
+  | {
+      kind: "raw";
+      type: number;
+      value: Buffer;
+    };
+
+/**
+ * Wire-order attribute state of one {@link Message}, held by the message
+ * itself (a private field, so it is neither an own enumerable property nor
+ * part of `toJSON()`).
+ * @internal
+ */
+export type MessageWireState = {
+  /** Every attribute in wire order (known and raw). */
+  wire: WireAttribute[];
+  /** The live `rawAttributes` array. */
+  raw: RawAttribute[];
+};
+
+function wireAttributesOf(message: Message): WireAttribute[] {
+  return Message.wireStateOf(message).wire;
+}
+
+function setMessageWireAttributes(
+  message: Message,
+  wireAttributes: WireAttribute[],
+) {
+  Message.wireStateOf(message).wire = wireAttributes;
+}
+
+function rawAttributeListOf(message: Message): RawAttribute[] {
+  return Message.wireStateOf(message).raw;
+}
+
+function setRawAttributeList(message: Message, list: RawAttribute[]) {
+  Message.wireStateOf(message).raw = list;
+}
+
+/** Point the live rawAttributes array at the current wire raw buffers. */
+function bindRawAttributesFromWire(message: Message) {
+  const list: RawAttribute[] = [];
+  for (const attribute of wireAttributesOf(message)) {
+    if (attribute.kind === "raw") {
+      list.push({
+        type: attribute.type,
+        value: attribute.value,
+        length: attribute.value.length,
+      });
+    }
+  }
+  setRawAttributeList(message, list);
+}
+
 /** HMAC-SHA1 length of MESSAGE-INTEGRITY (RFC 8489 §14.5). */
 const INTEGRITY_SHA1_VALUE_LENGTH = INTEGRITY_LENGTH - 4;
 
@@ -57,7 +123,7 @@ export function parseMessage(
   );
 
   const attributeRepository = new AttributeRepository();
-  const rawAttributes: RawAttribute[] = [];
+  const wireAttributes: WireAttribute[] = [];
   const alternateServers: unknown[] = [];
   // When integrityKey is provided, MESSAGE-INTEGRITY or
   // MESSAGE-INTEGRITY-SHA256 must be present and valid (RFC 8489 short-term
@@ -119,6 +185,11 @@ export function parseMessage(
         return undefined;
       }
       attributeRepository.setAttribute(attrName as AttributeKey, value);
+      wireAttributes.push({
+        kind: "known",
+        name: attrName as AttributeKey,
+        value,
+      });
       if (attrName === "ALTERNATE-SERVER") {
         // Repeatable (RFC 8489 §14.15, e.g. one per address family); the
         // repository only keeps the last one.
@@ -127,9 +198,7 @@ export function parseMessage(
 
       if (attrName === "FINGERPRINT") {
         const fingerprint = messageFingerprint(data.slice(0, pos));
-        if (
-          attributeRepository.getAttributeValue("FINGERPRINT") !== fingerprint
-        ) {
+        if (value !== fingerprint) {
           return undefined;
         }
       } else if (attrName === "MESSAGE-INTEGRITY" && integrityKey) {
@@ -154,9 +223,9 @@ export function parseMessage(
         );
       }
     } else {
-      rawAttributes.push({
+      wireAttributes.push({
+        kind: "raw",
         type: attrType,
-        length: attrLen,
         value: Buffer.from(payload),
       });
     }
@@ -174,23 +243,31 @@ export function parseMessage(
     }
   }
 
-  return new Message(
+  const message = new Message(
     (messageType & 0x3eef) as methods,
     (messageType & 0x0110) as classes,
     transactionId,
     attributeRepository.getAttributes(),
-    rawAttributes,
+    [],
     alternateServers as [string, number][],
   );
+  setMessageWireAttributes(message, wireAttributes);
+  bindRawAttributesFromWire(message);
+  return message;
 }
 
 export class Message extends AttributeRepository {
   public messageMethod: methods;
   public messageClass: classes;
   public transactionId: Buffer;
-  public rawAttributes: RawAttribute[];
   /** Every ALTERNATE-SERVER attribute, in wire order. */
   public alternateServers: [string, number][];
+  #wireState: MessageWireState = { wire: [], raw: [] };
+
+  /** @internal The wire-order attribute state of `message`. */
+  static wireStateOf(message: Message): MessageWireState {
+    return message.#wireState;
+  }
 
   constructor(
     messageMethod: methods,
@@ -204,8 +281,24 @@ export class Message extends AttributeRepository {
     this.messageMethod = messageMethod;
     this.messageClass = messageClass;
     this.transactionId = transactionId;
-    this.rawAttributes = rawAttributes;
     this.alternateServers = alternateServers;
+    setRawAttributeList(this, rawAttributes);
+    setMessageWireAttributes(this, [
+      ...attributes.map(
+        ([name, value]): WireAttribute => ({
+          kind: "known",
+          name,
+          value,
+        }),
+      ),
+      ...rawAttributes.map(
+        (attribute): WireAttribute => ({
+          kind: "raw",
+          type: attribute.type,
+          value: attribute.value,
+        }),
+      ),
+    ]);
   }
 
   toJSON() {
@@ -228,13 +321,52 @@ export class Message extends AttributeRepository {
     return this.transactionId.toString("hex");
   }
 
+  /**
+   * Unknown (not in ATTRIBUTES) attributes in wire order.
+   * Live array: `push` / `reverse` / in-place edits are serialized.
+   */
+  get rawAttributes(): RawAttribute[] {
+    return rawAttributeListOf(this);
+  }
+
+  set rawAttributes(value: RawAttribute[]) {
+    setRawAttributeList(this, value);
+    this.reconcileWireFromPublicArrays();
+  }
+
   appendRawAttribute(type: number, value: Buffer) {
-    this.rawAttributes.push({ type, value: Buffer.from(value) });
+    const copied = Buffer.from(value);
+    rawAttributeListOf(this).push({
+      type,
+      value: copied,
+      length: copied.length,
+    });
+    const raw: WireAttribute = {
+      kind: "raw",
+      type,
+      value: copied,
+    };
+    const wire = wireAttributesOf(this);
+    const insertAt = integrityBoundaryIndex(wire);
+    wire.splice(insertAt, 0, raw);
     return this;
   }
 
   get unknownAttributeTypes() {
     return this.rawAttributes.map((attribute) => attribute.type);
+  }
+
+  override setAttribute(key: AttributeKey, value: any) {
+    const wire = wireAttributesOf(this);
+    const existing = wire.find(
+      (attribute) => attribute.kind === "known" && attribute.name === key,
+    );
+    if (existing && existing.kind === "known") {
+      existing.value = value;
+    } else {
+      wire.push({ kind: "known", name: key, value });
+    }
+    return super.setAttribute(key, value);
   }
 
   get bytes() {
@@ -336,27 +468,76 @@ export class Message extends AttributeRepository {
   }
 
   private get serializedAttributes() {
-    const attributes: RawAttribute[] = [];
-
-    for (const attrName of this.attributesKeys) {
-      const attrValue = this.getAttributeValue(attrName);
-      const [attrType, , attrPack] = ATTRIBUTES_BY_NAME[attrName];
+    this.reconcileWireFromPublicArrays();
+    return wireAttributesOf(this).map((attribute) => {
+      if (attribute.kind === "raw") {
+        return { type: attribute.type, value: Buffer.from(attribute.value) };
+      }
+      const [attrType, , attrPack] = ATTRIBUTES_BY_NAME[attribute.name];
       const value =
         attrPack.name === packXorAddress.name
-          ? attrPack(attrValue, this.transactionId)
-          : attrPack(attrValue);
-      attributes.push({ type: attrType, value });
+          ? attrPack(attribute.value, this.transactionId)
+          : attrPack(attribute.value);
+      return { type: attrType, value };
+    });
+  }
+
+  /**
+   * Public arrays are membership and order within each kind. Mixed known/raw
+   * slots from parse / appendRawAttribute stay; `reverse` fills those slots
+   * in public-array order. `clear()` only empties known attributes.
+   */
+  private reconcileWireFromPublicArrays() {
+    const wire = wireAttributesOf(this);
+    const knownQueue: WireAttribute[] = this.attributes.map(
+      ([name, value]) => ({
+        kind: "known",
+        name,
+        value,
+      }),
+    );
+    const rawQueue: WireAttribute[] = rawAttributeListOf(this).map((raw) => ({
+      kind: "raw",
+      type: raw.type,
+      value: raw.value,
+    }));
+
+    const kept: WireAttribute[] = [];
+    for (const attribute of wire) {
+      if (attribute.kind === "known") {
+        const next = knownQueue.shift();
+        if (next) {
+          kept.push(next);
+        }
+        continue;
+      }
+      const next = rawQueue.shift();
+      if (next) {
+        kept.push(next);
+      }
     }
 
-    attributes.push(
-      ...this.rawAttributes.map((attribute) => ({
-        type: attribute.type,
-        value: Buffer.from(attribute.value),
-      })),
-    );
+    for (const extra of knownQueue) {
+      kept.splice(integrityBoundaryIndex(kept), 0, extra);
+    }
+    for (const extra of rawQueue) {
+      kept.splice(integrityBoundaryIndex(kept), 0, extra);
+    }
 
-    return attributes;
+    setMessageWireAttributes(this, kept);
   }
+}
+
+/** Insert raw attributes before MESSAGE-INTEGRITY / FINGERPRINT when present. */
+function integrityBoundaryIndex(wire: WireAttribute[]): number {
+  const index = wire.findIndex(
+    (attribute) =>
+      attribute.kind === "known" &&
+      (attribute.name === "MESSAGE-INTEGRITY" ||
+        attribute.name === "MESSAGE-INTEGRITY-SHA256" ||
+        attribute.name === "FINGERPRINT"),
+  );
+  return index < 0 ? wire.length : index;
 }
 
 function serializeAttribute(type: number, value: Buffer) {

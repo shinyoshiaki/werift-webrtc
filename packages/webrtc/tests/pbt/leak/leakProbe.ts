@@ -6,6 +6,7 @@ import {
   createLocalStunServer,
   createSilentUdpServer,
 } from "../../../../ice/tests/utils";
+import { type SeededRandom, seededRandom } from "../../../../pbt/src";
 import {
   MediaStreamTrack,
   type RTCDataChannel,
@@ -46,7 +47,6 @@ import {
   STEPS,
 } from "../model/generator";
 import { ModelOracles } from "../model/oracles";
-import { type SeededRandom, seededRandom } from "../shared/random";
 
 /**
  * Arrange and measurement of the leak property (`negotiationLeakProperty.test.ts`):
@@ -287,12 +287,11 @@ type PeerInternals = {
   };
   remoteCandidates: { queued: unknown[] } & Record<string, unknown>;
   router: {
-    ssrcTable: Record<number, unknown>;
+    routeEntries: { origin: string }[];
     ridTable: Record<string, unknown>;
     stagedSsrc: Map<number, unknown>;
     stagedRid: Map<string, unknown>;
     provisionalSsrc: Map<number, unknown>;
-    learnedSsrcs: Set<number>;
     extIdUriMap: Record<number, string>;
   };
   topology: object;
@@ -311,6 +310,8 @@ type IceTransportInternals = {
     userHistory: Record<string, string>;
     protocols: object[];
     earlyChecks: unknown[];
+    /** SPED Binding Response replay cache (stays empty without SPED). */
+    spedBindingCache: { size: number };
   };
 };
 type EventInternals = {
@@ -387,13 +388,31 @@ export function leakFootprint(pc: RTCPeerConnection): Footprint {
     dtlsTransports: pc.dtlsTransports.length,
     heldTransports: held.size,
     iceTransports: pc.iceTransports.length,
-    "router.ssrcTable": Object.keys(router.ssrcTable).length,
+    // SSRC の経路 (sender / SDP / パケット由来。別 transport の同じ SSRC は別の経路)。
+    "router.routes": router.routeEntries.length,
     "router.ridTable": Object.keys(router.ridTable).length,
     "router.stagedSsrc": router.stagedSsrc.size,
     "router.stagedRid": router.stagedRid.size,
     "router.provisionalSsrc": router.provisionalSsrc.size,
-    "router.learnedSsrcs": router.learnedSsrcs.size,
+    // パケットから学習した経路 (RID は RID ごと、fallback は receiver ごとに最大 8)。
+    "router.learnedRoutes": router.routeEntries.filter(
+      (r) => r.origin === "learned",
+    ).length,
     "router.extIdUriMap": Object.keys(router.extIdUriMap).length,
+    // パケットから学習した track の SSRC (RID と、a=ssrc のない m-line の fallback)。
+    "receiver.learnedTrackSsrcs": sum(
+      transceivers,
+      ({ receiver }) => receiver.learnedTrackSsrcs.size,
+    ),
+    // a=ssrc のない m-line の学習 SSRC (receiver ごとに最大 8、古いものから忘れる)。
+    "receiver.fallbackSsrcs": sum(
+      transceivers,
+      ({ receiver }) => receiver.fallbackSsrcs.length,
+    ),
+    // 保留中の description が SSRC-less の m-line に与えた内容 (commit まで適用しない)。
+    "receiver.deferredRemote": sum(transceivers, ({ receiver }) =>
+      receiver.deferredRemote ? 1 : 0,
+    ),
     // RID 由来の RTX 対応と SSRC ごとの NACK 状態 (パケット駆動、receiver.stop で解放)。
     "receiver.ridRtx": sum(
       transceivers,
@@ -413,20 +432,49 @@ export function leakFootprint(pc: RTCPeerConnection): Footprint {
     ),
     // 同じ候補の重複 (同じ description の再適用) は数えない。develop から同じ挙動で、
     // 次の restart で消える (ice の Connection.addRemoteCandidate の既知の制約)。
+    // 交渉で知らされた candidate の pair。prflx は下の ice.prflxPairs で数える。
     "ice.checkList": sum(
       ice,
       (t) =>
         new Set(
-          t.connection.checkList.map(
-            (pair) =>
-              `${candidateKey(pair.localCandidate)}>${candidateKey(pair.remoteCandidate)}`,
-          ),
+          t.connection.checkList
+            .filter((pair) => pair.remoteCandidate.type !== "prflx")
+            .map(
+              (pair) =>
+                `${candidateKey(pair.localCandidate)}>${candidateKey(pair.remoteCandidate)}`,
+            ),
+        ).size,
+    ),
+    "ice.prflxPairs": sum(
+      ice,
+      (t) =>
+        new Set(
+          t.connection.checkList
+            .filter((pair) => pair.remoteCandidate.type === "prflx")
+            .map(
+              (pair) =>
+                `${candidateKey(pair.localCandidate)}>${candidateKey(pair.remoteCandidate)}`,
+            ),
         ).size,
     ),
     "ice.localCandidates": sum(ice, (t) => t.connection.localCandidates.length),
     "ice.remoteCandidates": sum(
       ice,
-      (t) => new Set(t.connection.remoteCandidates.map(candidateKey)).size,
+      (t) =>
+        new Set(
+          t.connection.remoteCandidates
+            .filter((c) => c.type !== "prflx")
+            .map(candidateKey),
+        ).size,
+    ),
+    "ice.prflxCandidates": sum(
+      ice,
+      (t) =>
+        new Set(
+          t.connection.remoteCandidates
+            .filter((c) => c.type === "prflx")
+            .map(candidateKey),
+        ).size,
     ),
     "ice.userHistory": sum(
       ice,
@@ -434,6 +482,10 @@ export function leakFootprint(pc: RTCPeerConnection): Footprint {
     ),
     "ice.protocols": sum(ice, (t) => t.connection.protocols.length),
     "ice.earlyChecks": sum(ice, (t) => t.connection.earlyChecks.length),
+    "ice.spedBindingResponses": sum(
+      ice,
+      (t) => t.connection.spedBindingCache.size,
+    ),
     "sctp.dataChannels": sctpManager.dataChannels.length,
     "sctp.routedChannels": Object.keys(sctp?.dataChannels ?? {}).length,
     "negotiation.remoteCreated": negotiation.resources.remoteCreated.size,
@@ -457,6 +509,11 @@ export function leakFootprint(pc: RTCPeerConnection): Footprint {
       candidateLines(pc.currentRemoteDescription?.sdp) +
       candidateLines(pc.pendingLocalDescription?.sdp) +
       candidateLines(pc.pendingRemoteDescription?.sdp),
+    // 閉じた (rollback・BUNDLE 置換・close で停止した) DTLS transport を状態購読の
+    // 表に残さない。
+    "secure.dtlsStateDisposers": (
+      internal.secureManager.dtlsStateDisposers as Map<unknown, unknown>
+    ).size,
     "events.peer": sum(
       [
         pc,
@@ -858,6 +915,11 @@ type CycleTemplate = {
    * a new MID per added m-line), per peer side relative to `x`.
    */
   growth?: { x?: Footprint; y?: Footprint };
+  /**
+   * Used only by a fixed cycle (`LEAK_CYCLES`). Seeds never draw it, so
+   * adding one keeps every seed's cycle (and its replay) unchanged.
+   */
+  fixedOnly?: true;
 };
 
 /**
@@ -909,6 +971,15 @@ export const CYCLE_TEMPLATES: CycleTemplate[] = [
     ops: (x, y, rng) => [
       [x, "offer", { iceRestart: rng.chance(0.5) }],
       [x, "replacementOffer", { iceRestart: rng.chance(0.5) }],
+      [x, "rollback"],
+    ],
+  },
+  {
+    name: "BUNDLE split offer rolled back on both sides",
+    fixedOnly: true,
+    ops: (x, y) => [
+      [x, "splitOffer", { mid: "2" }],
+      [y, "rollback"],
       [x, "rollback"],
     ],
   },
@@ -966,7 +1037,9 @@ export function drawCycle(seed: number): Cycle {
   const rng = seededRandom(seed);
   const count = 1 + Math.floor(rng.next() * 3);
   return composeCycle(
-    [...Array(count)].map(() => rng.pick(CYCLE_TEMPLATES).name),
+    [...Array(count)].map(
+      () => rng.pick(CYCLE_TEMPLATES.filter((t) => !t.fixedOnly)).name,
+    ),
     rng,
   );
 }
@@ -1000,6 +1073,34 @@ const TIMER_SLACK = 4;
 /** How long a repetition's surplus state may take to go away (a transport's late close, a STUN query's timeout) before it counts as growth. */
 const GROWTH_EXPIRY_MS = 8000;
 
+/** The peer's possible check sources: its signaled host IPs × host ports. */
+function prflxSources(t: IceTransportInternals) {
+  const hosts = t.connection.remoteCandidates.filter((c) => c.type === "host");
+  return (
+    new Set(hosts.map((c) => c.host)).size *
+    new Set(hosts.map((c) => c.port)).size
+  );
+}
+
+function sumIce(
+  pc: RTCPeerConnection,
+  size: (t: IceTransportInternals) => number,
+) {
+  const ice = new Set(
+    [...heldTransports(pc)].map(
+      (t) => t.iceTransport as unknown as IceTransportInternals,
+    ),
+  );
+  for (const t of pc.iceTransports) {
+    ice.add(t as unknown as IceTransportInternals);
+  }
+  return [...ice].reduce((total, t) => total + size(t), 0);
+}
+
+function prflxSourceBound(pc: RTCPeerConnection) {
+  return sumIce(pc, prflxSources);
+}
+
 /**
  * Metrics allowed to change between repetitions, each with the upper bound
  * that keeps it from growing without limit. Every other metric must equal its
@@ -1023,6 +1124,13 @@ export const BOUNDED_METRICS: Record<
   string,
   (context: { pc: RTCPeerConnection; early: number[] }) => number
 > = {
+  // prflx は相手の check の送信元 (相手のインターフェース IP とソケットの port の組) から
+  // 学習する。wildcard に bind したソケットは経路で送信元 IP が変わるので、どの組を学習
+  // するかは check の順序で揺れる。restart で破棄され (ice の restart-generation テスト)、
+  // 組の数を超えて増えることはない。
+  "ice.prflxCandidates": ({ pc }) => prflxSourceBound(pc),
+  "ice.prflxPairs": ({ pc }) =>
+    sumIce(pc, (t) => prflxSources(t) * t.connection.protocols.length),
   // 退役した remote ufrag は遅れて届く callback を拒否するために最大 64 個保持する。
   "negotiation.retiredRemoteUfrags": () => 64,
   // 周期的な timer (RTCP、consent、SCTP heartbeat) は、流れた traffic と、ICE 再 gather の
@@ -1037,6 +1145,7 @@ export const BOUNDED_METRICS: Record<
  * stable (a commit or rollback releases them).
  */
 export const STABLE_ZERO_METRICS = [
+  "receiver.deferredRemote",
   "router.stagedSsrc",
   "router.stagedRid",
   "router.provisionalSsrc",
@@ -1081,8 +1190,17 @@ async function arrangeCycleSession(c: NegotiationCase, observe: boolean) {
   // 増えるテスト側の保持なので、heap を見るときは付けない (application の登録だけ受ける)。
   const oracles = observe ? new ModelOracles(c) : bareOracles();
   // STUN server なし: サーバーへの問い合わせの timer (最長 5 s) が周期ごとの timer 数を揺らさない。
+  // host 候補は IPv4 loopback だけ: 計測する host の interface 数や NAT (docker の
+  // MASQUERADE が作る peer-reflexive 候補) で ICE generation ごとの pair 数が 1 つ揺れ、
+  // 状態の増加と区別できなくなるのを防ぐ。周期ごとの増加は 1 候補でも検出できる。
   const scope = await c.given(
-    createDuplexSession({ ...modelConfig(), iceServers: [] }),
+    createDuplexSession({
+      ...modelConfig(),
+      iceServers: [],
+      iceUseDefaultStunServer: false,
+      iceInterfaceAddresses: { udp4: "127.0.0.1" },
+      iceUseIpv6: false,
+    }),
   );
   const { a, b } = scope;
   oracles.application(scope.aVideo);
@@ -1090,7 +1208,14 @@ async function arrangeCycleSession(c: NegotiationCase, observe: boolean) {
   oracles.channel(scope.aChannel, a);
   oracles.channel(scope.bChannel, b);
   if (observe) oracles.watch(a, b);
-  const w: StepWorld = { c, oracles, saved: new Map(), created: 0 } as never;
+  const w: StepWorld = {
+    c,
+    oracles,
+    saved: new Map(),
+    // model の STEPS (takeTrack / detachTrack) が使う World の欄を揃える。
+    addTracked: new WeakSet(),
+    created: 0,
+  } as never;
   const audio = a.addTransceiver(new MediaStreamTrack({ kind: "audio" }), {
     direction: "sendrecv",
   });

@@ -25,6 +25,8 @@
     "format": "biome check --write src tests",
     "server": "DEBUG=werift* node --watch --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ../../tools/node-ts/register.mjs examples/server.ts",
     "test": "vitest run ./tests",
+    "test:boringssl": "WERIFT_REQUIRE_BORINGSSL=1 vitest run ./tests/e2e/boringssl",
+    "test:boringssl:docker": "bash ./tests/e2e/boringssl/run-docker.sh",
     "type": "tsc --noEmit -p . --rootDir ..",
     "upgrade-interactive": "npx npm-check-updates -i"
   },

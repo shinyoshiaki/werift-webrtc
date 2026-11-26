@@ -478,6 +478,77 @@ The `/dom` entrypoint keeps the standard DOM constructor types and augments
 entrypoint installs globals merely by being imported; `installPolyfill()` is
 still required.
 
+Without `lib.dom`, `werift/polyfill` also declares the global
+`MediaStreamTrack` and `MediaStream` types as werift's classes, so annotations
+in the application and in a library's `.d.ts` (for example `mediasoup-client`)
+keep their type instead of resolving to nothing.
+
+### Passing werift tracks to DOM-typed libraries
+
+werift's `MediaStreamTrack` and `MediaStream` are structurally compatible with
+the DOM types: they have `contentHint`, `onended` / `onmute` / `onunmute`,
+`getSettings()` / `getConstraints()` / `getCapabilities()` /
+`applyConstraints()`, and `MediaStream` is an event target with `onaddtrack` /
+`onremovetrack`. A werift track can therefore be passed to an API typed with the
+DOM `MediaStreamTrack`, such as `mediasoup-client`'s `produce()`, without a
+cast:
+
+```ts
+// tsconfig with lib.dom
+import { installPolyfill, MediaStreamTrack } from "werift/polyfill/dom";
+
+const uninstall = installPolyfill({ mediaRegister: [] });
+// lib.dom's global MediaStreamTrack constructor takes no argument; the one of
+// werift/polyfill/dom is werift's class typed as the DOM MediaStreamTrack.
+const track = new MediaStreamTrack({ kind: "audio" });
+const producer = await sendTransport.produce({
+  track,
+  appData: { type: "webcam" },
+});
+```
+
+`import { MediaStreamTrack } from "werift"` works as well; its tracks are
+assignable to the DOM type and keep werift's own type (`writeRtp`, `uuid`, …).
+`werift/polyfill/dom` exports `MediaStream` the same way.
+
+What werift implements of these members (the compatibility werift claims is
+the type assignment and the members such libraries use; anything else follows
+werift's own behavior):
+
+- `getSettings()` of a `getUserMedia()` track reports the `deviceId`,
+  `groupId` and `mimeType` its register was selected by; another track reports
+  what its codec tells (`mimeType`, and `sampleRate` / `channelCount` for
+  audio). After `stop()` it reports only `deviceId` / `groupId`, as the DOM
+  does for an ended track. `getCapabilities()` reports only `deviceId` /
+  `groupId`.
+- `applyConstraints()` cannot reconfigure a source: it rejects with
+  `OverconstrainedError` when a required (`exact`) `deviceId`, `groupId` or
+  `mimeType` does not match the current settings, and otherwise stores the
+  constraints that `getConstraints()` returns. A required (`exact` / `min` /
+  `max`) constraint on any other name (for example `width`) also rejects with
+  `OverconstrainedError`; an optional one (`ideal`) is kept as given. A
+  rejected call keeps the previous constraints. `clone()` keeps
+  `contentHint`, the settings and the constraints.
+- Events follow the DOM `EventTarget`: `addEventListener` accepts a function
+  or a `{ handleEvent }` object, ignores a duplicate, and honors `once`,
+  `passive` and `signal`; an `on<type>` handler is a listener at the position
+  where it was first set (setting `null` removes it), so `dispatchEvent` calls
+  it, and a handler returning `false` cancels a cancelable event;
+  `dispatchEvent` returns `false` only when a cancelable event was canceled.
+  An exception thrown by a listener or handler is logged (`DEBUG=werift*`)
+  and does not stop the other listeners, `dispatchEvent`, `stop()` or the
+  polyfill's cleanup. `event.target` is not set.
+- werift dispatches `"ended"` when `stop()` is called (once per track; the
+  DOM does not fire it for `stop()`). It never dispatches `"mute"` /
+  `"unmute"` / `"addtrack"` / `"removetrack"` itself, so those handlers run only
+  for an event the application dispatches.
+
+The reverse direction stays typed by werift: werift's own APIs
+(`new MediaStream([...])`, `addTrack()`, `RTCRtpSender.replaceTrack()`) take
+werift tracks, so a value typed as the DOM `MediaStreamTrack` (for example
+`consumer.track` of `mediasoup-client`) needs to be narrowed with
+`track instanceof MediaStreamTrack` (werift's class) first.
+
 ### Browser-shaped session descriptions
 
 The polyfill entrypoint exports a browser-style `RTCSessionDescription`

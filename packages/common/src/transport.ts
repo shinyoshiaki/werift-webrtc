@@ -163,13 +163,19 @@ export class UdpTransport implements Transport {
     });
   }
 
-  send = async (data: Buffer, addr?: Address) => {
-    if (addr && !net.isIP(addr[0])) {
-      // if address is not resolved, need to use send callback to handle dns failure.
+  send = async (
+    data: Buffer,
+    addr?: Address,
+    options?: TransportSendOptions,
+  ) => {
+    if ((addr && !net.isIP(addr[0])) || options?.confirm) {
+      // if address is not resolved, need to use send callback to handle dns
+      // failure; `confirm` asks for the send error too.
+      const target = addr ?? [this.rinfo?.address!, this.rinfo?.port!];
       return new Promise<void>((r, f) => {
-        this.socket.send(data, addr![1], addr![0], (error) => {
+        this.socket.send(data, target[1], target[0], (error) => {
           if (error) {
-            log("send error", addr, data);
+            log("send error", target, data);
             f(error);
           } else {
             r();
@@ -264,6 +270,10 @@ export class TcpTransport implements Transport {
     return this.stream.closed;
   }
 
+  get onClosed() {
+    return this.stream.onClosed;
+  }
+
   get onData() {
     return this.stream.onData;
   }
@@ -272,7 +282,11 @@ export class TcpTransport implements Transport {
     this.stream.onData = handler;
   }
 
-  send = async (data: Buffer, addr?: Address) => {
+  send = async (
+    data: Buffer,
+    addr?: Address,
+    _options?: TransportSendOptions,
+  ) => {
     await this.stream.send(data, addr);
   };
 
@@ -334,6 +348,10 @@ export class TlsTransport implements Transport {
     return this.stream.closed;
   }
 
+  get onClosed() {
+    return this.stream.onClosed;
+  }
+
   get onData() {
     return this.stream.onData;
   }
@@ -342,7 +360,11 @@ export class TlsTransport implements Transport {
     this.stream.onData = handler;
   }
 
-  send = async (data: Buffer, addr?: Address) => {
+  send = async (
+    data: Buffer,
+    addr?: Address,
+    _options?: TransportSendOptions,
+  ) => {
     await this.stream.send(data, addr);
   };
 
@@ -361,6 +383,8 @@ class StreamTransport implements Transport {
   private client!: StreamSocket;
   onData: (data: Buffer, addr: Address) => void = () => {};
   closed = false;
+  /** See `Transport.onClosed`. */
+  readonly onClosed = new Event<[]>();
   private rejectConnecting?: (error: Error) => void;
 
   constructor(
@@ -427,6 +451,14 @@ class StreamTransport implements Transport {
     client.on("error", (error) => {
       log(`${this.type} transport error`, error);
     });
+    // The peer closed the connection, or an error destroyed it, after it
+    // was established (a failed connect rejects waitForConnect instead).
+    client.once("close", () => {
+      if (this.closed || this.client !== client) return;
+      this.closed = true;
+      log(`${this.type} transport closed by the peer`);
+      this.onClosed.execute();
+    });
   }
 
   async waitForConnect() {
@@ -464,7 +496,18 @@ class StreamTransport implements Transport {
     this.closed = true;
     this.rejectConnecting?.(new Error(`${this.type} transport closed`));
     this.client?.destroy();
+    this.onClosed.complete();
   };
+}
+
+/**
+ * Optional per-datagram RX metadata threaded through {@link Transport.onData}.
+ * `rxGeneration` is an opaque carrier generation token (e.g. ICE generation):
+ * the DTLS engine drops queued datagrams whose accept-time generation no
+ * longer matches at queue-execution time (ICE restart race).
+ */
+export interface DatagramRxMeta {
+  rxGeneration?: number;
 }
 
 /** Strip an IPv6 zone identifier, e.g. fe80::1%eth0 -> fe80::1. */
@@ -474,18 +517,46 @@ function stripZoneId(address: string) {
 
 export type IpAddressFamily = 4 | 6;
 
+/** Options of one `Transport.send`. */
+export interface TransportSendOptions {
+  /**
+   * Datagram transports: wait until the OS took the datagram and reject with
+   * its error (`ENETUNREACH`, `EADDRNOTAVAIL`, ...). Without it a datagram to
+   * an IP address is sent without a completion callback (faster per packet)
+   * and a send error is not reported. Stream transports always report write
+   * errors.
+   */
+  confirm?: boolean;
+}
+
 export interface Transport {
   type: string;
   address: AddressInfo;
   closed: boolean;
-  onData: (data: Buffer, addr: Address) => void;
+  onData: (data: Buffer, addr: Address, meta?: DatagramRxMeta) => void;
   /**
    * Runtime transport errors that do not close the transport. Optional so
    * custom transports need not implement it; the built-in UDP transport does.
    */
   onError?: Event<[Error]>;
-  send: (data: Buffer, addr?: Address) => Promise<void>;
+  /**
+   * The transport closed by itself after it was established (a stream whose
+   * peer closed the connection, or that an error destroyed); not emitted by
+   * `close()`. Optional: datagram transports do not close by themselves.
+   */
+  onClosed?: Event<[]>;
+  send: (
+    data: Buffer,
+    addr?: Address,
+    options?: TransportSendOptions,
+  ) => Promise<void>;
   close: () => Promise<void>;
+  /**
+   * When true, the transport path is already peer-authenticated (e.g. ICE).
+   * DTLS 1.2 may treat protected records as association-authenticated even
+   * without a UDP 5-tuple pin (ICE does not expose source address on RX).
+   */
+  peerAuthenticated?: boolean;
   /**
    * IP family of a datagram socket. A datagram transport can only reach
    * addresses of this family. Built-in UDP transports always set it; a custom

@@ -10,8 +10,10 @@ export { FifoQueue } from "./imports/common";
 export type { SCTPOptions } from "./sctp";
 export {
   DEFAULT_SCTP_MTU,
+  dataChunkBookSize,
   maxPayloadSizeForMtu,
   SCTP,
+  SCTPSendPermissionRevokedError,
   validateSctpMtu,
 } from "./sctp";
 export type { Transport } from "./transport";
