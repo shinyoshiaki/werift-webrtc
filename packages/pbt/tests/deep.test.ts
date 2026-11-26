@@ -199,7 +199,92 @@ const onceThen = (first: string, later: string) =>
   }
   ${later}`);
 
+/**
+ * The same verdict written over several lines as the webrtc test writes it, so
+ * the failing source line (`).toBe(false);`) is the same with and without the
+ * marker. `error` is the whole custom message.
+ */
+const verdictSource = (message: string) =>
+  testSource(`expect(
+    true,
+    ${JSON.stringify(message)},
+  ).toBe(false);`);
+const unmarkedVerdict =
+  /^slope \d+\.\d+ KiB\/cycle: expected true to be false \/\/ Object\.is equality$/;
+
 describe("deep search against a baseline", () => {
+  test("the verdict of a baseline from before the marker is the same failure", async () => {
+    // Act: 現行はマーカー付き、比較元は develop と同じくマーカーなしの同じ判定が失敗する。
+    const { exit, lines } = await runFixtureDeepSearch(["failing"], {
+      current: {
+        failing: verdictSource(
+          `${STATISTICAL_FAILURE_MARKER} slope 16.01 KiB/cycle`,
+        ),
+      },
+      baseline: { failing: verdictSource("slope 17.50 KiB/cycle") },
+      statistical: ["failing"],
+      unmarkedStatistical: unmarkedVerdict,
+    });
+
+    // Assert: 以前からの失敗として終了コード 0。
+    expect(exit).toBe(0);
+    expect(lines).toContain("  pre-existing a failing fixture");
+  }, 60_000);
+
+  test.each([
+    {
+      name: "an operation that throws",
+      baseline: throwingSource("a failing fixture", "the operation failed"),
+    },
+    {
+      name: "an error with the verdict's text that is not an assertion",
+      baseline: throwingSource(
+        "a failing fixture",
+        "slope 16.01 KiB/cycle: expected true to be false // Object.is equality",
+      ),
+    },
+    {
+      name: "another assertion",
+      baseline: verdictSource("the session ended"),
+    },
+    {
+      name: "another reason of the verdict",
+      baseline: verdictSource("final median 9.00 MiB"),
+    },
+  ])(
+    "a marked verdict stays confirmed when a baseline from before the marker fails with $name",
+    async ({ baseline }) => {
+      // Act: 比較元はマーカー導入前のパターンに合わない別の原因で失敗する。
+      const { exit, lines } = await runFixtureDeepSearch(["failing"], {
+        current: {
+          failing: verdictSource(
+            `${STATISTICAL_FAILURE_MARKER} slope 16.01 KiB/cycle`,
+          ),
+        },
+        baseline: { failing: baseline },
+        statistical: ["failing"],
+        unmarkedStatistical: unmarkedVerdict,
+      });
+
+      // Assert: 確定した失敗のまま終了コード 1。
+      expect(exit).toBe(1);
+      expect(lines).toContain("  FAILED a failing fixture");
+    },
+    60_000,
+  );
+
+  test("the pattern of an unmarked verdict does not make a failure of this revision statistical", async () => {
+    // Act: 現行がマーカーなしでパターンに合う失敗をし、--baseline を渡さない。
+    const { exit } = await runFixtureDeepSearch(["failing"], {
+      current: { failing: verdictSource("slope 16.01 KiB/cycle") },
+      statistical: ["failing"],
+      unmarkedStatistical: unmarkedVerdict,
+    });
+
+    // Assert: 通常の失敗として終了コード 1。
+    expect(exit).toBe(1);
+  }, 60_000);
+
   test("a confirmed failure the baseline passes stays in the exit code", async () => {
     // Act: 比較元では同じ題名のテストが通るようにして --baseline で動かす。
     const { exit, lines, output } = await runFixtureDeepSearch(["failing"], {

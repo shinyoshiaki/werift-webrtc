@@ -44,7 +44,8 @@
  * all statistical assertions (`STATISTICAL_FAILURE_MARKER`) is judged only
  * against a baseline: without `--baseline` a confirmed one is reported as
  * statistical and left out of the exit code; with it, it is compared like any
- * other failure. Every other failure of such a shard (an operation that
+ * other failure (a baseline from before the marker matches through
+ * `DeepShard.unmarkedStatistical`). Every other failure of such a shard (an operation that
  * threw, a timeout, a hook, an unhandled error, a crash) is a normal failure.
  *
  * The output ends with `summary:` (confirmed / pre-existing / flaky /
@@ -86,6 +87,12 @@ export type DeepShard = {
    * statistical and left out of the exit code. Other failures count as usual.
    */
   statistical?: boolean;
+  /**
+   * The whole message of the statistical assertion as a revision from before
+   * the marker writes it, anchored to that one assertion: such a failure on a
+   * `--baseline` has the same form as the marked one here.
+   */
+  unmarkedStatistical?: RegExp;
 };
 
 /** What a suite's `shards` may read: the command-line options of the run. */
@@ -538,7 +545,11 @@ export async function runDeepSearch(
               .map((t) => ({
                 id: t.fullName,
                 title: t.title,
-                signature: testSignature(t.errors, target.root),
+                signature: testSignature(
+                  t.errors,
+                  target.root,
+                  shard.unmarkedStatistical,
+                ),
                 statistical:
                   t.errors.length > 0 && t.errors.every(isStatisticalError),
               })),

@@ -79,7 +79,8 @@ function makeWorktree(overrides: FixtureSources) {
  * printed (captured, not shown). The run uses a temporary worktree where
  * `current` replaces fixture files. `baseline` creates a second one and passes
  * it with `--baseline` (`--baseline-runs 1` unless `argv` sets it);
- * `statistical` marks fixtures whose shard is statistical.
+ * `statistical` marks fixtures whose shard is statistical, and every shard gets
+ * `unmarkedStatistical`.
  */
 export async function runFixtureDeepSearch(
   fixtures: DeepFixture[],
@@ -87,11 +88,13 @@ export async function runFixtureDeepSearch(
     current = {},
     baseline,
     statistical = [],
+    unmarkedStatistical,
     argv = [],
   }: {
     current?: FixtureSources;
     baseline?: FixtureSources;
     statistical?: DeepFixture[];
+    unmarkedStatistical?: RegExp;
     argv?: string[];
   } = {},
 ) {
@@ -109,6 +112,7 @@ export async function runFixtureDeepSearch(
               file: `${name}.fixture.ts`,
               env: {},
               statistical: statistical.includes(name),
+              unmarkedStatistical,
             },
           ],
         },

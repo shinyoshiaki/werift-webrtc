@@ -35,7 +35,7 @@ its environment); the shards of every selected suite share one pool of
 code is 1 when it fails again. A vitest process that ends abnormally fails its
 shard even when every test in its report passed: an exit code other than 0
 (for example an unhandled rejection after the assertions), a signal, or no
-report (`abnormalExit`). Such a shard runs again alone too. 
+report (`abnormalExit`). Such a shard runs again alone too.
 ### Baseline comparison
 
 `--baseline <worktree root>` takes the root of another revision checked out
@@ -72,6 +72,13 @@ without `--baseline` it is reported as statistical and left out of the exit
 code, and its signature has every number replaced by `<n>`. Any other failure
 of that shard (an operation that threw, a timeout, a hook, an unhandled error,
 a crash) counts as usual. Thresholds are not loosened instead.
+
+A baseline from before the marker fails the same assertion without it. A shard
+gives `unmarkedStatistical`, a pattern anchored to that assertion's whole
+message; an `AssertionError` without a cause that matches it has the same form
+as the marked one. Another assertion or an operation that threw on the baseline
+does not match, and the pattern never makes a failure of this revision
+statistical.
 
 The output ends with
 `summary: <n> confirmed (exit code), <n> pre-existing (...), <n> flaky (passed alone), <n> statistical (...)`.

@@ -27,22 +27,47 @@ export const isStatisticalError = (error: ReportedError) =>
   error.message?.startsWith(STATISTICAL_FAILURE_MARKER) ?? false;
 
 /**
+ * The message of `error` as a statistical assertion, without the marker, or
+ * undefined when it is not one. A revision from before the marker writes the
+ * same assertion without it: its error counts when it is an `AssertionError`
+ * without a cause whose whole message matches `unmarked` (anchored by the
+ * suite to the text of that one assertion). Only for the form compared with a
+ * baseline; what is statistical on this revision is `isStatisticalError`.
+ */
+function statisticalMessage(error: ReportedError, unmarked?: RegExp) {
+  if (isStatisticalError(error)) {
+    return error.message?.slice(STATISTICAL_FAILURE_MARKER.length).trimStart();
+  }
+  return error.name === "AssertionError" &&
+    !error.cause &&
+    !error.errors &&
+    unmarked &&
+    error.message?.match(unmarked)
+    ? error.message
+    : undefined;
+}
+
+/**
  * Everything that identifies the cause of `error`: its kind, name, whole
  * message, expected and actual values, the file and source line it was thrown
  * at, and the same of its causes. Only what differs between two runs of one
  * cause is removed: ANSI colors, the worktree root (`<root>`), line and column
- * numbers and durations in milliseconds. A statistical error also has every
- * number replaced by `<n>` (a heap slope of 16.01 and of 16.20 KiB/cycle are
- * the same check failing). Undefined when the error, or one of its causes,
+ * numbers and durations in milliseconds. A statistical error
+ * (`statisticalMessage`, with `unmarked` for a revision from before the
+ * marker) loses the marker and has every number replaced by `<n>` (a heap
+ * slope of 16.01 and of 16.20 KiB/cycle are the same check failing), so both
+ * revisions give one form. Undefined when the error, or one of its causes,
  * has no message: such a cause cannot be compared.
  */
 export function failureSignature(
   error: ReportedError,
   root: string,
+  unmarked?: RegExp,
 ): string | undefined {
   if (!error.message?.trim()) return undefined;
+  const statistical = statisticalMessage(error, unmarked);
   const lines = [
-    `${error.type ? `${error.type}: ` : ""}${error.name ?? "Error"}: ${error.message}`,
+    `${error.type ? `${error.type}: ` : ""}${error.name ?? "Error"}: ${statistical ?? error.message}`,
     ...(error.expected === undefined ? [] : [`expected: ${error.expected}`]),
     ...(error.actual === undefined ? [] : [`actual: ${error.actual}`]),
     ...(error.at
@@ -65,14 +90,20 @@ export function failureSignature(
     .replaceAll(root, "<root>")
     .replace(/(\.[cm]?[jt]sx?):\d+:\d+/g, "$1:<n>:<n>")
     .replace(/\d+(?:\.\d+)?(?= ?ms\b)/g, "<n>");
-  return isStatisticalError(error)
-    ? signature.replace(/\d+(?:\.\d+)?/g, "<n>")
-    : signature;
+  return statistical === undefined
+    ? signature
+    : signature.replace(/\d+(?:\.\d+)?/g, "<n>");
 }
 
 /** The signature of all errors of a failed test; undefined when one cannot be compared or there is none. */
-export function testSignature(errors: ReportedError[], root: string) {
-  const signatures = errors.map((error) => failureSignature(error, root));
+export function testSignature(
+  errors: ReportedError[],
+  root: string,
+  unmarked?: RegExp,
+) {
+  const signatures = errors.map((error) =>
+    failureSignature(error, root, unmarked),
+  );
   if (signatures.length === 0 || signatures.includes(undefined)) {
     return undefined;
   }

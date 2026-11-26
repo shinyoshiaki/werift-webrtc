@@ -35,6 +35,20 @@
  */
 import type { DeepSearchConfig } from "../../../pbt/src";
 
+const bytes = String.raw`-?\d+(?:\.\d+)? (?:B|KiB|MiB)`;
+const slope = String.raw`slope ${bytes}/cycle \(R²=-?\d+\.\d+\) exceeds ${bytes}/cycle`;
+const margin = String.raw`final median ${bytes} exceeds baseline ${bytes} \+ margin ${bytes}`;
+
+/**
+ * The whole message of the P3 heap verdict without
+ * `STATISTICAL_FAILURE_MARKER`, as a `--baseline` revision from before the
+ * marker fails it: the cycle's templates, a reason of `detectLeak`
+ * (tests/memleak) and `toBe(false)`.
+ */
+export const UNMARKED_HEAP_VERDICT = new RegExp(
+  String.raw`^\[.*\]: (?:${slope}(?: and ${margin})?|${margin}): expected true to be false // Object\.is equality$`,
+);
+
 const config: DeepSearchConfig = {
   defaultSuites: ["fuzz", "scenario", "model", "leak"],
   env: {
@@ -82,6 +96,7 @@ const config: DeepSearchConfig = {
               WERIFT_NEGOTIATION_LEAK_HEAP: "1",
             },
             statistical: true,
+            unmarkedStatistical: UNMARKED_HEAP_VERDICT,
           })),
         ];
       },
