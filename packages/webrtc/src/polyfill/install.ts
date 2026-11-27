@@ -12,6 +12,7 @@ import {
   RTCPeerConnectionIceErrorEvent,
   RTCTrackEvent,
 } from "../peerConnection";
+import { RTCSessionDescription } from "../sdp";
 import { RTCDtlsTransport } from "../transport/dtls";
 import { RTCIceCandidate, RTCIceTransport } from "../transport/ice";
 import * as browserIdentity from "./browserIdentity";
@@ -23,7 +24,6 @@ import { MediaDevices } from "./mediaDevices";
 import type { BoundMediaRegister, MediaRegister } from "./mediaRegister";
 import { createPolyfillRTCPeerConnection } from "./peerConnectionConfig";
 import { createEmptyRegister } from "./registers/empty";
-import { PolyfillRTCSessionDescription } from "./rtcSessionDescription";
 
 const INSTALLED_KEYS = [
   "RTCPeerConnection",
@@ -44,7 +44,11 @@ const INSTALLED_KEYS = [
 
 export interface InstallPolyfillOptions {
   mediaRegister: MediaRegister[];
-  /** Default configuration for every RTCPeerConnection created by this install. */
+  /**
+   * Default configuration for every RTCPeerConnection created by this install.
+   * `dataChannelBinaryType` defaults to `"arraybuffer"` (the W3C default)
+   * when not given here; a configuration passed to the constructor wins.
+   */
   peerConnectionConfig?: RTCPeerConnectionConfig;
   existingMediaDevices?: ExistingMediaDevicesMode;
   target?: object;
@@ -97,7 +101,7 @@ export function installPolyfill(options: InstallPolyfillOptions): () => void {
       "RTCPeerConnection",
       createPolyfillRTCPeerConnection(options.peerConnectionConfig),
     );
-    assign(target, "RTCSessionDescription", PolyfillRTCSessionDescription);
+    assign(target, "RTCSessionDescription", RTCSessionDescription);
     assign(target, "RTCIceCandidate", RTCIceCandidate);
     assign(target, "RTCDataChannel", RTCDataChannel);
     assign(target, "MediaStream", MediaStream);
