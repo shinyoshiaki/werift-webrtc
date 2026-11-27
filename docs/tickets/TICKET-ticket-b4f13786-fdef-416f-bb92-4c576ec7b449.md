@@ -137,3 +137,10 @@ Arrange / Act / Assert の形で書き、各 Act / Assert に日本語コメン�
 - #817 / #821: addTrack と関連付いた transceiver の rollback (本件の再利用適格性とは別問題)
 - #816: addTrack / addTransceiver の生成元と JSEP 5.10 pairing (`createdBy`、`reusedForAddTrack`)
 - #705: transceiver の stop と m-line 再利用
+
+## 後続課題 (本チケットの範囲外、未起票)
+`webrtc/RTCPeerConnection-setRemoteDescription-tracks.https.html` で見つかった、本件より前からある不足。本件では直していない。
+- remote の `MediaStream` が `addtrack` / `removetrack` を発火しない。`wpt/allowlist.json` の `skippedSubtests` に 4 件を登録している。
+- 同じ stream ID の remote track に別々の `MediaStream` が渡る。"addTrack() with two tracks and one stream …" の 1 件が FAIL する。上の 4 件の解除には、この共有も必要になる見込み (未検証)。
+- remote track の `mute` / `unmute` を待つ 2 件が終わらない。同じく `skippedSubtests` に登録している (原因は未調査)。
+- 解消したら該当の `skippedSubtests` を外し、PASS を `wpt/baseline.json` に反映する。
