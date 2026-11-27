@@ -14,6 +14,7 @@ export const UnknownSsrcDrop = {
   notReceiving: "not receiving",
   hasSsrc: "m-line has ssrc or rid",
   unknownPayloadType: "unknown payload type",
+  malformedPayload: "malformed payload",
   noCandidate: "no candidate",
   ambiguous: "ambiguous",
 } as const;

@@ -323,6 +323,22 @@ export class RTCRtpReceiver {
     return !!codec && !isRtxCodec(codec);
   }
 
+  /**
+   * Internal (router): {@link receivesMediaPayloadType}, and the payload is
+   * one this receiver can use ({@link parseMediaPayload}). A packet that is
+   * not must not teach or move routing state: the router neither learns its
+   * SSRC nor advances a fallback SSRC's mapping with it.
+   *
+   * @internal
+   */
+  receivesMediaPacket(packet: RtpPacket) {
+    const codec = this.codecs[packet.header.payloadType];
+    return (
+      this.receivesMediaPayloadType(packet.header.payloadType) &&
+      !("invalid" in this.parseMediaPayload(packet, codec))
+    );
+  }
+
   /** Internal (router): the payload type is a negotiated RTX codec of this receiver. */
   receivesRtxPayloadType(payloadType: number) {
     return isRtxCodec(this.codecs[payloadType]);
@@ -1191,13 +1207,20 @@ export class RTCRtpReceiver {
       this.dropRetired(packet, extensions);
       return;
     }
+    // 壊れた payload は RID の媒体 SSRC の切り替えや track の学習より前に破棄する
+    // (tests/media/router.test.ts "確立済みの RID に別 SSRC の不正な RED が届いても、媒体 SSRC は切り替わらず後続の正規パケットが届く (%s)")。
+    const payload = this.parseMediaPayload(packet, codec);
+    if ("invalid" in payload) {
+      this.dropInvalidPayload(packet, extensions, codec, payload.invalid);
+      return;
+    }
     if (this.mediaSsrcByRid[rid] !== ssrc) this.switchRidMedia(rid, ssrc);
     if (!this.trackBySSRC[ssrc]) {
       this.trackBySSRC[ssrc] = track;
       this.learnedTrackSsrcs.add(ssrc);
     }
 
-    this.handleRTP(packet, extensions, track);
+    this.handleRTP(packet, extensions, track, undefined, payload);
   };
 
   /**
@@ -1430,9 +1453,9 @@ export class RTCRtpReceiver {
   /**
    * Internal (router): SSRCs of packets this receiver rejected as invalid
    * (an unnegotiated payload type, a non-RTX packet naming a repaired RID, a
-   * RID without a track). Such a packet must not teach a route, but it says
-   * nothing against a route learned before it: the router undoes only a
-   * route the rejected packet itself just added.
+   * RID without a track, a malformed RED payload). Such a packet must not
+   * teach a route, but it says nothing against a route learned before it:
+   * the router undoes only a route the rejected packet itself just added.
    */
   takeRejectedSsrcs() {
     return this.rejectedSsrcs.length === 0 ? [] : this.rejectedSsrcs.splice(0);
@@ -1488,6 +1511,59 @@ export class RTCRtpReceiver {
     return media;
   }
 
+  /**
+   * The payload of a packet of the negotiated `codec`, checked before the
+   * packet changes any state. Only RED (RFC 2198) is parsed here: a RED
+   * payload that does not parse (empty, a truncated header, a block longer
+   * than the packet) or whose first block names a payload type that was not
+   * negotiated is `invalid`. Padding-only packets (no payload) and RTX
+   * packets are not parsed. Only the parser's verdict on the received bytes
+   * is caught: errors elsewhere still propagate.
+   */
+  private parseMediaPayload(
+    packet: RtpPacket,
+    codec: RTCRtpCodecParameters,
+  ): { red?: Red } | { invalid: string } {
+    if (codec.name.toLowerCase() !== "red" || isPaddingOnlyRtpPacket(packet)) {
+      return {};
+    }
+    let red: Red;
+    try {
+      red = Red.deSerialize(packet.payload);
+    } catch (error) {
+      return { invalid: (error as Error).message };
+    }
+    const primary = red.header.fields[0];
+    if (!primary) return { invalid: "RED without blocks" };
+    if (!(primary.blockPT in this.codecs)) {
+      return { invalid: `RED block payload type ${primary.blockPT}` };
+    }
+    return { red };
+  }
+
+  /**
+   * A packet whose payload {@link parseMediaPayload} rejected, dropped where
+   * it arrived like a packet of an unnegotiated payload type: it is not
+   * delivered, counted in the receive statistics, used for NACK or RTCP, and
+   * it teaches no route (`rejectedSsrcs`). Transport-wide CC still observes
+   * it, as a late packet of a retired SSRC ({@link dropRetired}): its number
+   * is of the transport, not of the stream.
+   */
+  private dropInvalidPayload(
+    packet: RtpPacket,
+    extensions: Extensions,
+    codec: RTCRtpCodecParameters,
+    reason: string,
+  ) {
+    log("malformed RED payload dropped", {
+      ssrc: packet.header.ssrc,
+      payloadType: packet.header.payloadType,
+      reason,
+    });
+    this.rejectedSsrcs.push(packet.header.ssrc);
+    this.observeTransportCc(packet, extensions, this.aptOf(codec));
+  }
+
   /** The codec an RTX codec's `apt` names, or `codec` itself. */
   private aptOf(codec: RTCRtpCodecParameters) {
     if (!isRtxCodec(codec)) return codec;
@@ -1520,6 +1596,7 @@ export class RTCRtpReceiver {
     extensions: Extensions,
     track?: MediaStreamTrack,
     repairedRid?: string,
+    parsed?: { red?: Red },
   ) {
     if (this.stopped) {
       return;
@@ -1528,6 +1605,12 @@ export class RTCRtpReceiver {
     const codec = this.codecs[packet.header.payloadType];
     if (!codec) {
       // log("unknown codec " + packet.header.payloadType);
+      return;
+    }
+    // 統計・TWCC・payloadTypeBySsrc を更新する前に、壊れた payload を破棄する。
+    const payload = parsed ?? this.parseMediaPayload(packet, codec);
+    if ("invalid" in payload) {
+      this.dropInvalidPayload(packet, extensions, codec, payload.invalid);
       return;
     }
 
@@ -1569,17 +1652,7 @@ export class RTCRtpReceiver {
       receiveType = RtpReceivePacketType.retransmission;
     }
 
-    let red: Red | undefined;
-    if (!paddingOnly && codec.name.toLowerCase() === "red") {
-      red = Red.deSerialize(packet.payload);
-      if (
-        !Object.keys(this.codecs).includes(
-          red.header.fields[0].blockPT.toString(),
-        )
-      ) {
-        return;
-      }
-    }
+    const { red } = payload;
 
     this.payloadTypeBySsrc[packet.header.ssrc] = mediaCodec.payloadType;
 

@@ -215,6 +215,8 @@ export function createSimulcastRtxReceiver(
   options: {
     rids?: string[];
     rtx?: boolean;
+    /** Also negotiate RED (`video/red`, {@link simulcastRedPayloadType}). */
+    red?: boolean;
     mid?: string;
     /** Register on an existing router (several m-lines sharing RIDs). */
     router?: RtpRouter;
@@ -252,6 +254,15 @@ export function createSimulcastRtxReceiver(
     parameters: codecParametersToString({ apt: 96 }),
   });
   const codecs = options.rtx === false ? [vp8] : [rtx, vp8];
+  if (options.red) {
+    codecs.push(
+      new RTCRtpCodecParameters({
+        mimeType: "video/red",
+        clockRate: 90000,
+        payloadType: simulcastRedPayloadType,
+      }),
+    );
+  }
   const ids = simulcastExtensionIds;
   const params = {
     muxId: mid,
@@ -338,6 +349,46 @@ export function createSimulcastMediaPacket(options: {
     }),
     options.payload ?? Buffer.from(`media-${options.sequenceNumber}`),
   );
+}
+
+/** RED payload type of {@link createSimulcastRtxReceiver} with `red`. */
+export const simulcastRedPayloadType = 98;
+
+/**
+ * Arrange: RED payloads (RFC 2198) a receiver must drop. The first three do
+ * not parse; the last parses but its block names payload type 127, which no
+ * fixture negotiates.
+ */
+export const invalidRedPayloads = {
+  /** No header byte at all. */
+  empty: Buffer.alloc(0),
+  /** F=1 without the timestamp offset and block length that must follow. */
+  headerTruncated: Buffer.from([0x80]),
+  /** F=1 block of PT 96 with length 100, then the primary header, 2 bytes. */
+  blockTooLong: Buffer.from([0xe0, 0x00, 0x00, 0x64, 0x60, 1, 2]),
+  /** A single primary block of the unnegotiated payload type 127. */
+  unknownBlockPayloadType: Buffer.from([0x7f, 1, 2]),
+} as const;
+
+/** Arrange: the names of {@link invalidRedPayloads}, for `test.each`. */
+export const invalidRedPayloadNames = Object.keys(
+  invalidRedPayloads,
+) as (keyof typeof invalidRedPayloads)[];
+
+/**
+ * Arrange: a RED packet ({@link simulcastRedPayloadType}) of a simulcast
+ * layer, with the header extensions of {@link createSimulcastMediaPacket}.
+ */
+export function createSimulcastRedPacket(options: {
+  ssrc: number;
+  sequenceNumber: number;
+  payload: Buffer;
+  rid?: string;
+  mid?: string | null;
+}) {
+  const packet = createSimulcastMediaPacket(options);
+  packet.header.payloadType = simulcastRedPayloadType;
+  return packet;
 }
 
 /**

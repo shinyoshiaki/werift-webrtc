@@ -1,6 +1,10 @@
 import { RTCRtpCodingParameters } from "../../../src/media/parameters";
 import { createDtlsTransport } from "../../fixture";
 import {
+  invalidRedPayloadNames,
+  invalidRedPayloads,
+} from "../rtpReceiverTestUtils";
+import {
   collectRtcpRecipients,
   collectTrackPayloads,
   createPayloadTypeSharingRouter,
@@ -8,6 +12,7 @@ import {
   inboundRtpSsrcs,
   opus,
   pcmu,
+  redOf,
   rtcpNamingSsrc,
   rtxOf,
   ssrcLessPacket,
@@ -640,5 +645,118 @@ describe("media/router: a=ssrc のない m-line の未知 SSRC の学習 (#356, 
     expect(aPayloads).toEqual(["payload-1", "payload-3"]);
     expect(router.ssrcTable[55]).toBe(a.receiver);
     expect(n.receiver.trackBySSRC[55]).toBeUndefined();
+  });
+
+  test.each(invalidRedPayloadNames)(
+    "不正な RED のパケットは a=ssrc のない m-line に SSRC を学習させず、後続の正規パケットで学習する (%s)",
+    (name) => {
+      // Arrange: RED を受ける SSRC-less の audio (MID a) と、配送中の video (MID v)。
+      const { router, dtls, addReceiver } = createSsrcLessRouter();
+      const audio = addReceiver({ mid: "a", codecs: [opus(), redOf(63, 111)] });
+      const video = addReceiver({ kind: "video", mid: "v", codecs: [vp8()] });
+      const audioPayloads = collectTrackPayloads(audio);
+      const videoPayloads = collectTrackPayloads(video);
+      const videoPacket = (sequenceNumber: number) =>
+        ssrcLessPacket({ ssrc: 77, payloadType: 96, sequenceNumber, mid: "v" });
+      router.routeRtp(videoPacket(1), dtls);
+
+      // Act: 未知 SSRC 4321 の不正な RED を受け、続けて video の後続を受ける。
+      const routeInvalid = () =>
+        router.routeRtp(
+          ssrcLessPacket({
+            ssrc: 4321,
+            payloadType: 63,
+            sequenceNumber: 1,
+            mid: "a",
+            payload: invalidRedPayloads[name],
+          }),
+          dtls,
+        );
+      expect(routeInvalid).not.toThrow();
+      router.routeRtp(videoPacket(2), dtls);
+
+      // Assert: SSRC 4321 は学習されず、既定 track の SSRC も変わらず、video は途切れない。
+      expect(router.ssrcTable[4321]).toBeUndefined();
+      expect(router.learnedSsrcs.has(4321)).toBe(false);
+      expect(audio.receiver.fallbackSsrcs).toEqual([]);
+      expect(audio.receiver.trackBySSRC[4321]).toBeUndefined();
+      expect(audio.receiver.track.ssrc).toBeUndefined();
+      expect(audioPayloads).toEqual([]);
+      expect(videoPayloads).toEqual(["payload-1", "payload-2"]);
+
+      // Act: 同じ SSRC の正規の RED (opus の primary block だけ) を受ける。
+      router.routeRtp(
+        ssrcLessPacket({
+          ssrc: 4321,
+          payloadType: 63,
+          sequenceNumber: 2,
+          mid: "a",
+          payload: Buffer.concat([Buffer.from([111]), Buffer.from("opus-2")]),
+        }),
+        dtls,
+      );
+
+      // Assert: 正規パケットで学習され、primary block が届く。
+      expect(router.ssrcTable[4321]).toBe(audio.receiver);
+      expect(audio.receiver.fallbackSsrcs).toEqual([4321]);
+      expect(audioPayloads).toEqual(["opus-2"]);
+    },
+  );
+
+  test("学習済み fallback SSRC に届いた不正な RED は MID の対応付けを移さず状態も進めず、後の有効な MID パケットで移る", () => {
+    // Arrange: MID a が SSRC 55 を seq 10 で学習し、MID b も RED を受ける。
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const a = addReceiver({ mid: "a", codecs: [opus(), redOf(63, 111)] });
+    const b = addReceiver({ mid: "b", codecs: [opus(), redOf(63, 111)] });
+    const aPayloads = collectTrackPayloads(a);
+    const bPayloads = collectTrackPayloads(b);
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 55,
+        payloadType: 111,
+        sequenceNumber: 10,
+        mid: "a",
+      }),
+      dtls,
+    );
+
+    // Act: 不正な RED が自分の MID a で seq 1000、MID b で seq 1001 として届く。
+    for (const [mid, sequenceNumber] of [
+      ["a", 1000],
+      ["b", 1001],
+    ] as const) {
+      router.routeRtp(
+        ssrcLessPacket({
+          ssrc: 55,
+          payloadType: 63,
+          sequenceNumber,
+          mid,
+          payload: invalidRedPayloads.headerTruncated,
+        }),
+        dtls,
+      );
+    }
+
+    // Assert: どちらにも届かず、対応付けは a のまま。
+    expect(aPayloads).toEqual(["payload-10"]);
+    expect(bPayloads).toEqual([]);
+    expect(router.ssrcTable[55]).toBe(a.receiver);
+    expect(b.receiver.fallbackSsrcs).toEqual([]);
+
+    // Act: 最後の有効な MID 更新 (seq 10) より新しい seq 500 が MID b 付きで届く。
+    router.routeRtp(
+      ssrcLessPacket({
+        ssrc: 55,
+        payloadType: 111,
+        sequenceNumber: 500,
+        mid: "b",
+      }),
+      dtls,
+    );
+
+    // Assert: 不正な RED に妨げられず b へ移る。
+    expect(bPayloads).toEqual(["payload-500"]);
+    expect(router.ssrcTable[55]).toBe(b.receiver);
+    expect(a.receiver.fallbackSsrcs).toEqual([]);
   });
 });
