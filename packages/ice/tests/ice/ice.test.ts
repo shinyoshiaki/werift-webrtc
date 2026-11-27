@@ -22,6 +22,8 @@ import {
   exchangeTcpOnlyCandidates,
   getSelectedTcpSocket,
   inviteAccept,
+  startConnectingPair,
+  waitUntil,
 } from "../utils";
 
 class ProtocolMock implements Protocol {
@@ -1043,6 +1045,74 @@ describe("ice", () => {
     expect(a.iceControlling).toBe(true);
 
     await a.close();
+  });
+
+  test("an offer/answer without an ICE restart keeps the roles of the checks in progress (RFC 8445 §6.1.1)", async () => {
+    // Arrange: controlling の a と controlled の b が host pair の check を始める。
+    // regular nomination で end-of-candidates がないので、a の nomination は
+    // 待ち時間 (nominationDelayMs) の間まだ送られない。
+    const options = { nomination: "regular", nominationDelayMs: 1000 } as const;
+    const { a, b, connecting } = await startConnectingPair(options, options, {
+      endOfCandidates: false,
+    });
+    try {
+      await waitUntil(
+        () =>
+          [a, b].every((agent) =>
+            agent.checkList.some(
+              (pair) => pair.state === CandidatePairState.SUCCEEDED,
+            ),
+          ),
+        5000,
+      );
+      expect(a.nominated).toBeUndefined();
+
+      // Act: nominate 前に、ICE restart のない後続の交渉 (b の offer と a の answer) が
+      // offer/answer のロールを設定する。
+      b.iceControlling = true;
+      a.iceControlling = false;
+
+      // Assert: ロールは check を始めた時のまま変わらず、a が nominate して両者が同じ pair を選ぶ。
+      expect(a.iceControlling).toBe(true);
+      expect(b.iceControlling).toBe(false);
+      await Promise.race([
+        connecting,
+        setTimeout(3000).then(() => {
+          throw new Error("no pair was selected");
+        }),
+      ]);
+      expect(a.nominated?.localCandidate.port).toBe(
+        b.nominated?.remoteCandidate.port,
+      );
+    } finally {
+      await a.close();
+      await b.close();
+    }
+  });
+
+  test("once the checks began only a role conflict changes the role; restartRemote() lets offer/answer assign it again", async () => {
+    // Arrange: controlling の agent が現在の generation の check を始めている。
+    const a = createTestConnection(true);
+    (a as unknown as { checksBegun: boolean }).checksBegun = true;
+    try {
+      // Act: offer/answer がロールを設定する。
+      a.iceControlling = false;
+      // Assert: check 中は変わらない。
+      expect(a.iceControlling).toBe(true);
+
+      // Act: ロール競合の修復で切り替える。
+      (a as unknown as { switchRole(value: boolean): void }).switchRole(false);
+      // Assert: 修復は check 中でもロールを変える。
+      expect(a.iceControlling).toBe(false);
+
+      // Act: 相手側だけの restart の後に offer/answer がロールを設定する。
+      a.restartRemote();
+      a.iceControlling = true;
+      // Assert: 新しい remote generation ではロールを決め直せる。
+      expect(a.iceControlling).toBe(true);
+    } finally {
+      await a.close();
+    }
   });
 
   test(

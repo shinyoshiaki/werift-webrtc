@@ -1,6 +1,7 @@
 import type { RTCIceCandidate, RTCPeerConnection } from "../../../src";
 import { describeCases, negotiationCase } from "../harness/negotiationCase";
 import {
+  arrangeInterruptWait,
   createConnectedMediaAndDataPeers,
   createConnectedVideoPeers,
   createIceRestartPranswer,
@@ -12,6 +13,7 @@ import {
   recordIceCandidates,
   recordIceConnectionStates,
   removeIceAgentServers,
+  unreachableCandidates,
   waitForCommittedNomination,
   waitForConnection,
   waitForEndOfCandidates,
@@ -167,6 +169,69 @@ describeCases("negotiation transaction spec coverage: ICE", () => {
       );
       c.invariants();
       await c.rtp(outgoing, incoming);
+    },
+  );
+
+  negotiationCase(
+    "[2.8] a re-offer without an ICE restart keeps the ICE roles of checks still in progress (RFC 8445 §6.1.1)",
+    {
+      ref: "2.8; origin: model seed 275 (the transport did not settle after a re-offer from the answerer)",
+    },
+    async (c) => {
+      // Arrange: a の初回 offer と b の answer を誰も応答しない候補で届け、両者の check を
+      // 始めたまま何も nominate されない状態にする (a が offerer で controlling)。
+      const held = await arrangeInterruptWait("stun");
+      const { a, b } = await c.given(held.session);
+      await held.pending;
+      await c.waitFor(() =>
+        [a, b].every((pc) => pc.iceConnectionState === "checking"),
+      );
+      const roles = (pc: RTCPeerConnection) =>
+        pc.iceTransports.map((transport) => transport.role);
+      const deliver = async (
+        from: RTCPeerConnection,
+        to: RTCPeerConnection,
+        type: "offer" | "answer",
+      ) => {
+        await c.setLocal(
+          from,
+          type === "offer"
+            ? await from.createOffer()
+            : await from.createAnswer(),
+        );
+        await c.setRemote(
+          to,
+          unreachableCandidates(from.localDescription!.sdp),
+          {
+            type,
+          },
+        );
+      };
+
+      // Act: check の途中で、answerer の b が ICE restart なしで再 offer し、a が answer する。
+      await deliver(b, a, "offer");
+      await deliver(a, b, "answer");
+
+      // Assert: 後続の offer / answer はロールを決め直さない (offerer の a が controlling のまま)。
+      expect(roles(a)).toEqual(["controlling"]);
+      expect(roles(b)).toEqual(["controlled"]);
+
+      // Act: 両 peer が自分の description に載せた本当の候補を相手に trickle する。
+      for (const [from, to] of [
+        [a, b],
+        [b, a],
+      ] as const) {
+        const sdp = from.localDescription!.sdp;
+        const sdpMid = sdp.match(/^a=mid:(\S+)/m)![1];
+        for (const [, candidate] of sdp.matchAll(/^a=(candidate:[^\r\n]+)/gm)) {
+          await c.addCandidate(to, { candidate, sdpMid });
+        }
+      }
+
+      // Assert: controlling の a が nominate して両者が接続し、ロールは変わらない。
+      await Promise.all([waitForConnection(a), waitForConnection(b)]);
+      expect(roles(a)).toEqual(["controlling"]);
+      expect(roles(b)).toEqual(["controlled"]);
     },
   );
 
