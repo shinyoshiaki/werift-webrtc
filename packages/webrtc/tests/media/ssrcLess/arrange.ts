@@ -38,6 +38,17 @@ import {
 export const ssrcLessMidExtensionId = 1;
 /** Header extension ID of `sdes:rtp-stream-id` in these fixtures. */
 export const ssrcLessRidExtensionId = 2;
+/**
+ * Header extension ID of transport-wide CC in these fixtures; 3 is the
+ * repaired RID of `simulcastExtensionIds`, which shares a router here.
+ */
+export const ssrcLessTransportCcExtensionId = 4;
+
+function serializeTransportCc(transportSequenceNumber: number) {
+  const payload = Buffer.alloc(2);
+  payload.writeUInt16BE(transportSequenceNumber);
+  return payload;
+}
 
 export const opus = (payloadType = 111) =>
   new RTCRtpCodecParameters({
@@ -114,6 +125,10 @@ export function createSsrcLessRouter() {
       headerExtensions: [
         { id: ssrcLessMidExtensionId, uri: RTP_EXTENSION_URI.sdesMid },
         { id: ssrcLessRidExtensionId, uri: RTP_EXTENSION_URI.sdesRTPStreamID },
+        {
+          id: ssrcLessTransportCcExtensionId,
+          uri: RTP_EXTENSION_URI.transportWideCC,
+        },
       ],
       encodings: codecs.map(
         (c) =>
@@ -140,6 +155,7 @@ export function ssrcLessPacket(options: {
   mid?: string;
   rid?: string;
   payload?: Buffer;
+  transportSequenceNumber?: number;
 }) {
   return new RtpPacket(
     new RtpHeader({
@@ -157,6 +173,14 @@ export function ssrcLessPacket(options: {
           ? []
           : [
               { id: ssrcLessRidExtensionId, payload: Buffer.from(options.rid) },
+            ]),
+        ...(options.transportSequenceNumber === undefined
+          ? []
+          : [
+              {
+                id: ssrcLessTransportCcExtensionId,
+                payload: serializeTransportCc(options.transportSequenceNumber),
+              },
             ]),
       ],
     }),

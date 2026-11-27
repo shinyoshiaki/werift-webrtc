@@ -339,6 +339,20 @@ export class RTCRtpReceiver {
     );
   }
 
+  /**
+   * Internal (router): a packet the router chose this receiver for but drops
+   * before handing it over, because {@link receivesMediaPacket} refused its
+   * payload. Only transport-wide CC observes it: its number is of the
+   * transport, so leaving it out would report a received packet as lost. No
+   * stream or route state changes, and nothing is queued for the router.
+   *
+   * @internal
+   */
+  observeDroppedPacket(packet: RtpPacket, extensions: Extensions) {
+    const codec = this.codecs[packet.header.payloadType];
+    this.observeTransportCc(packet, extensions, codec);
+  }
+
   /** Internal (router): the payload type is a negotiated RTX codec of this receiver. */
   receivesRtxPayloadType(payloadType: number) {
     return isRtxCodec(this.codecs[payloadType]);

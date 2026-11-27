@@ -764,6 +764,7 @@ export class RtpRouter {
       ) {
         const routed = this.routeFallbackPacket(
           packet,
+          extensions,
           mid,
           dtlsTransport,
           rtpReceiver,
@@ -795,6 +796,7 @@ export class RtpRouter {
           // repaired-rtp-stream-id: without either it is not guessed.
           rtpReceiver = this.learnUnknownSsrc(
             packet,
+            extensions,
             mid,
             typeof repairedRid === "string",
             dtlsTransport,
@@ -903,6 +905,7 @@ export class RtpRouter {
    */
   private learnUnknownSsrc(
     packet: RtpPacket,
+    extensions: Extensions,
     mid: unknown,
     repaired: boolean,
     transport: RTCDtlsTransport | undefined,
@@ -928,6 +931,9 @@ export class RtpRouter {
     // A payload the receiver would drop (a malformed RED) teaches nothing
     // (tests/media/ssrcLess/learning.test.ts "不正な RED のパケットは a=ssrc のない m-line に SSRC を学習させず、後続の正規パケットで学習する (%s)").
     if (!receiver.receivesMediaPacket(packet)) {
+      // It did arrive on the transport
+      // (tests/media/ssrcLess/learning.test.ts "不正な RED は、未知 SSRC でも別 m-line の MID への移動でも、状態を変えずに transport-wide CC には記録される").
+      receiver.observeDroppedPacket(packet, extensions);
       return drop(UnknownSsrcDrop.malformedPayload);
     }
 
@@ -999,6 +1005,7 @@ export class RtpRouter {
    */
   private routeFallbackPacket(
     packet: RtpPacket,
+    extensions: Extensions,
     mid: unknown,
     transport: RTCDtlsTransport,
     owner: RTCRtpReceiver,
@@ -1011,10 +1018,17 @@ export class RtpRouter {
     if (midUpdate && own?.mid !== mid) {
       // The m-line the MID names takes the packet only with a media payload
       // type it receives (`learnUnknownSsrc`); otherwise nothing moves.
-      const target = this.learnUnknownSsrc(packet, mid, false, transport, {
-        from: owner,
-        stream: { ...observed.stream, midUpdateExt: observed.ext },
-      });
+      const target = this.learnUnknownSsrc(
+        packet,
+        extensions,
+        mid,
+        false,
+        transport,
+        {
+          from: owner,
+          stream: { ...observed.stream, midUpdateExt: observed.ext },
+        },
+      );
       return target ? { receiver: target, learned: true } : undefined;
     }
     // A packet the owner does not receive as media (a payload type not

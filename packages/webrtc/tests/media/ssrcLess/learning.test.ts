@@ -1,4 +1,8 @@
+import { vi } from "vitest";
+
+import { useTWCC } from "../../../src/media/extension/rtcpFeedback";
 import { RTCRtpCodingParameters } from "../../../src/media/parameters";
+import { ReceiverTWCC } from "../../../src/media/receiver/receiverTwcc";
 import { createDtlsTransport } from "../../fixture";
 import {
   invalidRedPayloadNames,
@@ -758,5 +762,61 @@ describe("media/router: a=ssrc のない m-line の未知 SSRC の学習 (#356, 
     expect(bPayloads).toEqual(["payload-500"]);
     expect(router.ssrcTable[55]).toBe(b.receiver);
     expect(a.receiver.fallbackSsrcs).toEqual([]);
+  });
+
+  test("不正な RED は、未知 SSRC でも別 m-line の MID への移動でも、状態を変えずに transport-wide CC には記録される", () => {
+    // Arrange: transport-cc と RED を受ける SSRC-less の audio (MID a, b)。
+    const { router, dtls, addReceiver } = createSsrcLessRouter();
+    const codecs = () => {
+      const negotiated = [opus(), redOf(63, 111)];
+      for (const codec of negotiated) codec.rtcpFeedback = [useTWCC()];
+      return negotiated;
+    };
+    const a = addReceiver({ mid: "a", codecs: codecs() });
+    const b = addReceiver({ mid: "b", codecs: codecs() });
+    const observed = vi.spyOn(ReceiverTWCC.prototype, "handleTWCC");
+    const route = (
+      transportSequenceNumber: number,
+      mid: string,
+      payload?: Buffer,
+    ) =>
+      router.routeRtp(
+        ssrcLessPacket({
+          ssrc: 55,
+          payloadType: payload ? 63 : 111,
+          sequenceNumber: transportSequenceNumber,
+          mid,
+          payload,
+          transportSequenceNumber,
+        }),
+        dtls,
+      );
+
+    // Act: まだ学習していない SSRC 55 の不正な RED (TWCC 1) を受ける。
+    route(1, "a", invalidRedPayloads.headerTruncated);
+
+    // Assert: 学習せずに、TWCC の番号だけを記録する。
+    expect(observed.mock.calls).toEqual([[1]]);
+    expect(router.ssrcTable[55]).toBeUndefined();
+    expect(a.receiver.fallbackSsrcs).toEqual([]);
+    expect(a.receiver.sdesMid).toBeUndefined();
+
+    // Act: 正規パケット (TWCC 2) で MID a が学習し、不正な RED が MID a (TWCC 3) と MID b (TWCC 4) で届く。
+    route(2, "a");
+    route(3, "a", invalidRedPayloads.headerTruncated);
+    route(4, "b", invalidRedPayloads.headerTruncated);
+
+    // Assert: どの番号も 1 回ずつ記録され、対応付けは a のまま。
+    expect(observed.mock.calls).toEqual([[1], [2], [3], [4]]);
+    expect(router.ssrcTable[55]).toBe(a.receiver);
+    expect(b.receiver.fallbackSsrcs).toEqual([]);
+    expect(b.receiver.sdesMid).toBeUndefined();
+    // Assert: 破棄したパケットは、後続の後処理に持ち越すものを残さない。
+    expect(a.receiver.takeRejectedSsrcs()).toEqual([]);
+    expect(b.receiver.takeRejectedSsrcs()).toEqual([]);
+
+    observed.mockRestore();
+    a.receiver.stop();
+    b.receiver.stop();
   });
 });
