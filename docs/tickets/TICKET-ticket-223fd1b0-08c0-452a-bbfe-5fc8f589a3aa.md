@@ -117,3 +117,23 @@
 - [ ] ICE-TCP active の connect 中 close で、保留中の Promise が settle する（R3）。見送る場合は R1 と同様に記録する。
 - [ ] 再現しなかった場合は、§2 の調査結果と「現行版で非再現」という結論を本チケットに追記している。
 - [ ] 検証: `cd packages/ice && npm test`、`npm run type`。`packages/common` を変えた場合は `cd packages/common && npm test` と `npm run test:small`。公開 API を変えた場合は `npm run doc` と `changelog.md` の更新。最後に `npm run format`。
+
+## 6. 実施記録（2026-11-27）
+
+### 結論
+- **現行版では unhandledRejection / uncaughtException は再現しない。** `packages/ice/tests/ice/turn-failure-propagation.test.ts` の故障マトリクス（全ケースで `watchProcessErrors()` の `errors` が空であることを `afterEach` で Assert）は、修正前のコードでも process レベルのエラーを 1 件も出さなかった。下流 ds-harness-remote#241 は werift 0.26.0 への更新で解決済み（下流起因の可能性も残る）。
+- 修正前のコードでは次の 5 ケースが失敗し、R1〜R3 の欠陥（ハングと後片付け漏れ）を確認したため、本チケットで是正した。
+  - TLS connect 中の abort が `connectTimeoutMs` まで settle しない（R2）。ICE 統合の「TLS handshake 中の close を 5 回」も server 側に socket が残る。
+  - 割り当て後の RST / FIN で refresh が続き、`sendData()` が再送タイムアウトまで返らない（R1、2 ケース）。
+  - ICE-TCP active の connect 中 close で送信 Promise が settle しない（R3）。
+- 補足: TCP の connect 自体を loopback で保留させる方法がないため、「connect 中」のケースは TLS handshake を返さない server（`createHangingTlsServer`）で再現した。TCP の「Allocate 応答待ち中の close」は `blackhole` で別途固定した。
+
+### 是正内容
+- R2: `StreamTransportOptions.signal`（`werift-common`）を追加。`createTurnClient` は `signal` を TCP/TLS の connect と redirect の reconnect に渡し、abort による失敗は `TransactionCancelled` に揃えた（`gatherRelayCandidate` の「cancel は報告しない」判定と整合）。
+- R1: `TurnProtocol` が `Transport.onClosed` を受けたら refresh を止め、未完了 transaction を `connection to the TURN server closed` で失敗させ、以降の request も即座に失敗させる（`onAllocationLost` は既存どおり 1 回）。`StreamTransport.send()` は closed 後に即 reject する。`switchServer` の意図的な close は `onClosed` を出さない（既存）ので誤発火しない。
+- R3: `TcpActiveProtocol.getSocket` が connect 前の `close` イベントで reject する（`close()` 後は `TransactionCancelled`）。connect タイムアウトの追加は見送り（transaction 側のタイムアウトで利用者からはハングしないため。新しい公開オプションを増やさない）。
+- R4: `Connection.close()` は protocol ごとの close 失敗をログに残して続行し、reject しない。
+- R5: 見送り（今回の経路では `asPromise(timeLimit)` を使っておらず、文字列 reject を Error に変えると既存の呼び出し側に影響しうるため）。
+
+### 検証
+- `cd packages/ice && npm test`、`cd packages/common && npm test`、`npm run type`、`npm run test:small`、`npm run doc`（`doc:check`）、`npm run format`。

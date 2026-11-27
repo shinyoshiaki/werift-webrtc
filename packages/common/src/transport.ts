@@ -31,6 +31,12 @@ export type TlsConnectionOptions = Omit<
 export interface StreamTransportOptions {
   /** Maximum time to wait for TCP/TLS connection establishment, in milliseconds. */
   connectTimeoutMs?: number;
+  /**
+   * Aborting it while the connection is being established destroys the
+   * socket and rejects `init()` with an `AbortError`. It is ignored once the
+   * connection is established.
+   */
+  signal?: AbortSignal;
 }
 
 const DEFAULT_CONNECT_TIMEOUT_MS = 8000;
@@ -240,6 +246,7 @@ export class TcpTransport implements Transport {
       () => connect({ port: addr[1], host: addr[0] }),
       undefined,
       options.connectTimeoutMs,
+      options.signal,
     );
   }
 
@@ -314,6 +321,7 @@ export class TlsTransport implements Transport {
         }),
       undefined,
       streamOptions.connectTimeoutMs,
+      streamOptions.signal,
     );
   }
 
@@ -377,6 +385,7 @@ class StreamTransport implements Transport {
   private createClient: () => StreamSocket;
   private connectEvent: StreamConnectEvent;
   private connectTimeoutMs: number;
+  private signal?: AbortSignal;
 
   readonly type: StreamTransportType;
   private connecting!: Promise<void>;
@@ -394,10 +403,12 @@ class StreamTransport implements Transport {
       ? "secureConnect"
       : "connect",
     connectTimeoutMs = DEFAULT_CONNECT_TIMEOUT_MS,
+    signal?: AbortSignal,
   ) {
     this.createClient = createClient;
     this.connectEvent = connectEvent;
     this.connectTimeoutMs = connectTimeoutMs;
+    this.signal = signal;
     this.type = type;
     this.connect();
   }
@@ -418,6 +429,7 @@ class StreamTransport implements Transport {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        this.signal?.removeEventListener("abort", onAbort);
         client.off(this.connectEvent, onConnect);
         client.off("error", onConnectError);
         this.rejectConnecting = undefined;
@@ -440,9 +452,18 @@ class StreamTransport implements Transport {
         );
         client.destroy();
       }, this.connectTimeoutMs);
+      const onAbort = () => {
+        this.closed = true;
+        const error = new Error(`${this.type} connect aborted`);
+        error.name = "AbortError";
+        settle(error);
+        client.destroy();
+      };
       this.rejectConnecting = (error) => settle(error);
       client.once(this.connectEvent, onConnect);
       client.once("error", onConnectError);
+      if (this.signal?.aborted) onAbort();
+      else this.signal?.addEventListener("abort", onAbort, { once: true });
     });
 
     client.on("data", (data) => {
@@ -481,6 +502,9 @@ class StreamTransport implements Transport {
   send = async (data: Buffer, addr?: Address) => {
     void addr;
     await this.connecting;
+    if (this.closed) {
+      throw new Error(`${this.type} transport closed`);
+    }
     await new Promise<void>((resolve, reject) => {
       this.client.write(data, (err) => {
         if (err) {

@@ -253,6 +253,8 @@ export class TurnProtocol implements Protocol {
   readonly onAllocationLost = new Event<[Error]>();
   /** The allocation succeeded and is not lost yet (see `onAllocationLost`). */
   private allocated = false;
+  /** Why the connection to the server closed by itself (see `transportLost`). */
+  private lostTransportError?: Error;
   private readonly dataConfirmation = new DataSendConfirmation();
   onRequestReceived: Event<[Message, Address, Buffer]> = new Event();
   onDataReceived: Event<[Buffer, Address]> = new Event();
@@ -347,6 +349,22 @@ export class TurnProtocol implements Protocol {
     this.refresh(exp);
   }
 
+  /**
+   * The connection to the server closed by itself: nothing sent on it can be
+   * answered any more. The refresh loop stops, requests in flight fail with
+   * `error` instead of retransmitting until their timeout, and later
+   * requests fail at once.
+   */
+  private transportLost(error: Error) {
+    if (this.closed || this.lostTransportError) return;
+    this.lostTransportError = error;
+    this.refreshHandle?.resolve?.();
+    for (const transaction of Object.values(this.transactions)) {
+      transaction.fail(error);
+    }
+    this.allocationLost(error);
+  }
+
   /** See `onAllocationLost`. */
   private allocationLost(error: Error) {
     if (!this.allocated || this.closed) return;
@@ -366,7 +384,7 @@ export class TurnProtocol implements Protocol {
     transport.onClosed?.subscribe(() => {
       // A transport replaced by a redirect closes locally.
       if (this.transport !== transport) return;
-      this.allocationLost(
+      this.transportLost(
         new Error(`connection to the TURN server closed (${transport.type})`),
       );
     });
@@ -676,6 +694,7 @@ export class TurnProtocol implements Protocol {
     if (this.transactions[request.transactionIdHex]) {
       throw new Error("exist");
     }
+    if (this.lostTransportError) throw this.lostTransportError;
     // Long-term credentials stay MESSAGE-INTEGRITY (SHA-1): SHA-256 needs the
     // PASSWORD-ALGORITHM(S) negotiation of RFC 8489 §9.2, which is out of
     // scope here (options.integrityAlgorithm is not applied).
@@ -1088,8 +1107,10 @@ export interface TurnClientOptions {
    */
   udpFamily?: 4 | 6;
   /**
-   * Aborting it while the allocation runs closes the client (its socket and
-   * transactions) and rejects with `TransactionCancelled`.
+   * Aborting it while the TCP/TLS connection is established or the
+   * allocation runs closes the client (its socket and transactions) and
+   * rejects with `TransactionCancelled`, without waiting for
+   * `connectTimeoutMs`.
    */
   signal?: AbortSignal;
 }
@@ -1134,15 +1155,25 @@ export async function createTurnClient(
 ) {
   lifetime ??= DEFAULT_ALLOCATION_LIFETIME;
   transportType ??= ssl ? "tls" : "udp";
-  const transport =
-    transportType === "udp"
-      ? await UdpTransport.init(selectTurnUdpSocketType(address, udpFamily), {
-          portRange,
-          interfaceAddresses,
-        })
-      : transportType === "tcp"
-        ? await TcpTransport.init(address, { connectTimeoutMs })
-        : await TlsTransport.init(address, tlsOptions, { connectTimeoutMs });
+  // The signal also aborts a TCP/TLS connect still in progress, so a closed
+  // owner does not keep the socket until connectTimeoutMs.
+  const streamOptions = { connectTimeoutMs, signal };
+  let transport: Transport;
+  try {
+    transport =
+      transportType === "udp"
+        ? await UdpTransport.init(selectTurnUdpSocketType(address, udpFamily), {
+            portRange,
+            interfaceAddresses,
+          })
+        : transportType === "tcp"
+          ? await TcpTransport.init(address, streamOptions)
+          : await TlsTransport.init(address, tlsOptions, streamOptions);
+  } catch (error) {
+    // init() already released the socket of an aborted connect.
+    if (signal?.aborted) throw new TransactionCancelled();
+    throw error;
+  }
 
   const turn = new TurnProtocol(
     address,
@@ -1156,11 +1187,11 @@ export async function createTurnClient(
           ? undefined
           : (alternate, alternateDomain) =>
               transportType === "tcp"
-                ? TcpTransport.init(alternate, { connectTimeoutMs })
+                ? TcpTransport.init(alternate, streamOptions)
                 : TlsTransport.init(
                     alternate,
                     alternateTlsOptions(address, alternateDomain, tlsOptions),
-                    { connectTimeoutMs },
+                    streamOptions,
                   ),
     },
   );
@@ -1184,7 +1215,8 @@ export async function createTurnClient(
     } catch (closeError) {
       log("failed to close TURN client after allocation failure", closeError);
     }
-    throw error;
+    // A redirect's reconnect the abort interrupted fails with its own error.
+    throw signal?.aborted ? new TransactionCancelled() : error;
   } finally {
     signal?.removeEventListener("abort", abort);
   }
