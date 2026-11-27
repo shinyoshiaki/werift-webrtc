@@ -1,6 +1,37 @@
 {
   "targets": [
     {
+      "file": "webrtc/RTCPeerConnection-setRemoteDescription-tracks.https.html",
+      "enabled": true,
+      "reason": "Auto-discovered upstream WebRTC WPT file; subtests that never finish on werift are skipped so the later ones run.",
+      "skippedSubtests": [
+        {
+          "name": "addTrack() for an existing stream makes stream.onaddtrack fire.",
+          "reason": "Waits for the remote MediaStream \"addtrack\" event, which werift never dispatches. Since MediaStream became an EventTarget (5023f7aae) the wait no longer fails fast but holds the file until the runner timeout, so the later baseline subtests are not reported."
+        },
+        {
+          "name": "stream.onaddtrack fires before setRemoteDescription resolves.",
+          "reason": "Waits for the remote MediaStream \"addtrack\" event, which werift never dispatches. Since MediaStream became an EventTarget (5023f7aae) the wait no longer fails fast but holds the file until the runner timeout, so the later baseline subtests are not reported."
+        },
+        {
+          "name": "removeTrack() makes stream.onremovetrack fire and the track to be removed from the stream.",
+          "reason": "Waits for the remote MediaStream \"removetrack\" event, which werift never dispatches; as the \"addtrack\" waits above."
+        },
+        {
+          "name": "stream.onremovetrack fires before setRemoteDescription resolves.",
+          "reason": "Waits for the remote MediaStream \"removetrack\" event, which werift never dispatches; as the \"addtrack\" waits above."
+        },
+        {
+          "name": "removeTrack() makes track.onmute fire and the track to be muted.",
+          "reason": "Waits for the remote track \"unmute\" / \"mute\" events, which do not arrive on werift; this file already timed out here before 5023f7aae."
+        },
+        {
+          "name": "track.onmute fires before setRemoteDescription resolves.",
+          "reason": "Waits for the remote track \"unmute\" / \"mute\" events, which do not arrive on werift; this file already timed out here before 5023f7aae."
+        }
+      ]
+    },
+    {
       "file": "webrtc/RTCPeerConnection-removeTrack.https.html",
       "enabled": true,
       "reason": "Migrates the existing local removeTrack WPT coverage onto the upstream source file.",
