@@ -407,7 +407,14 @@ stop() 済み、または停止が確定した transceiver
 
 > **usedForSender**: `boolean` = `false`
 
-should not be reused because it has been used for sending before.
+`currentDirection` has been `sendrecv` / `sendonly` (a pranswer's
+included): `addTrack()` does not reuse this transceiver (W3C addTrack).
+It never goes back to false, also not by a rollback.
+
+#### See
+
+ - tests/negotiation/cases/negotiationTransactionAddTrackReuse.test.ts "addTrack() does not reuse a transceiver negotiated to send whose track $detach took off"
+ - tests/negotiation/cases/negotiationTransactionAddTrackReuse.test.ts "addTrack() does not reuse a transceiver a remote pranswer negotiated to send, after the $finish"
 
 ## Accessors
 

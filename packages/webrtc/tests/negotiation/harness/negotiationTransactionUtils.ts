@@ -11,6 +11,7 @@ import {
 import { InitChunk } from "../../../../sctp/src/chunk";
 import type { Kind, RTCIceCandidate, TransceiverPairing } from "../../../src";
 import {
+  MediaStream,
   MediaStreamTrack,
   type RTCDataChannel,
   RTCPeerConnection,
@@ -3838,12 +3839,70 @@ export function createPairingPeers(
   });
 }
 
-/** Arrange: the transceiver `pc.addTrack()` uses for a new track of `kind`. */
-export function addTrackTransceiver(pc: RTCPeerConnection, kind: Kind) {
+/** Arrange: the transceiver `pc.addTrack()` uses for a new track of `kind` (in `streams`). */
+export function addTrackTransceiver(
+  pc: RTCPeerConnection,
+  kind: Kind,
+  ...streams: MediaStream[]
+) {
   const track = new MediaStreamTrack({ kind });
-  const sender = pc.addTrack(track);
+  const sender = pc.addTrack(track, ...streams);
   const transceiver = pc.getTransceivers().find((t) => t.sender === sender)!;
   return { track, transceiver };
+}
+
+/**
+ * Arrange: `a` reserves a trackless audio slot of `direction` for the stream
+ * `slot` (`reserved`) and negotiates it with `b` (`bReserved` is b's
+ * transceiver of its MID), as an application keeps an m-line for a later
+ * source.
+ */
+export async function createReservedSendSlot(
+  direction: "sendrecv" | "sendonly",
+) {
+  const { a, b } = createPairingPeers("standard");
+  const reserved = a.addTransceiver("audio", {
+    direction,
+    streams: [new MediaStream({ id: "slot" })],
+  });
+  await a.setLocalDescription(await a.createOffer());
+  await b.setRemoteDescription(a.localDescription!);
+  await b.setLocalDescription(await b.createAnswer());
+  await a.setRemoteDescription(b.localDescription!);
+  const bReserved = b.getTransceivers().find((t) => t.mid === reserved.mid)!;
+  return { a, b, reserved, bReserved };
+}
+
+/**
+ * Assert: RTP written on `track` reaches `b` on a transceiver other than
+ * `bReserved`, whose remote MSID is `streamId`; `bReserved` receives none.
+ * Returns b's receiving transceiver.
+ */
+export async function expectRtpOutsideReservedSlot(
+  b: RTCPeerConnection,
+  bReserved: RTCRtpTransceiver,
+  track: MediaStreamTrack,
+  streamId: string,
+  label: string,
+) {
+  const receiving = b
+    .getTransceivers()
+    .find((t) => t.receiver.remoteStreamIds.includes(streamId));
+  expect(receiving, `${label}: no m-line with MSID ${streamId}`).toBeDefined();
+  expect(receiving).not.toBe(bReserved);
+  const leaked: string[] = [];
+  const subscriptions = bReserved.receiver.tracks.map((reservedTrack) =>
+    reservedTrack.onReceiveRtp.subscribe((rtp) =>
+      leaked.push(rtp.payload.toString()),
+    ),
+  );
+  try {
+    await expectRtpEventually(track, receiving!.receiver.track, label);
+  } finally {
+    for (const { unSubscribe } of subscriptions) unSubscribe();
+  }
+  expect(leaked, `${label}: RTP reached the reserved slot`).toEqual([]);
+  return receiving!;
 }
 
 /** Arrange: two peers before any negotiation (`a` with `config`, `b` with `configB`). */

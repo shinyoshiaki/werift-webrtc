@@ -93,6 +93,10 @@ import {
  *   in their negotiated form (payload type, fmtp, rtcp-fb);
  *   `transceiver.codecs` of a negotiated transceiver is part of the state
  *   createOffer / rollback keep.
+ * - addTrack reuse (W3C addTrack): `pc.addTrack()` returns a new transceiver
+ *   or one whose `currentDirection` was never `sendrecv` / `sendonly` after
+ *   any operation (a pranswer or a rolled-back one included), whatever its
+ *   track and `direction` did since.
  * (A rejected operation changing nothing is checked by the harness.)
  */
 type World = ReturnType<typeof world>;
@@ -362,10 +366,25 @@ export class ModelOracles implements Observer {
   private readonly lastStreams = new Map<unknown, string>();
   /** Receivers that stopped receiving (or were rolled back) since their last track event. */
   private readonly receivingReset = new Set<unknown>();
+  /** Transceivers whose `currentDirection` was `sendrecv` / `sendonly` after an operation. */
+  private readonly negotiatedSending = new Set<RTCRtpTransceiver>();
 
   /** Arrange: a transceiver the application created (it must survive negotiation). */
   application(object: RTCRtpTransceiver) {
     this.applicationTransceivers.add(object);
+  }
+
+  /**
+   * Assert (addTrack reuse): `t`, what `pc.addTrack()` returned, is not in
+   * `existing` (the transceivers before the call) or never negotiated a
+   * sending direction.
+   */
+  addedTrack(t: RTCRtpTransceiver, existing: ReadonlySet<RTCRtpTransceiver>) {
+    if (!existing.has(t)) return;
+    expect(
+      this.negotiatedSending.has(t),
+      `addTrack reused transceiver ${t.mid} that negotiated a sending direction`,
+    ).toBe(false);
   }
 
   /** Arrange: a DataChannel the application created on `pc` (it never closes). */
@@ -448,6 +467,13 @@ export class ModelOracles implements Observer {
     const { pc } = step;
     const before = raw as Before;
     if (pc.signalingState === "closed") return;
+    for (const t of pc.getTransceivers()) {
+      if (
+        t.currentDirection === "sendrecv" ||
+        t.currentDirection === "sendonly"
+      )
+        this.negotiatedSending.add(t);
+    }
     const now = world(pc);
     const label = `${step.kind}(${step.type ?? "candidate"})`;
     this.warpConfigReachesOpenTransports(pc, label);

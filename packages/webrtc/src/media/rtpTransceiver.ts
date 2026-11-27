@@ -53,7 +53,13 @@ export class RTCRtpTransceiver {
    * (JSEP 4.1.8.2), so a later remote offer can associate it again.
    */
   reusedForAddTrack = false;
-  /**should not be reused because it has been used for sending before. */
+  /**
+   * `currentDirection` has been `sendrecv` / `sendonly` (a pranswer's
+   * included): `addTrack()` does not reuse this transceiver (W3C addTrack).
+   * It never goes back to false, also not by a rollback.
+   * @see tests/negotiation/cases/negotiationTransactionAddTrackReuse.test.ts "addTrack() does not reuse a transceiver negotiated to send whose track $detach took off"
+   * @see tests/negotiation/cases/negotiationTransactionAddTrackReuse.test.ts "addTrack() does not reuse a transceiver a remote pranswer negotiated to send, after the $finish"
+   */
   usedForSender = false;
   private _currentDirection?: CurrentDirection;
   offerDirection!: MediaDirection;
@@ -205,13 +211,6 @@ export class RTCRtpTransceiver {
 
   setDirection(direction: MediaDirection) {
     this._direction = direction;
-    if (
-      this._currentDirection &&
-      this._currentDirection !== "stopped" &&
-      SenderDirections.includes(this._currentDirection)
-    ) {
-      this.usedForSender = true;
-    }
   }
 
   /**RFC 8829 4.2.5. last negotiated direction */
@@ -231,10 +230,8 @@ export class RTCRtpTransceiver {
     if (
       direction &&
       direction !== "stopped" &&
-      SenderDirections.includes(direction) &&
-      this.sender.track
+      SenderDirections.includes(direction)
     ) {
-      // 実際に送信へ使われた sender は addTrack の自動再使用対象から外す
       this.usedForSender = true;
     }
   }
