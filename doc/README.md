@@ -109,7 +109,7 @@ npm run wpt:coverage --workspace packages/webrtc
 
 WPT reports use `v8-to-istanbul` directly to retain the V8 metrics used by the committed coverage baseline, independently of Vitest's AST-based coverage provider. Only observed TypeScript sources and source-mapped lines are measured.
 
-`npm run wpt` runs every upstream `webrtc/` file and fails only on a regression against `wpt/baseline.json`: a baseline subtest that reports a lower status, or that a file which ran does not report (a whole-file timeout keeps the subtests that finished before it). The per-file timeouts are short, so a target whose regressions are all timeouts is rerun once, one at a time with 4x timeouts, and judged by the rerun (listed under "Rerun after timeout-only regressions"); a FAIL is never rerun. Every `RTCPeerConnection` is created with the browser-compatible configuration of [Compatibility options](#compatibility-options).
+`npm run wpt` runs every upstream `webrtc/` `.html` file, plus the `.window.js` / `.any.js` files that `wpt/allowlist.json` lists (run as the window-scope page wptserve generates, `tools/wpt-runner/jsTestLogic.ts`), and fails only on a regression against `wpt/baseline.json`: a baseline subtest that reports a lower status, or that a file which ran does not report (a whole-file timeout keeps the subtests that finished before it). The per-file timeouts are short, so a target whose regressions are all timeouts is rerun once, one at a time with 4x timeouts, and judged by the rerun (listed under "Rerun after timeout-only regressions"); a FAIL is never rerun. Every `RTCPeerConnection` is created with the browser-compatible configuration of [Compatibility options](#compatibility-options).
 
 The baseline lists the subtests that passed in every one of repeated full runs, minus the targets `wpt/allowlist.json` keeps out of the gate (`enabled: false`, `baselineExclusions`). Refresh it from saved runs, then the coverage baseline:
 
@@ -278,10 +278,11 @@ Where werift's own behavior differs from the specifications and browsers, a cons
 | `mLineReuse` | `"standard"` | `"aggressive"`: an accepted `inactive` m-line uses port 0, so its position is reused | an accepted `inactive` m-line keeps its port | fixed | `"compatible"` (= `"standard"`) |
 | `transceiverPairing` | `"byKind"` | `"byKind"`: a remote offer takes any unassociated transceiver of its kind | JSEP 5.10: only one `addTrack()` created | fixed | — |
 | `keyFrameRequestRouting` | `"fallback"` | `"fallback"`: a PLI / FIR for an unknown SSRC falls back to the RTX owner or the only video sender of the transport it arrived on | not delivered (RFC 4585 / RFC 5104) | changeable | `"compatible"` (= `"fallback"`), `"strict"` (= `"standard"`) |
+| `dataChannelBinaryType` | `"nodebuffer"` | `"nodebuffer"`: a new data channel delivers binary messages as Node.js `Buffer`s; `"arraybuffer"` / `"blob"` select those `binaryType` values | the W3C `binaryType` default, `"arraybuffer"` | changeable (channels created afterwards) | — |
 
 Any other value is a `TypeError`, and changing a fixed option is an `InvalidModificationError`. An old name is read as its current name (`getConfiguration()` returns the current name). `CompatibilityOptionValues` lists the values of every option.
 
-`compatibility: "standard"` sets all of them to `"standard"` at once, and `compatibility` cannot be changed after construction. An option given explicitly always takes precedence over it: a value given in the same configuration (an old name included) is kept, and `setConfiguration()` handles the options as without `compatibility` (only `keyFrameRequestRouting` may change). An option given as `undefined` is filled with `"standard"`:
+`compatibility: "standard"` sets all of them to `"standard"` at once, and `compatibility` cannot be changed after construction. An option given explicitly always takes precedence over it: a value given in the same configuration (an old name included) is kept, and `setConfiguration()` handles the options as without `compatibility` (only `keyFrameRequestRouting` and `dataChannelBinaryType` may change). An option given as `undefined` is filled with `"standard"`:
 
 ```ts
 new RTCPeerConnection({ compatibility: "standard" }); // every option above is "standard"

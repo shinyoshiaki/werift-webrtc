@@ -18,7 +18,7 @@
 
 ### Constructor
 
-> **new RTCDataChannel**(`sctp`, `parameters`, `sendOpen?`): `RTCDataChannel`
+> **new RTCDataChannel**(`sctp`, `parameters`, `sendOpen?`, `binaryType?`): `RTCDataChannel`
 
 #### Parameters
 
@@ -33,6 +33,10 @@
 ##### sendOpen?
 
 `boolean` = `true`
+
+##### binaryType?
+
+[`RTCDataChannelBinaryType`](../enumerations/RTCDataChannelBinaryType.md) = `"nodebuffer"`
 
 #### Returns
 
@@ -316,6 +320,40 @@ v13.6.0, v12.17.0
 `EventTarget.errorMonitor`
 
 ## Accessors
+
+### binaryType
+
+#### Get Signature
+
+> **get** **binaryType**(): [`RTCDataChannelBinaryType`](../enumerations/RTCDataChannelBinaryType.md)
+
+W3C `binaryType`. The initial value is the PeerConnection's
+`dataChannelBinaryType` (`"nodebuffer"` by default, `"arraybuffer"`
+through `werift/polyfill`). Assignment follows the WebIDL enum
+attribute setter: the value is converted with `ToString` first (an
+object's `toString()` is used, a Symbol is a `TypeError`), and a result
+that is not a [RTCDataChannelBinaryType](../enumerations/RTCDataChannelBinaryType.md) is ignored without an
+exception (WPT `RTCDataChannel-binaryType.window.js`).
+
+##### Returns
+
+[`RTCDataChannelBinaryType`](../enumerations/RTCDataChannelBinaryType.md)
+
+#### Set Signature
+
+> **set** **binaryType**(`value`): `void`
+
+##### Parameters
+
+###### value
+
+[`RTCDataChannelBinaryType`](../enumerations/RTCDataChannelBinaryType.md)
+
+##### Returns
+
+`void`
+
+***
 
 ### bufferedAmount
 
