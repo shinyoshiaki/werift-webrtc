@@ -158,12 +158,14 @@ describe("polyfill peerConnectionConfig", () => {
     uninstall();
   });
 
-  test("omitted config keeps the direct constructor and invalid input is rejected", () => {
+  test("omitted config installs the defaults wrapper and invalid input is rejected", () => {
     const target: Record<string, unknown> = {};
 
-    // Act / Assert: 省略時は wrapper を作らない。
+    // Act / Assert: 省略時も polyfill 既定 (dataChannelBinaryType) を補う派生クラスになる。
     const uninstall = installPolyfill({ mediaRegister: [], target });
-    expect(target.RTCPeerConnection).toBe(RTCPeerConnection);
+    expect(Object.getPrototypeOf(target.RTCPeerConnection)).toBe(
+      RTCPeerConnection,
+    );
     uninstall();
 
     expect(() =>

@@ -1,6 +1,9 @@
 import { OverconstrainedError as WeriftOverconstrainedError } from "../errors";
 
 export type { RTCPeerConnectionConfig } from "../peerConnection";
+// The core class: `instanceof` holds for descriptions werift creates too.
+export type { RTCSdpType, RTCSessionDescriptionInit } from "../sdp";
+export { RTCSessionDescription } from "../sdp";
 export type { InstallPolyfillOptions } from "./install";
 export { installPolyfill } from "./install";
 export type {
@@ -34,5 +37,4 @@ export {
   createEncodedBinaryRegister,
   createRtpRtcpRegister,
 } from "./registers/rtpRtcp";
-export { PolyfillRTCSessionDescription as RTCSessionDescription } from "./rtcSessionDescription";
 export { WeriftOverconstrainedError as OverconstrainedError };

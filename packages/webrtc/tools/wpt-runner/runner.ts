@@ -1,5 +1,6 @@
 import { Blob } from "buffer";
 import { type ChildProcess, spawn } from "child_process";
+import { existsSync } from "fs";
 import { mkdir, readdir, readFile, writeFile } from "fs/promises";
 import * as os from "os";
 import { dirname, resolve } from "path";
@@ -19,6 +20,7 @@ import {
 import { withBrowserCompatibleConfig } from "./browserConfig";
 import { resolveTargetConcurrency } from "./concurrencyLogic";
 import { installDocumentWithIframe, installMessageWindow } from "./frameShim";
+import { buildWptJsTestHtml, isWptJsTestFile } from "./jsTestLogic";
 import { ensureWptCheckout } from "./submodule";
 import {
   createSubtestSelector,
@@ -155,6 +157,24 @@ export async function discoverWptTargets() {
       }),
     };
     targets.set(targetKey(target), target);
+  }
+
+  // `.window.js` / `.any.js` tests run only when the allowlist lists them
+  // (see jsTestLogic.ts).
+  for (const configured of allowlist.targets) {
+    if (configured.variant || !isWptJsTestFile(configured.file)) {
+      continue;
+    }
+    if (!existsSync(resolve(wptRoot, configured.file))) {
+      throw new Error(
+        `wpt/allowlist.json lists ${configured.file}, which is not in the WPT checkout`,
+      );
+    }
+    targets.set(targetKey({ file: configured.file, variant: "" }), {
+      ...configured,
+      enabled: true,
+      variant: "",
+    });
   }
 
   for (const configured of allowlist.targets) {
@@ -322,7 +342,10 @@ export async function runTargetInCurrentProcess(
   }
   const timeoutProfile = resolveTimeoutProfile(target, timeoutScale);
   const htmlPath = resolve(wptRoot, target.file);
-  const html = await readFile(htmlPath, "utf8");
+  const source = await readFile(htmlPath, "utf8");
+  const html = isWptJsTestFile(target.file)
+    ? buildWptJsTestHtml(target.file, source)
+    : source;
   const title = extractTitle(html);
   const { context, enableFrames, mediaDevices, closePeerConnections } =
     createContext({
@@ -545,7 +568,7 @@ function createContext(input: {
   frame?: { parent: Record<string, any> };
   withFrames?: boolean;
 }) {
-  const peerConnections = new Set<RTCPeerConnection>();
+  const peerConnections = new Set<WptPeerConnection>();
   const audioSources: Array<{ stop(): void }> = [];
   const location = new URL(`https://wpt.local/${input.file}${input.variant}`);
   const sandbox: Record<string, unknown> = {
@@ -648,11 +671,7 @@ function createContext(input: {
       await Promise.allSettled([...childClosers].map((close) => close()));
       await Promise.allSettled(
         [...peerConnections].map((pc) =>
-          withTimeout(
-            Promise.resolve(pc.close()),
-            input.cleanupTimeoutMs,
-            undefined,
-          ),
+          withTimeout(pc.closeAndWait(), input.cleanupTimeoutMs, undefined),
         ),
       );
     },
@@ -706,7 +725,12 @@ function createAudioContextShim(sources: Array<{ stop(): void }>) {
   };
 }
 
-function createPeerConnectionWrapper(peerConnections: Set<RTCPeerConnection>) {
+/** An RTCPeerConnection of the WPT wrapper (see createPeerConnectionWrapper). */
+interface WptPeerConnection extends RTCPeerConnection {
+  closeAndWait(): Promise<void>;
+}
+
+function createPeerConnectionWrapper(peerConnections: Set<WptPeerConnection>) {
   class WptRTCPeerConnection extends RTCPeerConnection {
     constructor(...args: ConstructorParameters<typeof RTCPeerConnection>) {
       // WPT はブラウザー同様、暗黙の STUN サーバーなしで実行し、既定映像 codec に VP8 + H264 を使う。
@@ -764,6 +788,24 @@ function createPeerConnectionWrapper(peerConnections: Set<RTCPeerConnection>) {
         enumerable: true,
       });
       return channel;
+    }
+
+    // W3C: createOffer() / createAnswer() resolve with an RTCSessionDescriptionInit
+    // dictionary, not an RTCSessionDescription. werift returns its
+    // RTCSessionDescription (the polyfill global since #375), so the WPT
+    // wrapper gives the dictionary (RTCPeerConnection-createOffer.html).
+    override async createOffer(
+      ...args: Parameters<RTCPeerConnection["createOffer"]>
+    ) {
+      const description = await super.createOffer(...args);
+      return description.toJSON() as unknown as typeof description;
+    }
+
+    override async createAnswer(
+      ...args: Parameters<RTCPeerConnection["createAnswer"]>
+    ) {
+      const description = await super.createAnswer(...args);
+      return description.toJSON() as unknown as typeof description;
     }
 
     // ブラウザの operations chain と同じく、処理中の setRemoteDescription() の完了を待ってから
@@ -838,12 +880,29 @@ function createPeerConnectionWrapper(peerConnections: Set<RTCPeerConnection>) {
       return super.emit(type, ...args);
     }
 
-    override async close() {
-      try {
-        await super.close();
-      } finally {
-        peerConnections.delete(this);
-      }
+    #closing?: Promise<void>;
+
+    /** The close the runner's cleanup awaits (close() itself returns undefined). */
+    closeAndWait(): Promise<void> {
+      this.#closing ??= (async () => {
+        try {
+          await super.close();
+        } finally {
+          peerConnections.delete(this);
+        }
+      })();
+      return this.#closing;
+    }
+
+    // W3C: `undefined close()`. werift's close() returns a Promise, and
+    // testharness fails the whole file when a cleanup of a synchronous
+    // test() returns a value (`t.add_cleanup(() => pc.close())`, e.g.
+    // RTCDataChannel-binaryType.window.js), so this wrapper returns undefined.
+    override close(): Promise<void> {
+      this.closeAndWait().catch((error) =>
+        console.error("[wpt] RTCPeerConnection.close failed", error),
+      );
+      return undefined as unknown as Promise<void>;
     }
   }
 

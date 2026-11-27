@@ -693,6 +693,16 @@ export async function createConnectedPair(
   options: Partial<IceOptions> = {},
   optionsB: Partial<IceOptions> = options,
 ) {
+  const { a, b, connecting } = await startConnectingPair(options, optionsB);
+  await connecting;
+  return { a, b };
+}
+
+export async function startConnectingPair(
+  options: Partial<IceOptions> = {},
+  optionsB: Partial<IceOptions> = options,
+  { endOfCandidates = true }: { endOfCandidates?: boolean } = {},
+) {
   const loopbackOptions: Partial<IceOptions> = {
     useIpv6: false,
     interfaceAddresses: { udp4: "127.0.0.1" },
@@ -701,9 +711,24 @@ export async function createConnectedPair(
   };
   const a = createTestConnection(true, { ...loopbackOptions, ...options });
   const b = createTestConnection(false, { ...loopbackOptions, ...optionsB });
-  await inviteAccept(a, b);
-  await Promise.all([a.connect(), b.connect()]);
-  return { a, b };
+  if (endOfCandidates) {
+    await inviteAccept(a, b);
+  } else {
+    await Promise.all([a.gatherCandidates(), b.gatherCandidates()]);
+    for (const [from, to] of [
+      [a, b],
+      [b, a],
+    ]) {
+      to.remoteUsername = from.localUsername;
+      to.remotePassword = from.localPassword;
+      for (const candidate of from.localCandidates) {
+        await to.addRemoteCandidate(candidate);
+      }
+    }
+  }
+  const connecting = Promise.all([a.connect(), b.connect()]);
+  connecting.catch(() => undefined);
+  return { a, b, connecting };
 }
 
 /** Arrange: collect internal datagram contexts delivered by a Connection. */

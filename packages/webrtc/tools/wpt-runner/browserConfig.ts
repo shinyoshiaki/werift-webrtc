@@ -10,7 +10,10 @@ import type { RTCPeerConnectionConfig } from "../../src";
  *   (`CompatibilityOptionValues`) is `"standard"`: `certificateScope` (a
  *   certificate per connection), `mLineReuse` (accepted `inactive` m-lines
  *   keep their port), `transceiverPairing` (JSEP 5.10, #816),
- *   `keyFrameRequestRouting` (RFC 4585 / RFC 5104 targets).
+ *   `keyFrameRequestRouting` (RFC 4585 / RFC 5104 targets),
+ *   `dtlsHandshakeValidation` (RFC-strict DTLS 1.2) and
+ *   `dataChannelBinaryType` (the W3C `binaryType` default `"arraybuffer"`;
+ *   werift's own default is `"nodebuffer"`).
  * - `iceServers: []` and `iceUseDefaultStunServer: false`: a browser has no
  *   STUN server unless one is configured (W3C: `iceServers` defaults to `[]`).
  *

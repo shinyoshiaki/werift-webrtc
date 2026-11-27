@@ -787,4 +787,20 @@ export const MODEL_SCENES: (Scene & { name: string; ref: string })[] = [
       ["b", "replacementOffer", { iceRestart: false }],
     ],
   },
+  {
+    name: "a re-offer and a glare while the first checks run keep the ICE roles, and the transport settles",
+    ref: "origin: model seed 275 (the transport did not settle; ICE roles redetermined by later offers while checking, RFC 8445 §6.1.1)",
+    start: "unnegotiated",
+    bundle: "max-compat",
+    ops: [
+      ["a", "wireOffer", { iceRestart: false, mutation: "codecRenumbered" }],
+      ["b", "answer"],
+      ["b", "wireOffer", { iceRestart: false, mutation: "audioInactive" }],
+      ["a", "rollback"],
+      ["a", "addTrack", { kind: "video" }],
+      ["a", "trickle", { twice: true, end: false, existing: false }],
+      ["b", "glare"],
+      ["b", "answer"],
+    ],
+  },
 ];

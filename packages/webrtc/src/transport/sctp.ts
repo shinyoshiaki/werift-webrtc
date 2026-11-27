@@ -23,10 +23,12 @@ import {
   WEBRTC_STRING_EMPTY,
 } from "../const";
 import {
+  convertDataChannelMessage,
   type DCState,
   getDataChannelMessageSize,
   type MessageEvent,
   RTCDataChannel,
+  type RTCDataChannelBinaryType,
   RTCDataChannelParameters,
 } from "../dataChannel";
 import { createWebRtcDomException } from "../errors";
@@ -134,6 +136,12 @@ export class RTCSctpTransport {
    * @see tests/issue/815.reset.test.ts "a legacy peer that does not reset its side (ordered=%s, no data from it): close fires after reverseResetTimeout and the ID stays in use"
    */
   reverseResetTimeout = 5_000;
+  /**
+   * @internal
+   * The initial `binaryType` of a channel the remote peer announces
+   * (`PeerConfig.dataChannelBinaryType`, read when the channel is created).
+   */
+  defaultBinaryType: () => RTCDataChannelBinaryType = () => "nodebuffer";
   /**
    * Streams closed by {@link RTCSctpTransport.reverseResetTimeout}: in use
    * until the peer's reset arrives or the association ends.
@@ -493,7 +501,7 @@ export class RTCSctpTransport {
    * @see tests/issue/815.test.ts "issue 815: data channel stream IDs follow the DTLS role"
    */
   /**
-   * werift up to 0.27 picks its stream ID parity by the ICE role (controlling
+   * werift up to 0.28.0 picks its stream ID parity by the ICE role (controlling
    * odd), not by the DTLS role. With the ICE and DTLS roles reversed, such a
    * peer opens its channels on this side's parity, so an OPEN on an unused
    * stream of this parity is accepted instead of reset. An RFC 8832 peer never
@@ -685,7 +693,12 @@ export class RTCSctpTransport {
                 protocol,
                 id: streamId,
               });
-              const channel = new RTCDataChannel(this, parameters, false);
+              const channel = new RTCDataChannel(
+                this,
+                parameters,
+                false,
+                this.defaultBinaryType(),
+              );
               channel.isCreatedByRemote = true;
               this.dataChannels[streamId] = channel;
 
@@ -775,7 +788,12 @@ export class RTCSctpTransport {
           log("message listener failed", error);
         channel.onMessage.executeIsolated(onError, msg);
         // Test: tests/datachannel/bufferedAmount.test.ts "onmessage receives the same message event object as the message listeners"
-        const event: MessageEvent = { type: "message", data: msg };
+        // binaryType: converted once, the same object for both surfaces.
+        // Test: tests/datachannel/binaryType.test.ts "$binaryType: $name arrives byte for byte"
+        const event: MessageEvent = {
+          type: "message",
+          data: convertDataChannelMessage(msg, channel.binaryType),
+        };
         channel.emitIsolated(onError, "message", event);
         notifySafely(log, "onmessage", () => channel.onmessage?.(event));
       }

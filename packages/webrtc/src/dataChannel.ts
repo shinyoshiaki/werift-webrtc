@@ -4,6 +4,7 @@ import { EventTarget, notifySafely } from "./helper";
 import { debug, Event } from "./imports/common";
 import type { RTCSctpTransport } from "./transport/sctp";
 import type { CallbackWithValue, EventHandler } from "./types/util";
+import { toEnum } from "./webidl";
 
 /**
  * Label / Protocol Length are 16-bit byte counts of the UTF-8 fields
@@ -35,6 +36,57 @@ export interface DataChannelStats {
 
 export function getDataChannelMessageSize(data: Buffer | string) {
   return Buffer.isBuffer(data) ? data.length : Buffer.byteLength(data);
+}
+
+/**
+ * The form a received binary message takes in `onmessage` and the
+ * `"message"` event (W3C `RTCDataChannel.binaryType`).
+ * - `"nodebuffer"`: a Node.js `Buffer` (werift extension, the core default;
+ *   named after the `ws` library's value).
+ * - `"arraybuffer"`: an `ArrayBuffer` (the W3C default, used by
+ *   `werift/polyfill`).
+ * - `"blob"`: a `Blob`.
+ *
+ * Text messages are always strings. {@link RTCDataChannel.onMessage} always
+ * receives a `Buffer` or a string.
+ * @enum
+ */
+export const RTCDataChannelBinaryType = {
+  nodebuffer: "nodebuffer",
+  arraybuffer: "arraybuffer",
+  blob: "blob",
+} as const;
+export type RTCDataChannelBinaryType =
+  (typeof RTCDataChannelBinaryType)[keyof typeof RTCDataChannelBinaryType];
+
+export const RTCDataChannelBinaryTypes: readonly RTCDataChannelBinaryType[] =
+  Object.values(RTCDataChannelBinaryType);
+
+/** What `onmessage` / the `"message"` event carries, by `binaryType`. */
+export type RTCDataChannelMessageData = string | Buffer | ArrayBuffer | Blob;
+
+/**
+ * @internal
+ * Convert a received message to the form of `binaryType`. Strings stay
+ * strings; `"arraybuffer"` copies, so the Buffer pool is never exposed.
+ */
+export function convertDataChannelMessage(
+  data: string | Buffer,
+  binaryType: RTCDataChannelBinaryType,
+): RTCDataChannelMessageData {
+  if (typeof data === "string") return data;
+  switch (binaryType) {
+    case "arraybuffer":
+      return data.buffer.slice(
+        data.byteOffset,
+        data.byteOffset + data.byteLength,
+      ) as ArrayBuffer;
+    case "blob":
+      // Received data is never backed by a SharedArrayBuffer; Blob copies it.
+      return new Blob([data as Uint8Array<ArrayBuffer>]);
+    default:
+      return data;
+  }
 }
 
 export class RTCDataChannel extends EventTarget implements DataChannelStats {
@@ -75,6 +127,7 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
 
   private _bufferedAmount = 0;
   private _bufferedAmountLowThreshold = 0;
+  private _binaryType: RTCDataChannelBinaryType;
 
   // Statistics
   messagesSent = 0;
@@ -86,9 +139,11 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
     sctp: RTCSctpTransport,
     parameters: RTCDataChannelParameters,
     sendOpen = true,
+    binaryType: RTCDataChannelBinaryType = "nodebuffer",
   ) {
     super();
     this.sctp = sctp;
+    this._binaryType = binaryType;
     this.parameters = parameters;
     this.sendOpen = sendOpen;
 
@@ -133,6 +188,28 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
 
   get negotiated() {
     return this.parameters.negotiated;
+  }
+
+  /**
+   * W3C `binaryType`. The initial value is the PeerConnection's
+   * `dataChannelBinaryType` (`"nodebuffer"` by default, `"arraybuffer"`
+   * through `werift/polyfill`). Assignment follows the WebIDL enum
+   * attribute setter: the value is converted with `ToString` first (an
+   * object's `toString()` is used, a Symbol is a `TypeError`), and a result
+   * that is not a {@link RTCDataChannelBinaryType} is ignored without an
+   * exception (WPT `RTCDataChannel-binaryType.window.js`).
+   */
+  get binaryType(): RTCDataChannelBinaryType {
+    return this._binaryType;
+  }
+
+  set binaryType(value: RTCDataChannelBinaryType) {
+    const binaryType = toEnum(
+      value,
+      RTCDataChannelBinaryTypes,
+      "RTCDataChannel.binaryType",
+    );
+    if (binaryType !== undefined) this._binaryType = binaryType;
   }
 
   /**
@@ -260,15 +337,36 @@ export class RTCDataChannel extends EventTarget implements DataChannelStats {
     }
   }
 
-  /** @see tests/datachannel/bufferedAmount.test.ts "every event handler receives the same Event object as the listeners" */
+  /**
+   * @see tests/datachannel/bufferedAmount.test.ts "every event handler receives the same Event object as the listeners"
+   * @see tests/datachannel/bufferedAmountLow.test.ts "onbufferedamountlow receives the same bufferedamountlow Event as the listeners"
+   */
   private fireEvent(
     type: "open" | "close" | "closing" | "bufferedamountlow",
     onError: (error: unknown) => void,
   ) {
     const event = new globalThis.Event(type);
     const name = `on${type}` as const;
+    // Not dispatched through a DOM EventTarget, so `bufferedamountlow` points
+    // target / currentTarget at this channel itself.
+    const setEventProperty = (
+      key: "target" | "currentTarget",
+      value: this | null,
+    ) =>
+      Object.defineProperty(event, key, {
+        configurable: true,
+        enumerable: true,
+        value,
+      });
+    const hasTarget = type === "bufferedamountlow";
+    if (hasTarget) {
+      setEventProperty("target", this);
+      setEventProperty("currentTarget", this);
+    }
     notifySafely(log, name, () => this[name]?.(event));
     this.emitIsolated(onError, type, event);
+    // DOM: currentTarget is null once dispatch has finished.
+    if (hasTarget) setEventProperty("currentTarget", null);
   }
 
   /**
@@ -322,7 +420,12 @@ export class RTCDataChannelParameters {
 export interface MessageEvent {
   /** `"message"` on received messages. */
   readonly type?: string;
-  data: string | Buffer;
+  /**
+   * A string for a text message; a binary message by the channel's
+   * `binaryType` (`Buffer` by default). Use {@link RTCDataChannel.onMessage}
+   * for code that always wants a `Buffer` or a string.
+   */
+  data: RTCDataChannelMessageData;
 }
 
 export interface RTCErrorEvent {
