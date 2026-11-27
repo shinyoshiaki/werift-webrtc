@@ -2,6 +2,7 @@ import {
   CertificateScopeModes,
   CompatibilityOptionValues,
   CompatibilityPresets,
+  DataChannelBinaryTypeModes,
   DeprecatedCompatibilityValues,
   DtlsHandshakeValidationModes,
   KeyFrameRequestRoutingModes,
@@ -12,9 +13,11 @@ import {
 } from "../../src";
 
 /**
- * Every compatibility option takes `"standard"` (specifications / browsers)
- * and one value naming werift's own behavior in that option; the names up to
- * v0.27.0 that are not values any more are read as the current ones.
+ * Every compatibility option takes `"standard"` (specifications / browsers),
+ * one value naming werift's own behavior in that option (`own`, after
+ * `"standard"`) and, for `dataChannelBinaryType`, the other values it names
+ * (`others`); the names up to v0.27.0 that are not values any more are read
+ * as the current ones.
  */
 const options = [
   {
@@ -52,7 +55,21 @@ const options = [
     changeable: false,
     aliases: {},
   },
+  {
+    option: "dataChannelBinaryType",
+    own: "nodebuffer",
+    others: ["arraybuffer", "blob"],
+    defaultValue: "nodebuffer",
+    changeable: true,
+    aliases: {},
+  },
 ] as const;
+
+const valuesOf = (entry: (typeof options)[number]): readonly string[] => [
+  "standard",
+  entry.own,
+  ...("others" in entry ? entry.others : []),
+];
 
 type CompatibilityOption = (typeof options)[number]["option"];
 
@@ -71,10 +88,10 @@ describe("compatibility options: standard and a named own behavior", () => {
   });
 
   test("the exported value lists are standard and the option's own value", () => {
-    // Assert: 各オプションの値は ["standard", 独自の挙動の名前]
+    // Assert: 各オプションの値は ["standard", 独自の挙動の名前, その他の名前付きの値]
     expect(CompatibilityOptionValues).toEqual(
       Object.fromEntries(
-        options.map(({ option, own }) => [option, ["standard", own]]),
+        options.map((entry) => [entry.option, valuesOf(entry)]),
       ),
     );
     expect(CertificateScopeModes).toEqual(["standard", "process"]);
@@ -82,6 +99,12 @@ describe("compatibility options: standard and a named own behavior", () => {
     expect(TransceiverPairingModes).toEqual(["standard", "byKind"]);
     expect(KeyFrameRequestRoutingModes).toEqual(["standard", "fallback"]);
     expect(DtlsHandshakeValidationModes).toEqual(["standard", "lenient"]);
+    expect(DataChannelBinaryTypeModes).toEqual([
+      "standard",
+      "nodebuffer",
+      "arraybuffer",
+      "blob",
+    ]);
     expect(Object.keys(DeprecatedCompatibilityValues).sort()).toEqual(
       options
         .filter(({ aliases }) => Object.keys(aliases).length > 0)
@@ -92,7 +115,8 @@ describe("compatibility options: standard and a named own behavior", () => {
 
   test.each(options)(
     "$option: default $defaultValue, standard / $own, other values are a TypeError",
-    ({ option, own, defaultValue }) => {
+    (entry) => {
+      const { option, own, defaultValue } = entry;
       // Act: 既定・両方の値で作成する
       const defaultPc = createPc();
       const standardPc = createPc({ [option]: "standard" });
@@ -112,7 +136,9 @@ describe("compatibility options: standard and a named own behavior", () => {
         "toString",
       ]) {
         expect(() => createPc({ [option]: value as never })).toThrow(
-          new TypeError(`${option} must be one of standard, ${own}`),
+          new TypeError(
+            `${option} must be one of ${valuesOf(entry).join(", ")}`,
+          ),
         );
       }
     },
@@ -218,7 +244,7 @@ describe("compatibility options: standard and a named own behavior", () => {
     // Act: compatibility だけを指定して作成する
     const pc = createPc({ compatibility: "standard" });
 
-    // Assert: 5 つの互換性オプションがすべて standard になり、compatibility も読み返せる
+    // Assert: 6 つの互換性オプションがすべて standard になり、compatibility も読み返せる
     for (const { option } of options) {
       expect(read(pc, option)).toBe("standard");
     }

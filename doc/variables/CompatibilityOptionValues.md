@@ -11,7 +11,7 @@
 The constructor options of `PeerConfig` that choose between the behavior the
 specifications (W3C WebRTC, JSEP, the RTP RFCs) define and browsers
 implement, and werift's own behavior kept for existing applications. Each
-one takes two values:
+one takes `"standard"` and the values naming other behaviors:
 - `"standard"`: the specification / browser behavior, in every option.
 - a value naming werift's own behavior in that option:
   - `certificateScope: "process"`: one default DTLS certificate shared by
@@ -28,6 +28,10 @@ one takes two values:
     malformed `supported_versions`, accepts duplicate extensions and reads
     `use_srtp` without length checks (`"standard"`: RFC-strict, these fail
     the handshake).
+  - `dataChannelBinaryType: "nodebuffer"`: a new data channel's
+    `binaryType` delivers binary messages as Node.js `Buffer`s
+    (`"standard"`: the W3C default, `"arraybuffer"`). It also takes
+    `"arraybuffer"` and `"blob"`, the `binaryType` values they name.
 
 Each option documents its default and whether `setConfiguration()` may
 change it. Any other value is a `TypeError`; the names used up to v0.27.0
@@ -39,6 +43,10 @@ are still accepted (see `DeprecatedCompatibilityValues` in
 ### certificateScope
 
 > `readonly` **certificateScope**: readonly \[`"standard"`, `"process"`\]
+
+### dataChannelBinaryType
+
+> `readonly` **dataChannelBinaryType**: readonly \[`"standard"`, `"nodebuffer"`, `"arraybuffer"`, `"blob"`\]
 
 ### dtlsHandshakeValidation
 

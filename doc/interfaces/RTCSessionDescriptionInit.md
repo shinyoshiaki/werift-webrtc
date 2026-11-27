@@ -9,6 +9,7 @@
 ## Extended by
 
 - [`RTCLocalSessionDescriptionInit`](RTCLocalSessionDescriptionInit.md)
+- [`RTCSessionDescriptionConstructorInit`](RTCSessionDescriptionConstructorInit.md)
 
 ## Properties
 

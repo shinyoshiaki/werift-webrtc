@@ -6,6 +6,7 @@ import {
   mergePeerConfiguration,
   type PeerConfig,
   type RTCPeerConnectionConfig,
+  resolveDataChannelBinaryType,
 } from "./api/peerConfig";
 import {
   type PeerConnectionEventHandlers,
@@ -83,6 +84,8 @@ export {
   CertificateScopeModes,
   type CompatibilityPreset,
   CompatibilityPresets,
+  DataChannelBinaryTypeModes,
+  type DataChannelBinaryTypeOption,
   type DebugConfig,
   type DeprecatedCertificateScope,
   DeprecatedCompatibilityValues,
@@ -390,7 +393,10 @@ export class RTCPeerConnection extends EventTarget {
     this.transceiverManager.onNegotiationNeeded.subscribe(() =>
       this.needNegotiation(),
     );
-    this.sctpManager = new SctpTransportManager();
+    this.sctpManager = new SctpTransportManager({
+      dataChannelBinaryType: () =>
+        resolveDataChannelBinaryType(this.config.dataChannelBinaryType),
+    });
     this.negotiation = new NegotiationTransaction(
       this.sdpManager,
       this.transceiverManager,
