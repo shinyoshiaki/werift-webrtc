@@ -1515,8 +1515,8 @@ export class RTCRtpReceiver {
    * The payload of a packet of the negotiated `codec`, checked before the
    * packet changes any state. Only RED (RFC 2198) is parsed here: a RED
    * payload that does not parse (empty, a truncated header, a block longer
-   * than the packet) or whose first block names a payload type that was not
-   * negotiated is `invalid`. Padding-only packets (no payload) and RTX
+   * than the packet) or whose primary (last) block names a payload type that
+   * was not negotiated is `invalid`. Padding-only packets (no payload) and RTX
    * packets are not parsed. Only the parser's verdict on the received bytes
    * is caught: errors elsewhere still propagate.
    */
@@ -1533,10 +1533,12 @@ export class RTCRtpReceiver {
     } catch (error) {
       return { invalid: (error as Error).message };
     }
-    const primary = red.header.fields[0];
-    if (!primary) return { invalid: "RED without blocks" };
+    // RFC 2198: redundant blocks (F=1) come first and the primary block's
+    // header (F=0) ends the header list. An unnegotiated redundant block does
+    // not invalidate the packet; delivery skips it.
+    const primary = red.header.fields[red.header.fields.length - 1];
     if (!(primary.blockPT in this.codecs)) {
-      return { invalid: `RED block payload type ${primary.blockPT}` };
+      return { invalid: `RED primary block payload type ${primary.blockPT}` };
     }
     return { red };
   }
@@ -1664,7 +1666,11 @@ export class RTCRtpReceiver {
       const info: RtpReceiveInfo = { type: receiveType };
       if (red) {
         if (track.kind === "audio") {
-          const payloads = this.audioRedHandler.push(red, packet);
+          const payloads = this.audioRedHandler.push(
+            red,
+            packet,
+            (payloadType) => payloadType in this.codecs,
+          );
           for (const recovered of payloads) {
             this.emitReceiveRtp(track, recovered, extensions, {
               type: RtpReceivePacketType.media,

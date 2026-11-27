@@ -356,8 +356,8 @@ export const simulcastRedPayloadType = 98;
 
 /**
  * Arrange: RED payloads (RFC 2198) a receiver must drop. The first three do
- * not parse; the last parses but its block names payload type 127, which no
- * fixture negotiates.
+ * not parse; the others parse but their primary (last, F=0) block names a
+ * payload type no fixture negotiates.
  */
 export const invalidRedPayloads = {
   /** No header byte at all. */
@@ -368,6 +368,10 @@ export const invalidRedPayloads = {
   blockTooLong: Buffer.from([0xe0, 0x00, 0x00, 0x64, 0x60, 1, 2]),
   /** A single primary block of the unnegotiated payload type 127. */
   unknownBlockPayloadType: Buffer.from([0x7f, 1, 2]),
+  /** A redundant block of PT 96, then the primary block of the unnegotiated 125. */
+  unknownPrimaryAfterRedundant: Buffer.from([
+    0xe0, 0x00, 0x00, 0x01, 0x7d, 0x42, 0x43,
+  ]),
 } as const;
 
 /** Arrange: the names of {@link invalidRedPayloads}, for `test.each`. */
