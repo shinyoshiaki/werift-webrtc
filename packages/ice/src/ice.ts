@@ -666,10 +666,9 @@ export class Connection implements IceConnection {
     if (this.iceLite) {
       value = false;
     }
-    // While a pair is selected, keep the negotiated role. ICE restart clears
-    // `nominated`, so offer/answer role and RFC 8445 role-conflict repair can
-    // reassign controlling/controlled for the new generation.
-    if (this.nominated) {
+    // RFC 8445 §6.1.1. tests/ice/ice.test.ts "an offer/answer without an ICE restart keeps the roles of the checks in progress (RFC 8445 §6.1.1)"
+    // tests/ice/ice.test.ts "once the checks began only a role conflict changes the role; restartRemote() lets offer/answer assign it again"
+    if (this.nominated || this.checksBegun) {
       return;
     }
     this.applyIceControlling(value);
