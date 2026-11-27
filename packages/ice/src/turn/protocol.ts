@@ -188,6 +188,8 @@ export class StunOverTurnProtocol implements Protocol {
     // allocation/refresh policy on TurnProtocol.
     // Peer addresses are already IPs from candidates; resolve for safety.
     const resolvedAddr = await resolveRequestAddress(addr);
+    // The allocation may have gone before or during the lookup.
+    this.turn.assertUsable();
     const transaction = new Transaction(request, resolvedAddr, this, options);
     this.turn.transactions[request.transactionIdHex] = transaction;
 
@@ -363,6 +365,19 @@ export class TurnProtocol implements Protocol {
       transaction.fail(error);
     }
     this.allocationLost(error);
+  }
+
+  /**
+   * Throws why no new transaction can start: the connection to the server is
+   * lost, or `close()` ran. Call it right before registering a transaction,
+   * with no `await` in between: `transportLost()` and `close()` only end the
+   * transactions registered by then.
+   *
+   * @internal
+   */
+  assertUsable() {
+    if (this.lostTransportError) throw this.lostTransportError;
+    if (this.closed) throw new TransactionCancelled();
   }
 
   /** See `onAllocationLost`. */
@@ -721,8 +736,8 @@ export class TurnProtocol implements Protocol {
     // callers pass explicit options. Peer consent goes through StunOverTurnProtocol.
     // Prefer the TURN session integrity key for response verification.
     const resolvedAddr = await this.resolveRequestTarget(addr);
-    // close() ran during the lookup: no transaction starts on a closed client.
-    if (this.closed) throw new TransactionCancelled();
+    // close() or a connection loss during the lookup: no transaction starts.
+    this.assertUsable();
     const options = buildTransactionOptions(
       signing.integrityKey,
       retransmissionsOrOptions,

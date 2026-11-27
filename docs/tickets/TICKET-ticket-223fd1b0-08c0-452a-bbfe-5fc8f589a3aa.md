@@ -131,6 +131,7 @@
 ### 是正内容
 - R2: `StreamTransportOptions.signal`（`werift-common`）を追加。`createTurnClient` は `signal` を TCP/TLS の connect と redirect の reconnect に渡し、abort による失敗は `TransactionCancelled` に揃えた（`gatherRelayCandidate` の「cancel は報告しない」判定と整合）。
 - R1: `TurnProtocol` が `Transport.onClosed` を受けたら refresh を止め、未完了 transaction を `connection to the TURN server closed` で失敗させ、以降の request も即座に失敗させる（`onAllocationLost` は既存どおり 1 回）。`StreamTransport.send()` は closed 後に即 reject する。`switchServer` の意図的な close は `onClosed` を出さない（既存）ので誤発火しない。
+- R1（レビュー指摘への追加修正）: peer 向けの `StunOverTurnProtocol.request()` は切断状態を確認せず transaction を登録しており、切断後の ICE check / consent が自身の timeout まで残った。`TurnProtocol.assertUsable()`（`@internal`）を、`TurnProtocol.request()` と合わせて transaction 登録の直前（アドレス解決の後）で呼ぶ。切断後は喪失のエラー、`close()` 後は `TransactionCancelled` で即 reject する。回帰テスト 3 件（切断後・解決中の切断・`close()` 後）は修正前にいずれも 5 秒のテスト timeout で失敗した。`consent-wire.test.ts` の TURN stub には `assertUsable` を追加した。
 - R3: `TcpActiveProtocol.getSocket` が connect 前の `close` イベントで reject する（`close()` 後は `TransactionCancelled`）。connect タイムアウトの追加は見送り（transaction 側のタイムアウトで利用者からはハングしないため。新しい公開オプションを増やさない）。
 - R4: `Connection.close()` は protocol ごとの close 失敗をログに残して続行し、reject しない。
 - R5: 見送り（今回の経路では `asPromise(timeLimit)` を使っておらず、文字列 reject を Error に変えると既存の呼び出し側に影響しうるため）。

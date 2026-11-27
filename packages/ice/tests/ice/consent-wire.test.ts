@@ -78,6 +78,7 @@ const consentProtocolSetups = [
         transactions: {} as Record<string, any>,
         onData,
         onAllocationLost: new Event<[Error]>(),
+        assertUsable: () => {},
         sendData: async () => undefined,
         close: async () => undefined,
       };
@@ -223,6 +224,7 @@ describe("consent wire-level protocol paths", () => {
       transactions: {} as Record<string, any>,
       onData,
       onAllocationLost: new Event<[Error]>(),
+      assertUsable: () => {},
       sendData: vi.fn(async () => undefined),
       close: async () => undefined,
     };
@@ -264,6 +266,7 @@ describe("consent wire-level protocol paths", () => {
       transactions: {} as Record<string, any>,
       onData,
       onAllocationLost: new Event<[Error]>(),
+      assertUsable: () => {},
       sendData: async () => undefined,
       close: async () => undefined,
     };

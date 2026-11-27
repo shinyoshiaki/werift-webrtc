@@ -5,14 +5,20 @@ import { vi } from "vitest";
 import type { Address } from "../../../common/src";
 import { TransactionCancelled } from "../../src/exceptions";
 import { Connection } from "../../src/ice";
-import { methods } from "../../src/stun/const";
+import { classes, methods } from "../../src/stun/const";
+import { Message } from "../../src/stun/message";
 import { TcpActiveProtocol } from "../../src/stun/tcpProtocol";
-import { createTurnClient, type TurnProtocol } from "../../src/turn/protocol";
+import {
+  createTurnClient,
+  StunOverTurnProtocol,
+  type TurnProtocol,
+} from "../../src/turn/protocol";
 import {
   activeResourceCount,
   addClosingProtocol,
   createFaultyTurnTcpServer,
   createHangingTlsServer,
+  holdLookup,
   recordTurnRequests,
   TURN_TEST_PASSWORD,
   TURN_TEST_USERNAME,
@@ -242,6 +248,119 @@ describe("a TURN TCP allocation whose connection goes away (R1)", () => {
     },
     10_000,
   );
+});
+
+describe("peer-facing STUN over a TURN connection that went away (R1)", () => {
+  // 応答待ちで終わると失敗が分かるよう、判定の上限より十分長い timeout にする。
+  const slowTimeout = { responseTimeout: 5_000, retransmissions: 0 };
+  const binding = () => new Message(methods.BINDING, classes.REQUEST);
+
+  /** Shared Arrange: a TCP allocation that stays up until `disconnect()`. */
+  async function createPeerRequestSetup() {
+    const server = await createFaultyTurnTcpServer({ delayedResponse: 0 });
+    const turn = await createTurnClient(
+      { address: server.address, ...credentials },
+      { transport: "tcp" },
+    );
+    return {
+      turn,
+      relay: new StunOverTurnProtocol(turn),
+      disconnect: async () => {
+        const lost = turn.onAllocationLost.asPromise();
+        for (const socket of server.sockets) socket.destroy();
+        const [error] = await lost;
+        return error;
+      },
+      close: async () => {
+        await turn.close();
+        await server.close();
+      },
+    };
+  }
+
+  test("a request started after the loss rejects with the loss error", async () => {
+    // Arrange: 切断が通知された後の割り当て。
+    const setup = await createPeerRequestSetup();
+    try {
+      const lossError = await setup.disconnect();
+
+      // Act: peer 向けの Binding を開始する。
+      const startedAt = Date.now();
+      const result = await outcome(
+        setup.relay.request(
+          binding(),
+          ["127.0.0.1", 9],
+          undefined,
+          slowTimeout,
+        ),
+      );
+      const elapsed = Date.now() - startedAt;
+
+      // Assert: timeout を待たずに喪失のエラーで失敗し、transaction は残らない。
+      expect(!result.ok && result.error).toBe(lossError);
+      expect(elapsed).toBeLessThan(500);
+      expect(Object.keys(setup.turn.transactions)).toEqual([]);
+    } finally {
+      await setup.close();
+    }
+  });
+
+  test("a loss during the peer address lookup rejects with the loss error", async () => {
+    // Arrange: peer のアドレス解決が終わらない状態で Binding を開始する。
+    const setup = await createPeerRequestSetup();
+    const lookup = holdLookup("127.0.0.1");
+    try {
+      const pending = outcome(
+        setup.relay.request(
+          binding(),
+          ["peer.test", 9],
+          undefined,
+          slowTimeout,
+        ),
+      );
+
+      // Act: 解決中に切断させてから、解決を完了させる。
+      const lossError = await setup.disconnect();
+      const startedAt = Date.now();
+      lookup.release();
+      const result = await pending;
+      const elapsed = Date.now() - startedAt;
+
+      // Assert: timeout を待たずに喪失のエラーで失敗し、transaction は残らない。
+      expect(!result.ok && result.error).toBe(lossError);
+      expect(elapsed).toBeLessThan(500);
+      expect(Object.keys(setup.turn.transactions)).toEqual([]);
+    } finally {
+      lookup.restore();
+      await setup.close();
+    }
+  });
+
+  test("a request started after close() is cancelled at once", async () => {
+    // Arrange: close() 済みの割り当て。
+    const setup = await createPeerRequestSetup();
+    try {
+      await setup.turn.close();
+
+      // Act: peer 向けの Binding を開始する。
+      const startedAt = Date.now();
+      const result = await outcome(
+        setup.relay.request(
+          binding(),
+          ["127.0.0.1", 9],
+          undefined,
+          slowTimeout,
+        ),
+      );
+      const elapsed = Date.now() - startedAt;
+
+      // Assert: timeout を待たずに TransactionCancelled で終わる。
+      expect(!result.ok && result.error).toBeInstanceOf(TransactionCancelled);
+      expect(elapsed).toBeLessThan(500);
+    } finally {
+      await setup.close();
+    }
+  });
 });
 
 describe("ICE gathering with a failing TURN server", () => {
