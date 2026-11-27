@@ -1651,7 +1651,7 @@ async function continuationNegotiation(
 }
 
 /** RTP from `outgoing` reaches `incoming`, retried until a pair is selected. */
-async function expectRtpEventually(
+export async function expectRtpEventually(
   outgoing: MediaStreamTrack,
   incoming: MediaStreamTrack,
   text: string,

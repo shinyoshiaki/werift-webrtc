@@ -10,6 +10,7 @@ import {
   addTrackTransceiver,
   createPairingPeers,
   createReservedSendSlot,
+  expectRtpEventually,
   expectRtpOutsideReservedSlot,
 } from "../harness/negotiationTransactionUtils";
 
@@ -199,10 +200,11 @@ describeCases("addTrack() reuse of a transceiver used to send", () => {
       // Act: b から交渉する。
       await c.negotiate(b);
 
-      // Assert: 同じ m-line で b から a へ RTP が届く。
+      // Assert: 同じ m-line で b から a へ RTP が届く。a が接続済みでも b の DTLS は
+      // 接続中のことがあり、その間の RTP は捨てられるので、届くまで送り直す。
       expect(b.getTransceivers()).toEqual([remote]);
-      await c.waitFor(() => a.connectionState === "connected");
-      await c.rtp(track, aAudio.receiver.track);
+      expect(remote.mid).toBe(aAudio.mid);
+      await expectRtpEventually(track, aAudio.receiver.track, "reused");
     },
   );
 
