@@ -676,6 +676,7 @@ export class SecureTransportManager {
     this.updateIceGatheringState();
   }
 
+  /** tests/negotiation/cases/negotiationTransactionCoverageIce.test.ts "[2.8] a re-offer without an ICE restart keeps the ICE roles of checks still in progress (RFC 8445 §6.1.1)" */
   setLocalRole({
     type,
     role,
