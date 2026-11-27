@@ -501,7 +501,7 @@ export class RTCSctpTransport {
    * @see tests/issue/815.test.ts "issue 815: data channel stream IDs follow the DTLS role"
    */
   /**
-   * werift up to 0.27 picks its stream ID parity by the ICE role (controlling
+   * werift up to 0.28.0 picks its stream ID parity by the ICE role (controlling
    * odd), not by the DTLS role. With the ICE and DTLS roles reversed, such a
    * peer opens its channels on this side's parity, so an OPEN on an unused
    * stream of this parity is accepted instead of reset. An RFC 8832 peer never
