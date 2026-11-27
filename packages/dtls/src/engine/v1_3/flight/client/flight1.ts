@@ -1,5 +1,6 @@
 import {
   CipherSuite,
+  CipherSuiteList,
   type NamedCurveAlgorithms,
 } from "../../../../cipher/const";
 import { generateKeyPair } from "../../../../cipher/namedCurve";
@@ -41,10 +42,7 @@ export async function sendClientHello(
   // cookie + 1.2 selection without rejecting "only 0x1301" ClientHellos.
   const cipherSuites: number[] = [CipherSuite.TLS_AES_128_GCM_SHA256_0x1301];
   if (supportsVersion(this.offeredProtocolVersions, DtlsVersion.V1_2)) {
-    cipherSuites.push(
-      CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256_49195,
-      CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256_49199,
-    );
+    cipherSuites.push(...CipherSuiteList);
   }
   const ch = new ClientHello(
     WireVersion.DTLS_1_2, // legacy_version

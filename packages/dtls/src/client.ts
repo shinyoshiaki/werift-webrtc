@@ -1,6 +1,7 @@
 import type { DtlsHandshakeCarrier } from "./carrier/types";
 import {
   CipherSuite,
+  CipherSuiteList,
   NamedCurveAlgorithm,
   type NamedCurveAlgorithms,
 } from "./cipher/const";
@@ -857,10 +858,7 @@ export class DtlsClient extends DtlsSocket {
     // Suite list: when preferring 1.2, list 1.2 suites first (cosmetic / legacy peers)
     const prefer13 = this.protocolVersions[0] === DtlsVersion.V1_3;
     const suite13 = CipherSuite.TLS_AES_128_GCM_SHA256_0x1301;
-    const suites12 = [
-      CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256_49195,
-      CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256_49199,
-    ];
+    const suites12 = [...CipherSuiteList];
     const cipherSuites = prefer13
       ? [suite13, ...suites12]
       : [...suites12, suite13];
@@ -1007,11 +1005,7 @@ export class DtlsClient extends DtlsSocket {
       };
     }
     // Known 1.2 suites we negotiate (reject unknown / garbage suite codes)
-    const suite12ok =
-      sh.cipherSuite ===
-        CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256_49195 ||
-      sh.cipherSuite ===
-        CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256_49199;
+    const suite12ok = CipherSuiteList.includes(sh.cipherSuite);
     if (!suite12ok) {
       return {
         kind: "drop",
