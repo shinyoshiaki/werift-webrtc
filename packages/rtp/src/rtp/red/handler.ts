@@ -15,7 +15,16 @@ export class RedHandler {
   private readonly size = 150;
   private sequenceNumbers: number[] = [];
 
-  push(red: Red, base: RtpPacket) {
+  /**
+   * The blocks of `red` as RTP packets, without those already returned for
+   * their sequence number. A block whose payload type `accepts` refuses is
+   * skipped and does not use up its sequence number.
+   */
+  push(
+    red: Red,
+    base: RtpPacket,
+    accepts: (payloadType: number) => boolean = () => true,
+  ) {
     const packets: RtpPacket[] = [];
 
     red.blocks.forEach(({ blockPT, timestampOffset, block }, i) => {
@@ -53,6 +62,9 @@ export class RedHandler {
     });
 
     const filtered = packets.filter((p) => {
+      if (!accepts(p.header.payloadType)) {
+        return false;
+      }
       // duplicate
       if (this.sequenceNumbers.includes(p.header.sequenceNumber)) {
         return false;

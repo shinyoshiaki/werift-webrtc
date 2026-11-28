@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### 🐛 Bug Fixes
+
+- **A malformed RED packet no longer takes over a simulcast layer or teaches a route** (`werift`). A packet of a negotiated RED payload type whose RED payload does not parse (empty, a truncated header, a block longer than the packet) or whose primary (last) block names an unnegotiated payload type is dropped where it arrives, before it changes any state: it no longer switches a RID's media SSRC (which retired the current SSRC, so its packets stopped reaching the track), is not learned as the SSRC of an m-line without `a=ssrc` and does not move a learned SSRC's MID mapping. It is not delivered or counted in the receive statistics; transport-wide CC still observes it. Such a packet used to throw out of `RtpRouter.routeRtp` (logged as `RTP error`, the process kept running). `RtpRouter.routeRtp` also settles the routes of a packet (the SSRCs a receiver forgot or rejected, the MID and repaired RID) when the receiver or an `onReceiveRtp` listener throws, and the error still propagates. A RED packet with a negotiated primary block is accepted even if a redundant block names an unnegotiated payload type: only that block is skipped (`RedHandler.push` in `werift-rtp` takes an optional `accepts` predicate), and its sequence number can still be recovered later. The receiver used to check the first block instead of the primary one, so it dropped the whole packet when the first redundant block was unnegotiated, and accepted an unnegotiated primary block behind a negotiated redundant one.
+
 ## v0.29.0
 
 This release collects everything merged since v0.28.0. DTLS 1.3, SPED (DTLS handshake in ICE Binding) and WARP are opt-ins: a default `RTCPeerConnection` stays on DTLS 1.2 without SPED, and the DTLS / ICE changes that reach it are listed under "Behavior changes".

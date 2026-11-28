@@ -1398,9 +1398,9 @@ router drops their learned routes after each packet.
 
 Internal (router): SSRCs of packets this receiver rejected as invalid
 (an unnegotiated payload type, a non-RTX packet naming a repaired RID, a
-RID without a track). Such a packet must not teach a route, but it says
-nothing against a route learned before it: the router undoes only a
-route the rejected packet itself just added.
+RID without a track, a malformed RED payload). Such a packet must not
+teach a route, but it says nothing against a route learned before it:
+the router undoes only a route the rejected packet itself just added.
 
 #### Returns
 

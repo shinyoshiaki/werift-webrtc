@@ -29,6 +29,8 @@ import {
   createVideoReceiver,
   defaultVideoSsrc,
   getReceiverNack,
+  invalidRedPayloadNames,
+  invalidRedPayloads,
   receiveMediaOrPadding,
 } from "./rtpReceiverTestUtils";
 
@@ -667,6 +669,112 @@ describe("packages/webrtc/src/media/rtpReceiver.ts", () => {
     // Assert: Red.deSerialize に入らない
     expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();
+  });
+
+  test.each(invalidRedPayloadNames)(
+    "audio RED: 不正な RED は例外にならずに破棄され、RedHandler の状態を進めず、後続の正規 RED の冗長 block から欠けた番号が復元される (%s)",
+    async (name) => {
+      // Arrange: RED (PT 111) と Opus (PT 96) を受ける audio receiver。
+      const { receiver, track } = createVideoReceiver({
+        kind: "audio",
+        red: true,
+      });
+      const delivered: [number, string][] = [];
+      track.onReceiveRtp.subscribe((rtp) => {
+        delivered.push([rtp.header.sequenceNumber, rtp.payload.toString()]);
+      });
+      const redPacket = (sequenceNumber: number, payload: Buffer) =>
+        createMediaRtpPacket({
+          sequenceNumber,
+          timestamp: sequenceNumber * 960,
+          payloadType: 111,
+          payload,
+        });
+      const primaryOnly = (block: string) =>
+        Buffer.concat([Buffer.from([0x60]), Buffer.from(block)]);
+      // F=1 PT 96, timestamp offset 960, block 長 6 ("opus-2") + primary (PT 96)
+      const withRedundant = Buffer.concat([
+        Buffer.from([0xe0, 0x0f, 0x00, 0x06, 0x60]),
+        Buffer.from("opus-2"),
+        Buffer.from("opus-3"),
+      ]);
+
+      // Act: 正規 RED (seq 1)、不正な RED (seq 2)、seq 2 を冗長に持つ正規 RED (seq 3) を受ける。
+      receiver.handleRtpBySsrc(redPacket(1, primaryOnly("opus-1")), {});
+      expect(() =>
+        receiver.handleRtpBySsrc(redPacket(2, invalidRedPayloads[name]), {}),
+      ).not.toThrow();
+      receiver.handleRtpBySsrc(redPacket(3, withRedundant), {});
+
+      // Assert: 不正な RED は配送されず、seq 2 は seq 3 の冗長 block から復元される。
+      expect(delivered).toEqual([
+        [1, "opus-1"],
+        [2, "opus-2"],
+        [3, "opus-3"],
+      ]);
+      // Assert: 不正な RED は受信統計に数えない。
+      const inbound = Array.from((await receiver.getStats()).values()).find(
+        (stat) => stat.type === "inbound-rtp",
+      ) as unknown as { packetsReceived: number };
+      expect(inbound.packetsReceived).toBe(2);
+      receiver.stop();
+    },
+  );
+
+  test("audio RED: 主 block が交渉済みなら受理し、未交渉の冗長 block だけを配送せず、その番号は後の正規の冗長 block から復元される", () => {
+    // Arrange: RED (PT 111) と Opus (PT 96) を受ける audio receiver。PT 127 は未交渉。
+    const { receiver, track } = createVideoReceiver({
+      kind: "audio",
+      red: true,
+    });
+    const delivered: [number, number, string][] = [];
+    track.onReceiveRtp.subscribe((rtp) => {
+      delivered.push([
+        rtp.header.sequenceNumber,
+        rtp.header.payloadType,
+        rtp.payload.toString(),
+      ]);
+    });
+    const redPacket = (sequenceNumber: number, payload: Buffer) =>
+      createMediaRtpPacket({
+        sequenceNumber,
+        timestamp: sequenceNumber * 960,
+        payloadType: 111,
+        payload,
+      });
+    // F=1 の冗長 block (timestamp offset 960, block 長 6) + primary (PT 96)
+    const withRedundant = (
+      redundantPayloadType: number,
+      redundant: string,
+      primary: string,
+    ) =>
+      Buffer.concat([
+        Buffer.from([0x80 | redundantPayloadType, 0x0f, 0x00, 0x06, 0x60]),
+        Buffer.from(redundant),
+        Buffer.from(primary),
+      ]);
+
+    // Act: seq 2 を未交渉 PT の冗長 block で持つ RED (seq 3) を受ける。
+    receiver.handleRtpBySsrc(
+      redPacket(3, withRedundant(127, "unknwn", "opus-3")),
+      {},
+    );
+
+    // Assert: primary だけが配送される。
+    expect(delivered).toEqual([[3, 96, "opus-3"]]);
+
+    // Act: seq 2 を交渉済み PT の冗長 block で持つ RED (seq 3 の再送) を受ける。
+    receiver.handleRtpBySsrc(
+      redPacket(3, withRedundant(96, "opus-2", "opus-3")),
+      {},
+    );
+
+    // Assert: 読み飛ばした block は seq 2 を消費していないので、seq 2 が復元される。
+    expect(delivered).toEqual([
+      [3, 96, "opus-3"],
+      [2, 96, "opus-2"],
+    ]);
+    receiver.stop();
   });
 
   test("BUNDLE の複数 receiver は同一 DTLS の ReceiverTWCC を共有する", () => {
