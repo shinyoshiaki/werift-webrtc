@@ -8,13 +8,13 @@ ide:
 ---
 # Firefox E2E の失敗修正と CI 追加：レビュー解説
 
-対象は `73e59216d..5c55224f9` の変更と、その後の develop 取り込み（`4d58e2e70`、reReview 時点の headCommit は `a51aec620`）です。取り込みで入った他チケットの変更（ICE の TURN 失敗伝播、RTP の不正 RED 隔離）は、この解説の対象外です。
+対象は `73e59216d..5c55224f9` の変更、その後の develop 取り込み（`4d58e2e70`）、最新のレビュー指摘への修正（`a51aec620`）です。コードの最新コミットは `a51aec620` で、その後のコミットはこの解説の更新だけです。変更は [PR #898](https://github.com/shinyoshiaki/werift-webrtc/pull/898)（develop 向け、open）で出しています。取り込みで入った他チケットの変更（ICE の TURN 失敗伝播、RTP の不正 RED 隔離）は、この解説の対象外です。
 
 ## 概要
 
 Firefox E2E のメディア系の失敗は、テストではなく werift の回帰が原因でした。DTLS 1.2 の HelloVerifyRequest (HVR) の cookie が 104 バイトになり、32 バイトを超える cookie を拒否する Firefox (NSS) がハンドシェイクを打ち切っていました。cookie を 32 バイトに戻し、調査中に見つかった TURN の NONCE の不具合も直したうえで、Firefox E2E を CI の独立ジョブにしています。
 
-残っていた ICE の失敗は、チケット §2.3 で Firefox の非対応と結論されています。`packages/ice` は変えず、E2E 側で対象を絞って検証を外しています。取り込み前（`5c55224f9`）の CI は 5 ジョブすべて成功し、Firefox は 68 passed / 0 failed / 9 skipped でした。
+残っていた ICE の失敗は、チケット §2.3 で Firefox の非対応と結論されています。`packages/ice` は変えず、E2E 側で対象を絞って検証を外しています。`a51aec620` の PR CI は全ジョブ成功です（`build (24.x)` だけ 1 回目に別ファイルのタイムアウトで失敗し、再実行で成功）。Firefox は 68 passed / 0 failed / 9 skipped でした。
 
 ## 修正前 → 修正後
 
@@ -103,13 +103,14 @@ flowchart LR
 
 差分の行数の多くは `e2e/firefox-runs/` の run record です。新しい記録 3 件が増え、古い 10 件が消えています（git の表示は削除 7 件と rename 3 件）。残る記録は 20 件で、runner の既定の保持数と一致します。
 
-### 5. 再レビュー指摘の軽微な修正（`a51aec620`）
+### 5. 最新のレビュー指摘の軽微な修正（`a51aec620`）
 
-1 回目のレビュー指摘への対応です。挙動を変えるのは次の 3 点で、残りはテストの整理です。
+PR 作成後のレビューで挙がった、承認を妨げない軽微な指摘への対応です。挙動を変えるのは次の 3 点で、残りはテストの整理です。
 
 - **DTLS のログ ID**: `DtlsContext.sessionId` は cookie の先頭 5 バイトを使っていました。新しい HVR cookie は先頭が `version || issuedAt` なので、同じ秒の接続が同じ ID になります。末尾 5 バイト（MAC 部分）に変えました。ログ専用の値です。 [packages/dtls/src/context/dtls.ts:126](review-diff:packages/dtls/src/context/dtls.ts:commit:a51aec620:126)
+  - 同じ秒に別の送信元へ発行した cookie で ID が異なることをテストしています（変更前の実装では同じ ID になります）。 [packages/dtls/tests/e2e/self12_hvr_cookie_length.test.ts](review-diff:packages/dtls/tests/e2e/self12_hvr_cookie_length.test.ts:commit:a51aec620)
 - **Firefox CI の時間上限**: setup（apt-get、npm、playwright）も job の上限に含まれるため、job を 45 分、E2E step を 25 分にしました。runner の 20 分打ち切りが先に効くので、record と artifact が残ります。 [.github/workflows/nodejs.yml:66](review-diff:.github/workflows/nodejs.yml:commit:a51aec620:66)
-- **時間の環境変数**: `FIREFOX_E2E_TIMEOUT_MIN` / `FIREFOX_E2E_IDLE_MIN` の空文字、非数値、0 以下は既定値に戻します。CI で未設定の変数が空に展開されても、すぐ打ち切られません。 [e2e/firefox-run-record.js:186](review-diff:e2e/firefox-run-record.js:commit:a51aec620:186)
+- **時間の環境変数**: `FIREFOX_E2E_TIMEOUT_MIN` / `FIREFOX_E2E_IDLE_MIN` の空文字、非数値、0 以下は既定値に戻します。CI で未設定の変数が空に展開されても、すぐ打ち切られません。 [e2e/firefox-run-record.js:186](review-diff:e2e/firefox-run-record.js:commit:a51aec620:186) / テスト: [e2e/tools/tests/firefoxRunRecord.test.js](review-diff:e2e/tools/tests/firefoxRunRecord.test.js:commit:a51aec620)
 - **テストの整理**: DTLS 1.2 ペアの Arrange を [packages/dtls/tests/fixture.ts:168](review-file:packages/dtls/tests/fixture.ts:168) の `arrangeDtls12Pair()` に、TURN client の記述子を [packages/ice-server/tests/turn.test.ts](review-diff:packages/ice-server/tests/turn.test.ts:commit:a51aec620) の共通ヘルパーに移しました。`SelectedCandidatePairAddresses` のコメントはブラウザ非依存の表現にしました。 [e2e/tests/fixture.ts:1226](review-file:e2e/tests/fixture.ts:1226)
 
 ## 判断理由
@@ -128,42 +129,41 @@ flowchart LR
 5. **終了コードはローカルにも影響**: `firefox:record` も、記録が `passed` で `unfinished` と `moduleErrors` が空のときだけ 0 を返します。
 6. **ハーネスのテストは CI の対象外**: `e2e` は workspace ではなく、`ci:silent` も `test:tools` を呼びません。CI モードのロジックを変えるときは、手元での実行が必要です。
 7. **develop 取り込み後の changelog**: 競合は解決済みで、衝突マーカーはありません。[changelog.md](review-file:changelog.md) の Bug Fixes には、このチケットの TURN NONCE と DTLS 1.2 cookie の項目が残っています。取り込みで増えた項目は、他チケットのものです。
-8. **取り込みで変わったファイル**: `5c55224f9..35f658fc5` の差分に、`e2e/`、`packages/dtls`、`packages/ice-server`、`.github` のファイルはありません。変わったのは `packages/ice`（TURN/TCP の失敗処理）、`packages/common`、`packages/rtp`、`packages/webrtc`（RED）と、そのドキュメントです。取り込み後の Firefox E2E は再実行していません。
+8. **取り込みで変わったファイル**: `5c55224f9..35f658fc5` の差分に、`e2e/`、`packages/dtls`、`packages/ice-server`、`.github` のファイルはありません。変わったのは `packages/ice`（TURN/TCP の失敗処理）、`packages/common`、`packages/rtp`、`packages/webrtc`（RED）と、そのドキュメントです。取り込み後の Firefox E2E は、PR CI の `firefox-e2e` ジョブで成功しています（下の検証結果）。ローカルでは再実行していません。
+9. **関連 issue**: Firefox で接続できないという [#438](https://github.com/shinyoshiaki/werift-webrtc/issues/438) はクローズしていません。報告は 2025-01 で、今回の回帰（v0.29.0、2026-11）より前です。メンテナーは example の TextDecoder の違いが原因とコメントしており、今回の修正で直ったとは言えません。
 
 ## 検証結果
 
-### 取り込み前（`5c55224f9`）の CI
+### PR CI（`a51aec620`）
 
-GitHub Actions の [run 46106618596](https://github.com/shinyoshiaki/werift-webrtc/actions/runs/46106618596)（`workflow_dispatch`、`5c55224f9`）を、今回 `gh` で確認しました。
+[PR #898](https://github.com/shinyoshiaki/werift-webrtc/pull/898) の Node CI は [run 46121289631](https://github.com/shinyoshiaki/werift-webrtc/actions/runs/46121289631) です。PR の CI は PR のマージコミット（`3dc460891`、`a51aec620` を develop に重ねたもの）で動きます。
 
 | ジョブ | 結果 | 内容 |
 | --- | --- | --- |
-| `firefox-e2e` | 成功 | Firefox 157.0。68 passed / 0 failed / 9 skipped / 0 unfinished（27 ファイル） |
-| `build` (24.x, 26.x) | 成功 | `npm run ci`（型、doc:check、build、パッケージテスト、Chrome と DTLS の E2E）、examples E2E など |
-| `DTLS 1.3 BoringSSL interop (P0)` | 成功 | DTLS の型検査、BoringSSL interop、DTLS 1.3 の self テスト |
+| `firefox-e2e` | 成功 | Firefox 157.0、116 秒。68 passed / 0 failed / 9 skipped / 0 unfinished（27 ファイル）、`moduleErrors` と unhandled error なし。artifact `firefox-e2e-46121289631-1` の run record で確認 |
+| `build` (24.x) | 1 回目失敗 → 再実行で成功 | 1 回目は `packages/webrtc/tests/integrate/sped.test.ts` の 6 件がハンドシェイク待ちでタイムアウト（ファイル全体で 512 秒）。失敗ジョブだけ再実行して成功 |
+| `build` (26.x) | 成功 | `npm run ci`（型、doc:check、build、パッケージテスト、Chrome と DTLS の E2E）、examples E2E など |
+| `DTLS 1.3 BoringSSL interop (P0)` | 成功 | DTLS 1.3 が対象なので、1.2 HVR の変更を直接確かめるものではない |
 | `mediasoup-interop` (24.x) | 成功 | ジョブの結論のみ確認 |
+| WPT（[run 46121289671](https://github.com/shinyoshiaki/werift-webrtc/actions/runs/46121289671)、24.x / 26.x） | 成功 | ジョブの結論のみ確認 |
 
-BoringSSL のジョブは DTLS 1.3 が対象なので、今回の 1.2 HVR の変更を直接確かめるものではありません。
+`sped.test.ts` の失敗は、同じ HEAD のローカル実行で 55/55 が 16 秒で通りました。`sessionId` はログにしか使われないため、今回の変更が原因ではなく runner の遅さと判断しています。develop との比較はしていないので、既存の flaky である可能性は残ります。
+
+時間上限の変更（job 45 分、step 25 分）は、上限に達する場面を CI で起こしていません。`runner.temp` を step の `env` に移した修正以降、workflow は GitHub で正常に開始しています。
 
 ### コミットされたローカルの記録
 
-[e2e/firefox-runs/20261128T040955Z-443868c64.json](review-file:e2e/firefox-runs/20261128T040955Z-443868c64.json) は clean な `443868c64` の全件実行です。`passed`、68 passed / 0 failed / 9 skipped / 0 unfinished で、`moduleErrors` は空です。headCommit との差は、この記録を追加したコミットです。
+[e2e/firefox-runs/20261128T040955Z-443868c64.json](review-file:e2e/firefox-runs/20261128T040955Z-443868c64.json) は clean な `443868c64` の全件実行です。`passed`、68 passed / 0 failed / 9 skipped / 0 unfinished で、`moduleErrors` は空です。
 
 9 件のスキップの内訳は、H.264 が 3 件、RED が 2 件、TURNS の IP リテラルが 1 件、renomination が 3 件です。
 
-### 今回実行したもの
+### ローカルで実行したもの（`a51aec620` の作業ツリー）
 
-再レビュー後の headCommit（`a51aec620`）で、次を実行しました。
+- `packages/dtls`: `npm run type` 成功、`npm test` 574 件成功（`sessionId` のテスト追加前）。追加後の `self12_hvr_cookie_length.test.ts` は 6 件成功。CI では 575 件成功
+- `packages/ice-server`: `npm run type` 成功、`tests/turn.test.ts` 19 件成功
+- `e2e`: `npm run type` 成功、`npm run test:tools` 16 件成功（新しい環境変数のケースを含む）
+- `packages/webrtc`: `tests/integrate/sped.test.ts` 55 件成功
 
-- `node --test tools/tests/firefoxRunRecord.test.js`（`e2e/`）: 13 件すべて成功
-- `vitest run tests/e2e/self12_hvr_cookie_length.test.ts`（`packages/dtls`）: 6 件すべて成功
-- `vitest run tests/turn.test.ts`（`packages/ice-server`）: 19 件すべて成功
+### 実行していないもの
 
-`test:tools` 全体は実行していません。
-
-### 今回実行していないもの
-
-上記以外のパッケージのテスト、取り込み後のブラウザ E2E（Firefox を含む）と CI は実行していません。headCommit の CI の結果は、この解説では確認していません。`packages/ice` の `pbt:deep` も実行していません（この差分は `packages/ice` を変更していません）。
-- `vitest run tests/turn.test.ts`（`packages/ice-server`）: 19 件すべて成功
-
-実行していないもの: Firefox E2E のフルスイート、`npm run ci`、`a51aec620` 後の GitHub Actions。CI の時間上限の変更（job 45 分、step 25 分）は実機で確かめていません。
+ローカルでの Firefox E2E のフルスイートと `npm run ci`（CI で代替）、`packages/ice` の `pbt:deep`（この差分は `packages/ice` を変更していない）、actionlint（この環境にない）。
