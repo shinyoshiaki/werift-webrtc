@@ -4,7 +4,7 @@ ide:
   version: 1
   title: "werift 起点の ICE restart と Firefox: answer 前の check の引き継ぎ"
   dock: right
-  baseCommit: 6e6d2d4aee7fdfba931072a2365496d48c1bb195
+  baseCommit: d6f6d304985d39f6b7803e5ac649371223898a18
 ---
 # werift 起点の ICE restart で Firefox への送信が止まる不具合の修正
 
@@ -12,14 +12,13 @@ ide:
 
 answer の適用前に新しい ufrag 宛てに届いた connectivity check を、restart の commit 後に再生するようにしました。修正前はこの check から学んだ内容が commit で消えていました。Firefox の restart answer には候補がなく、成功した check も再送されないため、werift は新しい generation の pair を作れず、Firefox へ RTP も DataChannel も送れませんでした。
 
-変更は ICE 層の内部に閉じています。`Connection` の公開 API と `iceBase.ts` は変えておらず、SDP の出力も変わらない想定です。比較範囲はベースの `develop`（`b925ad42d`、マージ済み）から HEAD の `6e6d2d4ae` までです。
+変更は ICE 層の内部に閉じています。`Connection` の公開 API と `iceBase.ts` は変えておらず、SDP の出力も変わらない想定です。比較範囲はベースの `develop`（`73e59216d`、マージ済み）から HEAD の `d6f6d3049` までです。
 
-前回版（`e72cbd57e`）の後、レビューの指摘で次の 2 点を直しました。2 回目の承認はこの修正を含みます。
+レビューは `d6f6d3049` で最終承認されました。前回版（`6e6d2d4ae`）の後は、develop のマージと、次のレビュー指摘への対応が入っています。
 
-- 同じ経路に値の大きい NOMINATION が後から届くと、捨てていました（2.2 節）。
-- carried check の再生で、early check にある SPED の処理を呼んでいませんでした（3.2 節）。
+- carried check や early check の再生中に restart が起きると、古い `connect()` が次の generation の early check を消していました（2.3 節）。
 
-**現行コードでは、Firefox の実機確認をしていません**（6 節）。
+**マージ前に確認してください。** この変更の changelog の項目が、公開済みの `## v0.29.0` の節に入っています（5 節の 1）。また、**現行コードでは Firefox の実機確認をしていません**（6 節）。
 
 ## 2. 修正前と修正後の流れ
 
@@ -98,6 +97,32 @@ develop にあった不具合ではありません。この変更の途中版（
 
 commit の直後は、triggered check が先に成功した B が一時的に選ばれることがあります。その後 A の check が成功すると、通常の renomination の規則で A に移ります。テストは両経路の check の完了を待ってから判定します。
 
+### 2.3 再生中の restart（最終レビュー前の指摘）
+
+carried check の再生ループは、SPED を使わなくても `await maybeSendSpedFallback()` で処理を譲ります。この間に `restart()` か `restartRemote()` が走っても、古い `connect()` はそのまま進んでいました。early check の再生ループにも同じ穴がありました。チケット 10.7 節は、後者を develop の SPED 対応で入ったものと記録しています。
+
+<div style="font-family:var(--review-font);display:flex;flex-wrap:wrap;gap:12px">
+<div style="flex:1;min-width:300px;border:1px solid var(--review-border);border-left:4px solid var(--review-danger);border-radius:6px;padding:8px">
+<strong>Before（21f075dbc）</strong>
+<svg viewBox="0 0 340 300" width="100%" role="img" aria-label="修正前: 古い connect が次の generation の状態を書き換える" style="font-family:var(--review-mono)">
+<g fill="var(--review-surface)" stroke="var(--review-muted)"><rect x="10" y="8" width="320" height="38" rx="6"/><rect x="10" y="70" width="320" height="38" rx="6"/></g>
+<g fill="var(--review-surface)" stroke="var(--review-danger)"><rect x="10" y="132" width="320" height="38" rx="6"/><rect x="10" y="194" width="320" height="38" rx="6"/><rect x="10" y="256" width="320" height="38" rx="6"/></g>
+<g stroke="var(--review-muted)" stroke-width="1.5"><path d="M170 46v24M170 108v24M170 170v24M170 232v24"/></g>
+<g fill="var(--review-fg)" font-size="12" text-anchor="middle"><text x="170" y="31">旧 connect(): await で処理を譲る</text><text x="170" y="93">restart() / restartRemote()</text><text x="170" y="155">旧 connect() が再生を続行</text><text x="170" y="217">次世代の earlyChecks = []</text><text x="170" y="279">次世代の earlyChecksDone = true</text></g>
+</svg></div>
+<div style="flex:1;min-width:300px;border:1px solid var(--review-border);border-left:4px solid var(--review-success);border-radius:6px;padding:8px">
+<strong>After（HEAD）</strong>
+<svg viewBox="0 0 340 300" width="100%" role="img" aria-label="修正後: 古い connect は abort を確認して抜ける" style="font-family:var(--review-mono)">
+<g fill="var(--review-surface)" stroke="var(--review-muted)"><rect x="10" y="8" width="320" height="38" rx="6"/><rect x="10" y="70" width="320" height="38" rx="6"/></g>
+<g fill="var(--review-surface)" stroke="var(--review-success)"><rect x="10" y="132" width="320" height="38" rx="6"/><rect x="10" y="194" width="320" height="38" rx="6"/><rect x="10" y="256" width="320" height="38" rx="6"/></g>
+<g stroke="var(--review-muted)" stroke-width="1.5"><path d="M170 46v24M170 108v24M170 170v24M170 232v24"/></g>
+<g fill="var(--review-fg)" font-size="12" text-anchor="middle"><text x="170" y="31">旧 connect(): await で処理を譲る</text><text x="170" y="93">restart() / restartRemote()</text><text x="170" y="155">ended.aborted → IceRestartedError</text><text x="170" y="217">次世代の earlyChecks が残る</text><text x="170" y="279">次世代の connect() が再生して接続</text></g>
+</svg></div></div>
+
+同じ割り込みに対する比較です。赤が問題の経路、緑が修正後の経路です。
+
+追加したのは、2 つのループの各 `await` の直後にある `ended.aborted` の確認です。carried check 側は [packages/ice/src/ice.ts:1964](review-diff:packages/ice/src/ice.ts:commit:d6f6d3049:1964)、early check 側は [packages/ice/src/ice.ts:1979](review-diff:packages/ice/src/ice.ts:commit:d6f6d3049:1979) です。`ended` は `connect()` の開始時の generation の abort signal で、後続の待機と同じく [packages/ice/src/ice.ts:1920](review-file:packages/ice/src/ice.ts:1920) で取得します。relay の分岐には `await` がないため、確認を足していません。
+
 ## 3. 主要変更
 
 ### 3.1 check の記録（`provisional.ts`）
@@ -116,6 +141,7 @@ check は `receivedChecks` → `endedStagedChecks` → `carriedChecks` の順に
 - [packages/ice/src/ice.ts:983](review-diff:packages/ice/src/ice.ts:commit:0767eeacb:983): `commitLocalCredentials()` は、退避した ufrag が commit する ufrag と一致し、`earlyChecksDone` が false のときだけ `carriedChecks` に移します。
 - [packages/ice/src/ice.ts:1946](review-diff:packages/ice/src/ice.ts:commit:0767eeacb:1946): `connect()` は通常の `earlyChecks` より先に再生します。送信元が answer の remote ufrag と一致しない check は捨てます。
 - 再生した check には、early check と同じく `settleSpedUnconfirmed` と `maybeSendSpedFallback` を適用します（[packages/ice/src/ice.ts:1961](review-diff:packages/ice/src/ice.ts:commit:6e6d2d4ae:1961)）。restart は SPED runtime を reset するため、新しい generation でも SPED が動きます。session が fallback になっていれば、再生で学んだ経路へ handshake の flight を直送します。
+- 再生中に generation が終わると、`connect()` は `IceRestartedError` などの `connectError()` で抜けます（2.3 節）。
 - 破棄する経路は、置き換えの offer（[packages/ice/src/ice.ts:942](review-diff:packages/ice/src/ice.ts:commit:0767eeacb:942)）、`restartRemote()`（[packages/ice/src/ice.ts:914](review-diff:packages/ice/src/ice.ts:commit:0767eeacb:914)）、`close()`（[packages/ice/src/ice.ts:2308](review-diff:packages/ice/src/ice.ts:commit:0767eeacb:2308)）です。次の `restart()` も `carriedChecks` を空にします。rollback は staged generation を先に捨てるため、退避する対象がありません。
 
 ```mermaid
@@ -139,12 +165,13 @@ commit で TURN allocation が差し替わると、その allocation では応�
 
 - [packages/ice/tests/ice/restart-early-checks.test.ts:12](review-diff:packages/ice/tests/ice/restart-early-checks.test.ts:commit:0767eeacb:12): 初版で 7 ケースを追加しました。内容は、主ケース（nominate と双方向のデータ）、置き換えの offer、rollback、別の remote ufrag、別 ufrag の check 64 件による容量超過、指名の保持、閉じた relay です。
 - [packages/ice/tests/utils.ts:4547](review-diff:packages/ice/tests/utils.ts:commit:0767eeacb:4547): 共通の Arrange です。`b` は check を終えたあと再送せず指名を待ち、answer は使える候補を持ちません。`incomingCheckTimeout` は 1 秒です。
-- [packages/ice/tests/ice/restart-early-checks.test.ts:184](review-diff:packages/ice/tests/ice/restart-early-checks.test.ts:commit:6e6d2d4ae:184): 再指名の 3 ケースを追加し、合計 10 ケースになりました。大きい値での置換、小さい値や通常の check で消えないこと、commit 後に A が選ばれることを確かめます。共通の準備は [packages/ice/tests/utils.ts:4664](review-file:packages/ice/tests/utils.ts:4664) の `createRenominatedBeforeAnswer` です。
+- [packages/ice/tests/ice/restart-early-checks.test.ts:184](review-diff:packages/ice/tests/ice/restart-early-checks.test.ts:commit:6e6d2d4ae:184): 再指名の 3 ケースを追加し、合計 10 ケースになりました。大きい値での置換、小さい値や通常の check で消えないこと、commit 後に A が選ばれることを確かめます。共通の準備は [packages/ice/tests/utils.ts:4689](review-file:packages/ice/tests/utils.ts:4689) の `createRenominatedBeforeAnswer` です。
+- [packages/ice/tests/ice/restart-early-checks.test.ts:256](review-diff:packages/ice/tests/ice/restart-early-checks.test.ts:commit:d6f6d3049:256): 再生中の `restart` / `restartRemote` の 2 ケースを追加し、合計 12 ケースになりました。古い `connect()` が `IceRestartedError` で終わること、次世代の early check が残ること、その check から接続してデータが流れることを確かめます。共通の準備は [packages/ice/tests/utils.ts:4749](review-file:packages/ice/tests/utils.ts:4749) の `interruptCarriedReplay` と [packages/ice/tests/utils.ts:4785](review-file:packages/ice/tests/utils.ts:4785) の `checkNextGenerationBeforeAnswer` です。
 - [packages/ice/tests/sped/restart.test.ts:391](review-diff:packages/ice/tests/sped/restart.test.ts:commit:6e6d2d4ae:391): 再生した check の経路へ fallback の flight を直送するテストを追加しました。テストは fallback への移行を直接起こし、mock の `Protocol` で送信を記録します。実際の DTLS と組み合わせた restart ではありません。
 - [packages/webrtc/tests/pbt/leak/leakProbe.ts:491](review-diff:packages/webrtc/tests/pbt/leak/leakProbe.ts:commit:0767eeacb:491): leak probe に `ice.carriedChecks` を追加しました。`endedStagedChecks` の件数も合算します。
-- [changelog.md:72](review-diff:changelog.md:commit:6e6d2d4ae:72): `## Unreleased` の Bug Fixes に記載しました。初回レビューで公開済みの `v0.28.0` 節にあると指摘され、`e72cbd57e` で移しました。`6e6d2d4ae` で、指名の最大値と SPED の扱いを追記しています。
+- [changelog.md:118](review-file:changelog.md:118): この変更の項目です。節の位置に問題があります（5 節の 1）。
 
-ICE の行番号付き diff リンクは、コミットを固定しています。`0767eeacb` が初版の差分、`6e6d2d4ae` がレビュー指摘への追加差分で、行番号は各コミット時点のものです。HEAD の ICE ソースには、このほかに途中の develop マージ（`6c6a8b687`）が入っています。
+ICE の行番号付き diff リンクは、コミットを固定しています。`0767eeacb` が初版、`6e6d2d4ae` が再指名と SPED の指摘への対応、`d6f6d3049` が再生中の restart への対応です。行番号は各コミット時点のものです。HEAD の ICE ソースには途中の develop マージも入っているため、固定した行番号は HEAD の行番号と一致しない場合があります。
 
 ## 4. 判断理由
 
@@ -158,32 +185,46 @@ ICE の行番号付き diff リンクは、コミットを固定しています�
 
 ## 5. レビュアーが確認すべき点とリスク
 
-1. **Firefox の確認は現行コードより前の結果**: チケットの目的は Firefox との相互接続ですが、直結確認の後に `ice.ts` と `provisional.ts` を変えています。最終レビューは 18/18 を「同一コード」の結果と書いています。実際の対象は `0767eeacb` で、HEAD のコードとは異なります。チケット 9 章はすべてチェック済みですが、一部は移植前の結果に基づきます（10.4 節）。
-2. **再指名の途中経過**: commit 直後に B が一時的に選ばれ、その後 A に移ることがあります。確認はテスト内の ICE agent 同士で、実際の controlling peer との再指名は試していません。
-3. **32 件の上限が守る範囲**: 1 つの誤った ufrag からの大量の check は、別の ufrag の check を押し出しにくい作りです。一方、全送信元が 1 件ずつで満杯の場合は、先に登録された送信元の check から落ちます。テストが確かめているのは、1 つの別 ufrag から 64 件届く場合です。
-4. **挙動の変化**: answer の前に check を受けた restart では、commit 後の checklist に prflx の pair が加わります。answer に候補がある相手でも同じです。再生時には SPED の fallback flight を直送することもあります。commit 時に `nominated` を捨て、再指名まで送信しない仕様は変えていません。
-5. **relay の分岐のテスト**: テストは `carriedChecks` に偽の relay `Protocol` を直接入れています。実際の TURN サーバーで allocation が差し替わる流れは通していません。
-6. **別件の DTLS 不具合**: werift が初回の offer を出し、Firefox が DTLS client になる構成では、HelloVerifyRequest に Firefox が `decode_error` を返します。ベース `7ca1d86aa` でも再現すると報告されています（現行の `b925ad42d` での再確認は記録にありません）。この差分は dtls に触れていません。別チケットでの調査が推奨されています。
+1. **changelog の節が誤っている（要修正）**: この変更の項目は [changelog.md:118](review-file:changelog.md:118) にあり、属する節は [changelog.md:3](review-file:changelog.md:3) の `## v0.29.0` です。`v0.29.0` タグ（`36f413e62`）と develop（`73e59216d`）の changelog には、この項目がありません。そのまま取り込むと、公開済みの版にこの修正が含まれるように読めます。`e72cbd57e` で一度 `## Unreleased` に置きましたが、その後の develop は同じ見出しを `v0.29.0` に変えています。develop のマージで節がずれたと考えられます。HEAD には `## Unreleased` の節がありません。先頭に `## Unreleased` → `### 🐛 Bug Fixes` を作り、項目を移してください。最終レビューの結果には、この点の指摘がありません。この文書の作成では changelog を変更していません。
+
+   同じく、チケット 10.4 節の「`## Unreleased` へ移した」という記録は、HEAD の状態と一致しません。
+2. **Firefox の確認は現行コードより前の結果**: チケットの目的は Firefox との相互接続ですが、直結確認の後に `ice.ts` と `provisional.ts` を変えています。18/18 の対象は `0767eeacb` です。チケット 9 章はすべてチェック済みですが、一部は移植前の結果に基づきます（10.4 節）。
+3. **再指名の途中経過**: commit 直後に B が一時的に選ばれ、その後 A に移ることがあります。確認はテスト内の ICE agent 同士で、実際の controlling peer との再指名は試していません。
+4. **32 件の上限が守る範囲**: 1 つの誤った ufrag からの大量の check は、別の ufrag の check を押し出しにくい作りです。一方、全送信元が 1 件ずつで満杯の場合は、先に登録された送信元の check から落ちます。テストが確かめているのは、1 つの別 ufrag から 64 件届く場合です。
+5. **挙動の変化**: answer の前に check を受けた restart では、commit 後の checklist に prflx の pair が加わります。answer に候補がある相手でも同じです。再生時には SPED の fallback flight を直送することもあります。commit 時に `nominated` を捨て、再指名まで送信しない仕様は変えていません。
+6. **relay の分岐のテスト**: テストは `carriedChecks` に偽の relay `Protocol` を直接入れています。実際の TURN サーバーで allocation が差し替わる流れは通していません。
+7. **再生中の restart のテスト範囲**: 追加した 2 ケースは、carried check の再生中に割り込みます。通常の early check のループに足した確認には、専用のテストを追加していません。差分を読んで確認してください。
+8. **別件の DTLS 不具合**: werift が初回の offer を出し、Firefox が DTLS client になる構成では、HelloVerifyRequest に Firefox が `decode_error` を返します。ベース `7ca1d86aa` でも再現すると報告されています（現行の develop での再確認は記録にありません）。この差分は dtls に触れていません。別チケットでの調査が推奨されています。
 
 ## 6. 検証結果
 
 対象リビジョンごとに分けます。「この文書の作成時」以外は、レビュー記録、チケット、CI 履歴からの転記で、再実行していません。
 
-### HEAD（`6e6d2d4ae`）
+### HEAD（`d6f6d3049`）
 
 | 実行者 | 項目 | 結果 |
 | --- | --- | --- |
-| この文書の作成時 | `packages/ice` で `npx vitest run`（`tests/ice/restart-early-checks.test.ts`、`tests/ice/provisional.test.ts`、`tests/sped/restart.test.ts`） | 3 ファイル、33 件がすべて成功 |
-| 2 回目の最終承認レビュー | `restart-early-checks.test.ts` | 10 件が成功 |
-| 同上 | `packages/ice` の全テスト | 2,415 件が成功、10 件は skip |
-| 同上 | ICE deep property search | 30,800 件が成功 |
-| 同上 | `packages/ice` の型検査、`git diff --check` | 成功 |
+| この文書の作成時 | `packages/ice` で `npx vitest run`（`tests/ice/restart-early-checks.test.ts`、`tests/ice/provisional.test.ts`、`tests/sped/restart.test.ts`） | 3 ファイル、35 件がすべて成功 |
+| この文書の作成時 | `packages/ice` で `npm run type` | 成功 |
+| 最終承認レビュー | `packages/ice` の全テスト | 2,419 件が成功、10 件は skip |
 
-### 指摘への対応時（チケット 10.6 節。`6c6a8b687` に未コミットの修正を加えた作業ツリー）
+最終承認レビューでは、ICE の型検査は共有キューの順番待ちで実行されていません。上の型検査は、この文書の作成時に実行したものです。
 
-- `packages/ice` 2,415 件、`packages/webrtc` 3,322 件が成功し、`npm run type` も成功しました。
-- negotiation-diff は `b925ad42d` と比較し、seeds 11–40（各 12 steps）で regressions / divergences / hangs / transceiver state differences がすべて 0 でした。seeds 1–10 の 0 件は以前のレビューの結果で、この修正より前のものです。seeds 41–80 は実行していません。
-- チケットは、追加したテストが修正前のコードで失敗することも記録しています（再指名は 3 件中 2 件、SPED は直送されない）。この文書の作成時には再現していません。
+### 3 回目の指摘への対応時（チケット 10.7 節。基準 `21f075dbc` に修正を加えた状態）
+
+- `packages/ice` 2,419 件、`packages/webrtc` 3,428 件が成功し、`npm run type` も成功しました。`npm run format` も実行しています。
+- 再生中の restart の 2 ケースは、修正前の `21f075dbc` では `earlyChecksDone` が true になって失敗すると記録されています。この文書の作成時には再現していません。
+
+### 前回版のリビジョン（参考。HEAD の結果ではない）
+
+| 対象 | 項目 | 結果 |
+| --- | --- | --- |
+| `6e6d2d4ae` | 2 回目の承認レビュー: `packages/ice` の全テスト | 2,415 件が成功、10 件は skip |
+| `6e6d2d4ae` | 同上: ICE deep property search | 30,800 件が成功 |
+| 10.6 節の作業ツリー | `packages/webrtc` の全テスト、`npm run type` | 3,322 件が成功、型検査も成功 |
+| 10.6 節の作業ツリー | negotiation-diff（`b925ad42d` と比較、seeds 11–40、各 12 steps） | regressions / divergences / hangs / transceiver state differences はすべて 0 |
+
+negotiation-diff の seeds 1–10 の 0 件は、さらに前のレビューの結果です。seeds 41–80 は実行していません。
 
 ### 追加修正より前のリビジョン（参考。HEAD の結果ではない）
 
@@ -201,4 +242,4 @@ ICE の行番号付き diff リンクは、コミットを固定しています�
 
 ### HEAD で結果の記録を確認できなかったもの
 
-Firefox の直結確認、Chrome の E2E、WebRTC の deep property search、80 seeds 全体の negotiation-diff です。Firefox の一時 harness はチケットが指す場所になく、再実行できなかったと 10.6 節に記録されています。
+Firefox の直結確認（全ポリシー・互換モード・トリクル）、実 TURN サーバーでの allocation の差し替え、Chrome の E2E、WebRTC の deep property search、80 seeds 全体の negotiation-diff です。Firefox の一時 harness はチケットが指す場所になく、再実行できなかったと 10.6 節に記録されています。チケットの CI 履歴にある `npm run ci` の記録は、`e72cbd57e` の 1 件だけです。
