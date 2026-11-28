@@ -35,7 +35,7 @@ const serverStats = () =>
 
 /**
  * Arrange: werift offers (controlling) with host and TURN relay candidates,
- * Chrome answers (controlled) and both select the host path.
+ * the browser answers (controlled) and both select the host path.
  */
 async function connectOverHost(renomination: boolean) {
   await ensurePeerConnected();
@@ -94,13 +94,13 @@ async function roundTrip(
   await echoed;
 }
 
-describe("ice/failover (werift controlling, Chrome controlled)", () => {
+describe("ice/failover (werift controlling, the browser controlled)", () => {
   for (const renomination of [false, true]) {
     const itCase = renomination
       ? itSkipOnFirefox(firefoxUnsupported.renomination)
       : it;
     itCase(
-      `werift's host sockets are cut: werift fails over to its relay pair without an ICE restart and Chrome follows (renomination: ${renomination})`,
+      `werift's host sockets are cut: werift fails over to its relay pair without an ICE restart, and the browser follows where it supports that (renomination: ${renomination})`,
       async ({ annotate }) => {
         const { pc, channel } = await connectOverHost(renomination);
         await roundTrip(channel, "host");
@@ -124,10 +124,10 @@ describe("ice/failover (werift controlling, Chrome controlled)", () => {
             // 追従と relay での往復は確かめない (firefoxUnsupported.lowerPriorityNomination)。
             await annotate(firefoxUnsupported.lowerPriorityNomination);
           } else {
-            // Act: werift が relay の経路でデータを送る (Chrome は指名とデータに従う)。
+            // Act: werift が relay の経路でデータを送る (追従するブラウザは指名とデータに従う)。
             await peer.request(label, { type: "send", payload: {} });
 
-            // Assert: Chrome も werift の relay 候補を使う経路に移り、データが往復する。
+            // Assert: ブラウザも werift の relay 候補を使う経路に移り、データが往復する。
             await vi.waitFor(
               async () => {
                 await peer.request(label, { type: "send", payload: {} });

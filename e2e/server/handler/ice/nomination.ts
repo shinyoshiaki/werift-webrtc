@@ -6,7 +6,7 @@ import { getTurnIceServer } from "../../turn";
 type NominationInitPayload = {
   /** Enable `PeerConfig.iceRenomination` (advertise `a=ice-options:renomination`). */
   renomination: boolean;
-  /** The browser's offer (Chrome controlling); absent when werift offers (werift controlling). */
+  /** The browser's offer (browser controlling); absent when werift offers (werift controlling). */
   offer?: { type: "offer"; sdp: string };
 };
 
@@ -24,9 +24,9 @@ export type NominationStats = {
     localPort: number;
     remoteAddress: string;
     remotePort: number;
-    /** The NOMINATION value werift sent and Chrome answered (werift controlling). */
+    /** The NOMINATION value werift sent and the browser answered (werift controlling). */
     nomination: number;
-    /** The largest nomination Chrome sent for the pair (werift controlled). */
+    /** The largest nomination the browser sent for the pair (werift controlled). */
     remoteNomination: number;
   };
   /** Incoming STUN binding requests that carried USE-CANDIDATE. */
@@ -39,7 +39,7 @@ export type NominationStats = {
  * werift with a TURN relay whose own checks only use relay pairs
  * (`iceFilterCandidatePair`): the first path that connects is relay <-> host.
  * A host path forms only once the browser signals werift's host candidates
- * (which it holds back) and Chrome's checks reach the host socket, so the
+ * (which it holds back) and the browser's checks reach the host socket, so the
  * selection has to move from the relay pair to the better host pair.
  */
 export class ice_nomination {
@@ -98,7 +98,7 @@ export class ice_nomination {
         accept({});
         break;
       case "send":
-        // werift sends on its selected pair (Chrome follows the data when
+        // werift sends on its selected pair (the browser follows the data when
         // nominations tie, see the test).
         this.channel?.send("server-to-browser");
         accept({});
