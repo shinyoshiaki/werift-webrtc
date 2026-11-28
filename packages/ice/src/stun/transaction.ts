@@ -280,7 +280,11 @@ export class Transaction {
     this.fail(new TransactionTimeout());
   }
 
-  private fail(error: Error) {
+  /**
+   * End the transaction with `error`: a `run()` still waiting for a response
+   * rejects with it (e.g. the connection it was sent on closed).
+   */
+  fail(error: Error) {
     if (this.ended) {
       return;
     }

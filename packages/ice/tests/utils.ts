@@ -4803,3 +4803,114 @@ export async function checkNextGenerationBeforeAnswer(
   await waitUntil(() => internals.earlyChecks.length > 0);
   return { bConnected, queued: internals.earlyChecks.length };
 }
+
+// --- TURN failure propagation ---
+
+/**
+ * Shared Arrange: collect process-level `uncaughtException` /
+ * `unhandledRejection` while a test runs (`dispose` unsubscribes).
+ */
+export function watchProcessErrors() {
+  const errors: unknown[] = [];
+  const onError = (error: unknown) => errors.push(error);
+  process.on("uncaughtException", onError);
+  process.on("unhandledRejection", onError);
+  return {
+    errors,
+    /** Let rejections that settle late (next ticks, short timers) surface. */
+    flush: async (ms = 20) => {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      await new Promise<void>((resolve) => setTimeout(resolve, ms));
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    },
+    dispose: () => {
+      process.off("uncaughtException", onError);
+      process.off("unhandledRejection", onError);
+    },
+  };
+}
+
+/** How `createFaultyTurnTcpServer` misbehaves. */
+export type FaultyTurnTcpMode =
+  /** Nothing listens on the port: connect fails with ECONNREFUSED. */
+  | "refuse"
+  /** Accepts the connection but never answers. */
+  | "blackhole"
+  /** Resets (RST) every connection as soon as it is accepted. */
+  | "rstOnConnect"
+  /** Answers the Allocate with success, then resets the connection. */
+  | "rstAfterAllocate"
+  /** Answers the Allocate with success, then closes the connection (FIN). */
+  | "endAfterAllocate"
+  /** Answers every request with success after `ms`. */
+  | { delayedResponse: number };
+
+/**
+ * Shared Arrange: a TURN TCP server on 127.0.0.1 failing as `mode` says.
+ * A successful Allocate carries `lifetime` (seconds). Stopped by `close()`.
+ */
+export async function createFaultyTurnTcpServer(
+  mode: FaultyTurnTcpMode,
+  { lifetime = 600 }: { lifetime?: number } = {},
+) {
+  const requests: Message[] = [];
+  const sockets = new Set<net.Socket>();
+  const reply = (request: Message) => {
+    const response = createTurnSuccessResponse(request);
+    if (request.messageMethod === methods.ALLOCATE) {
+      response.setAttribute("LIFETIME", lifetime);
+    }
+    return response.bytes;
+  };
+  const server = net.createServer((socket) => {
+    sockets.add(socket);
+    socket.once("close", () => sockets.delete(socket));
+    socket.on("error", () => {});
+    if (mode === "rstOnConnect") {
+      socket.resetAndDestroy();
+      return;
+    }
+    let buffer: Buffer = Buffer.alloc(0);
+    socket.on("data", (data) => {
+      const { frames, rest } = splitTurnTcpFrames(
+        Buffer.concat([buffer, data]),
+      );
+      buffer = rest;
+      for (const frame of frames) {
+        const request = parseMessage(frame);
+        if (!request) continue;
+        requests.push(request);
+        if (mode === "blackhole") continue;
+        if (typeof mode === "object") {
+          setTimeout(() => {
+            if (!socket.destroyed) socket.write(reply(request));
+          }, mode.delayedResponse);
+          continue;
+        }
+        socket.write(reply(request), () => {
+          // The response reaches the client before the connection goes.
+          setTimeout(() => {
+            if (mode === "rstAfterAllocate") socket.resetAndDestroy();
+            else socket.end();
+          }, 20);
+        });
+      }
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as net.AddressInfo;
+  const stop = async () => {
+    for (const socket of sockets) socket.destroy();
+    if (server.listening) {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  };
+  if (mode === "refuse") await stop();
+
+  return {
+    address: ["127.0.0.1", port] as Address,
+    requests,
+    sockets,
+    close: stop,
+  };
+}

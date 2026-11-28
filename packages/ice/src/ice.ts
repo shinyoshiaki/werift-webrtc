@@ -2345,9 +2345,13 @@ export class Connection implements IceConnection {
       ...this.gatherer.wildcardProtocols.values(),
     ].filter((protocol) => !this.protocols.includes(protocol));
     this.gatherer.wildcardProtocols.clear();
+    // One protocol that fails to close does not keep the others open, and
+    // close() itself does not reject.
     for (const protocol of [...this.protocols, ...pendingWildcards]) {
-      if (protocol.close) {
-        await protocol.close();
+      try {
+        await protocol.close?.();
+      } catch (error) {
+        log("failed to close protocol", protocol.type, error);
       }
     }
 

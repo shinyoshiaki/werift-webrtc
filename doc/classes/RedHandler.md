@@ -20,7 +20,11 @@
 
 ### push()
 
-> **push**(`red`, `base`): [`RtpPacket`](RtpPacket.md)[]
+> **push**(`red`, `base`, `accepts?`): [`RtpPacket`](RtpPacket.md)[]
+
+The blocks of `red` as RTP packets, without those already returned for
+their sequence number. A block whose payload type `accepts` refuses is
+skipped and does not use up its sequence number.
 
 #### Parameters
 
@@ -31,6 +35,10 @@
 ##### base
 
 [`RtpPacket`](RtpPacket.md)
+
+##### accepts?
+
+(`payloadType`) => `boolean`
 
 #### Returns
 
