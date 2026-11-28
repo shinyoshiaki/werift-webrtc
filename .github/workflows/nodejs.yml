@@ -63,7 +63,10 @@ jobs:
   # `e2e/run-ci.js` so local default validation does not get longer.
   firefox-e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Setup (apt-get, npm i, playwright --with-deps) counts here too, so the
+    # job limit leaves room above the E2E step's own limit; the record upload
+    # still runs when that step hits its limit.
+    timeout-minutes: 45
     env:
       # The harness's private Playwright cache (e2e/browsers-path.js).
       PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/e2e/node_modules/.cache/ms-playwright
@@ -91,6 +94,9 @@ jobs:
         run: npx playwright install --with-deps firefox
       - name: Firefox E2E
         working-directory: e2e
+        # run-firefox.js --ci stops vitest after 20 min (CI_TIMEOUT_MIN) and
+        # writes the record; this is the backstop if the runner itself hangs.
+        timeout-minutes: 25
         env:
           CI: true
           # `runner` is not available in job-level `env`, only in steps.

@@ -166,6 +166,32 @@ export async function arrangeDtls13Pair(extra?: Dtls13PairExtra) {
 }
 
 /**
+ * Arrange: UDP-linked DtlsServer / DtlsClient for DTLS 1.2 self tests, with
+ * the server's default address validation (HelloVerifyRequest cookie) on.
+ */
+export async function arrangeDtls12Pair() {
+  const serverTransport = await UdpTransport.init("udp4");
+  const clientTransport = await UdpTransport.init("udp4");
+  clientTransport.rinfo = serverTransport.address;
+  const base = {
+    cert: certPem,
+    key: keyPem,
+    signatureHash: rsaSignatureHash,
+  };
+  const server = new DtlsServer({ transport: serverTransport, ...base });
+  const client = new DtlsClient({ transport: clientTransport, ...base });
+  const close = async () => {
+    client.close();
+    server.close();
+    await Promise.allSettled([
+      clientTransport.close(),
+      serverTransport.close(),
+    ]);
+  };
+  return { server, client, serverTransport, clientTransport, close };
+}
+
+/**
  * Arrange: `openssl s_server -dtls1_2` on an OS-assigned free UDP port.
  *
  * Fixed ports (e.g. 55562) sit inside the Linux ephemeral range, so any

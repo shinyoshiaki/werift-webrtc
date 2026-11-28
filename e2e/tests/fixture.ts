@@ -1223,7 +1223,7 @@ export async function decodeAudioFile(
   };
 }
 
-/** The addresses and types of the candidate pair Chrome selected. */
+/** The addresses and types of the candidate pair the browser selected. */
 export type SelectedCandidatePairAddresses = {
   localAddress?: string;
   localPort?: number;

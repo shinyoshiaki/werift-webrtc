@@ -271,6 +271,24 @@ test("CI mode records outside the repository, never prunes, and lowers the time 
   assert.equal(overridden.idleMin, 3);
 });
 
+test("an empty, non-numeric or non-positive time limit falls back to the default", () => {
+  // Act: 未設定の CI 変数が展開された空文字や、数値でない・0 以下の値で実行設定を作る
+  const invalid = ["", " ", "abc", "0", "-5", "Infinity", "NaN"].map((value) =>
+    runOptions(
+      ["--ci"],
+      { FIREFOX_E2E_TIMEOUT_MIN: value, FIREFOX_E2E_IDLE_MIN: value },
+      runPaths,
+    ),
+  );
+  const local = runOptions([], { FIREFOX_E2E_TIMEOUT_MIN: "" }, runPaths);
+  // Assert: 上限が即座に発火せず、CI / ローカルそれぞれの既定値になる
+  for (const options of invalid) {
+    assert.equal(options.timeoutMin, CI_TIMEOUT_MIN);
+    assert.equal(options.idleMin, 5);
+  }
+  assert.equal(local.timeoutMin, 60);
+});
+
 test("the runner exits 0 only for a passed record without unfinished tests or module errors", () => {
   // Arrange: 成功・失敗・時間切れ・未完了・module error の記録
   const recordWith = ({ exitCode = 0, outcome = "completed", summary = {} }) =>

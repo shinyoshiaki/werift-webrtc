@@ -172,7 +172,7 @@ function recordFileName(record) {
   return `${stamp}-${record.shortCommit}${record.dirty ? "-dirty" : ""}.json`;
 }
 
-/** Time limit of a CI run (minutes), below the job's `timeout-minutes`. */
+/** Time limit of a CI run (minutes), below the E2E step's `timeout-minutes`. */
 const CI_TIMEOUT_MIN = 20;
 
 /**
@@ -183,6 +183,17 @@ const CI_TIMEOUT_MIN = 20;
  * limit to {@link CI_TIMEOUT_MIN}, so a hung suite still ends with a record
  * before the job's own timeout. Other args go to vitest.
  */
+/**
+ * Minutes from an environment variable. An unset, empty, non-numeric,
+ * non-finite or non-positive value (e.g. a CI variable expanded while unset)
+ * falls back to `fallback`, so it never fires the time limit at once.
+ */
+function positiveMinutes(value, fallback) {
+  if (value === undefined || value.trim() === "") return fallback;
+  const minutes = Number(value);
+  return Number.isFinite(minutes) && minutes > 0 ? minutes : fallback;
+}
+
 function runOptions(argv, env, { repoRoot, tmpdir }) {
   const ci = argv.includes("--ci");
   const vitestArgs = argv.filter((arg) => arg !== "--ci");
@@ -194,10 +205,11 @@ function runOptions(argv, env, { repoRoot, tmpdir }) {
             : join(tmpdir, "werift-firefox-runs")),
       )
     : join(repoRoot, RECORDS_DIR);
-  const timeoutMin = Number(
-    env.FIREFOX_E2E_TIMEOUT_MIN ?? (ci ? CI_TIMEOUT_MIN : 60),
+  const timeoutMin = positiveMinutes(
+    env.FIREFOX_E2E_TIMEOUT_MIN,
+    ci ? CI_TIMEOUT_MIN : 60,
   );
-  const idleMin = Number(env.FIREFOX_E2E_IDLE_MIN ?? 5);
+  const idleMin = positiveMinutes(env.FIREFOX_E2E_IDLE_MIN, 5);
   return {
     ci,
     vitestArgs,

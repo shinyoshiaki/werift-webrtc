@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
-import { UdpTransport } from "../../../common/src";
-import { DtlsClient, DtlsServer } from "../../src";
 import { CipherSuite } from "../../src/cipher/const";
+import { SessionType } from "../../src/cipher/suites/abstract";
+import { DtlsContext } from "../../src/context/dtls";
 import {
   ADDRESS_COOKIE_LENGTH,
   assertDtls12HelloVerifyCookieLength,
@@ -11,13 +11,12 @@ import {
   mintDtls12HelloVerifyCookie,
   verifyDtls12HelloVerifyCookie,
 } from "../../src/handshake/extensions/cookie";
+import type { Options } from "../../src/socket";
 import {
+  arrangeDtls12Pair,
   build12ClientHello,
-  certPem,
   fixedClientRandom,
   helloVerifyRequestCookieOf,
-  keyPem,
-  rsaSignatureHash,
 } from "../fixture";
 
 /** NSS の DTLS_COOKIE_BYTES（lib/ssl/dtlscon.c）。これを超える HVR cookie は decode_error になる。 */
@@ -26,32 +25,6 @@ const NSS_DTLS_COOKIE_BYTES = 32;
 const secret = Buffer.alloc(32, 0x5a);
 const peer = "192.0.2.10:5000";
 const nowSec = 1_800_000_000;
-
-/** 自己対向の DTLS 1.2 サーバー / クライアントを UDP 上に用意する。 */
-async function arrangeSelf12Pair() {
-  const serverTransport = await UdpTransport.init("udp4");
-  const clientTransport = await UdpTransport.init("udp4");
-  clientTransport.rinfo = serverTransport.address;
-  const server = new DtlsServer({
-    transport: serverTransport,
-    cert: certPem,
-    key: keyPem,
-    signatureHash: rsaSignatureHash,
-  });
-  const client = new DtlsClient({
-    transport: clientTransport,
-    cert: certPem,
-    key: keyPem,
-    signatureHash: rsaSignatureHash,
-  });
-  const close = async () => {
-    client.close();
-    server.close();
-    await clientTransport.close().catch(() => {});
-    await serverTransport.close().catch(() => {});
-  };
-  return { server, client, serverTransport, clientTransport, close };
-}
 
 test("unit: DTLS 1.2 HVR cookie fits the 32-byte bound NSS enforces", () => {
   // Arrange
@@ -135,7 +108,7 @@ test("unit: HVR cookie length guard throws above 32 bytes", () => {
 
 test("e2e/self12: wire HVR cookie is <= 32 bytes and an NSS-like client completes", async () => {
   // Arrange: クライアント側で受信 HVR の cookie を取り出し、NSS と同じく 32 バイト超を拒否する
-  const { server, client, clientTransport, close } = await arrangeSelf12Pair();
+  const { server, client, clientTransport, close } = await arrangeDtls12Pair();
   const hvrCookies: Buffer[] = [];
   let nssRejected: Error | undefined;
   const deliver = clientTransport.onData;
@@ -187,3 +160,24 @@ test("e2e/self12: wire HVR cookie is <= 32 bytes and an NSS-like client complete
     await close();
   }
 }, 15_000);
+
+test("unit: log sessionId differs between HVR cookies issued in the same second", () => {
+  // Arrange: 同じ秒に別の送信元へ発行した 2 つの cookie を持つコンテキスト
+  const body = build12ClientHello().serialize();
+  const contextWith = (peerKey: string) => {
+    const context = new DtlsContext({} as Options, SessionType.SERVER);
+    context.cookie = mintDtls12HelloVerifyCookie(secret, peerKey, body, {
+      nowSec,
+    });
+    return context;
+  };
+
+  // Act: それぞれのログ用 sessionId を得る
+  const a = contextWith("192.0.2.10:5000").sessionId;
+  const b = contextWith("192.0.2.11:5000").sessionId;
+
+  // Assert: 共通の version || issuedAt ではなく MAC 部分から取るので、接続ごとに異なる
+  expect(a).toHaveLength(10);
+  expect(b).toHaveLength(10);
+  expect(a).not.toBe(b);
+});

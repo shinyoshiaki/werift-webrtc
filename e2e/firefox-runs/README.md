@@ -45,8 +45,10 @@ runs. It differs from `firefox:record` only in:
   sets `FIREFOX_RECORDS_DIR=$RUNNER_TEMP/firefox-runs` and uploads it. The
   committed records here are never touched.
 - Nothing is pruned.
-- `FIREFOX_E2E_TIMEOUT_MIN` defaults to 20 (below the job's
-  `timeout-minutes: 30`), so even a suite that hangs ends with a record.
+- `FIREFOX_E2E_TIMEOUT_MIN` defaults to 20, below the E2E step's
+  `timeout-minutes: 25`; the job's 45 minutes leave room for setup, so even a
+  suite that hangs ends with a record. An empty, non-numeric or non-positive
+  `FIREFOX_E2E_TIMEOUT_MIN` / `FIREFOX_E2E_IDLE_MIN` falls back to the default.
 
 The exit code rule is the same, so any result other than `passed` fails the
 job. The job installs Firefox with `npx playwright install --with-deps
