@@ -76,6 +76,11 @@ abstract class BaseTcpProtocol implements Protocol {
   /** close() ran: no new transaction starts. */
   private closed = false;
 
+  /** @internal close() ran. */
+  protected get isClosed() {
+    return this.closed;
+  }
+
   protected readonly sockets = new Map<string, SocketEntry>();
 
   abstract connectionMade(...args: any[]): Promise<void>;
@@ -328,15 +333,29 @@ export class TcpActiveProtocol extends BaseTcpProtocol {
 
       const onError = (error: Error) => {
         socket.off("connect", onConnect);
+        socket.off("close", onClose);
         reject(error);
       };
       const onConnect = () => {
         socket.off("error", onError);
+        socket.off("close", onClose);
         resolve(entry);
+      };
+      // close() / pruneForSelection() destroy the socket without an error,
+      // so neither "error" nor "connect" would settle the connect.
+      const onClose = () => {
+        socket.off("error", onError);
+        socket.off("connect", onConnect);
+        reject(
+          this.isClosed
+            ? new TransactionCancelled()
+            : new Error(`tcp connection to ${addr[0]}:${addr[1]} closed`),
+        );
       };
 
       socket.once("error", onError);
       socket.once("connect", onConnect);
+      socket.once("close", onClose);
     });
 
     this.pendingSockets.set(key, connecting);

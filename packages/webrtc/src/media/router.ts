@@ -28,10 +28,7 @@ import {
   type KeyFrameRequestRouting,
   routeRtcp as routeRtcpPacket,
 } from "./routing/rtcpRouting";
-import {
-  type UnknownSsrcDrop,
-  unknownSsrcCandidate,
-} from "./routing/unknownSsrc";
+import { UnknownSsrcDrop, unknownSsrcCandidate } from "./routing/unknownSsrc";
 import { type FallbackStream, RTCRtpReceiver } from "./rtpReceiver";
 import type { RTCRtpSender } from "./rtpSender";
 import type { RTCRtpTransceiver } from "./rtpTransceiver";
@@ -743,76 +740,119 @@ export class RtpRouter {
       log("rid receiver not found", rid);
       return;
     }
-    if (ridReceiver) {
-      rtpReceiver = ridReceiver;
-      learnedNow = this.learnSsrc(ssrc, rtpReceiver);
-      rtpReceiver.latestRid = rid;
-      rtpReceiver.handleRtpByRid(packet, rid, extensions);
-    } else if (repairedReceiver) {
-      rtpReceiver = repairedReceiver;
-      learnedNow = this.learnSsrc(ssrc, rtpReceiver);
-      rtpReceiver.handleRtxByRid(packet, repairedRid as string, extensions);
-    } else if (
-      rtpReceiver &&
-      typeof repairedRid === "string" &&
-      rtpReceiver.readsRepairedRid(ssrc, repairedRid)
-    ) {
-      // (tests/media/firefoxSimulcastRepairedRidRoute.test.ts "simulcast (RID) RTX routed by SSRC with a repaired RID (readsRepairedRid)")
-      rtpReceiver.handleRtxByRid(packet, repairedRid, extensions);
-    } else if (
-      rtpReceiver &&
-      dtlsTransport &&
-      rtpReceiver.hasFallbackSsrc(ssrc)
-    ) {
-      const routed = this.routeFallbackPacket(
-        packet,
-        mid,
-        dtlsTransport,
-        rtpReceiver,
-      );
-      rtpReceiver = routed?.receiver;
-      if (routed) {
-        learnedNow = routed.learned;
-        routed.receiver.handleRtpBySsrc(packet, extensions);
-      }
-    } else if (rtpReceiver) {
-      rtpReceiver.handleRtpBySsrc(packet, extensions);
-    } else {
-      // simulcast after send receiver report. The SSRC a RID receiver learned
-      // belongs to its RTP session: on another transport the same number is
-      // another stream (for example of an SSRC-less m-line there).
-      rtpReceiver = Object.values(this.ridTable)
-        .filter((r): r is RTCRtpReceiver => r instanceof RTCRtpReceiver)
-        .find(
-          (r) =>
-            r.trackBySSRC[ssrc] &&
-            (!dtlsTransport || r.dtlsTransport === dtlsTransport),
-        );
-      if (rtpReceiver) {
-        log("simulcast register receiver by ssrc", ssrc);
+    try {
+      if (ridReceiver) {
+        rtpReceiver = ridReceiver;
         learnedNow = this.learnSsrc(ssrc, rtpReceiver);
+        rtpReceiver.latestRid = rid;
+        rtpReceiver.handleRtpByRid(packet, rid, extensions);
+      } else if (repairedReceiver) {
+        rtpReceiver = repairedReceiver;
+        learnedNow = this.learnSsrc(ssrc, rtpReceiver);
+        rtpReceiver.handleRtxByRid(packet, repairedRid as string, extensions);
+      } else if (
+        rtpReceiver &&
+        typeof repairedRid === "string" &&
+        rtpReceiver.readsRepairedRid(ssrc, repairedRid)
+      ) {
+        // (tests/media/firefoxSimulcastRepairedRidRoute.test.ts "simulcast (RID) RTX routed by SSRC with a repaired RID (readsRepairedRid)")
+        rtpReceiver.handleRtxByRid(packet, repairedRid, extensions);
+      } else if (
+        rtpReceiver &&
+        dtlsTransport &&
+        rtpReceiver.hasFallbackSsrc(ssrc)
+      ) {
+        const routed = this.routeFallbackPacket(
+          packet,
+          extensions,
+          mid,
+          dtlsTransport,
+          rtpReceiver,
+        );
+        rtpReceiver = routed?.receiver;
+        if (routed) {
+          learnedNow = routed.learned;
+          routed.receiver.handleRtpBySsrc(packet, extensions);
+        }
+      } else if (rtpReceiver) {
         rtpReceiver.handleRtpBySsrc(packet, extensions);
       } else {
-        // An RTX SSRC is only known from SDP (ssrc-group:FID) or from a
-        // repaired-rtp-stream-id: without either it is not guessed.
-        rtpReceiver = this.learnUnknownSsrc(
-          packet,
-          mid,
-          typeof repairedRid === "string",
-          dtlsTransport,
-        );
+        // simulcast after send receiver report. The SSRC a RID receiver learned
+        // belongs to its RTP session: on another transport the same number is
+        // another stream (for example of an SSRC-less m-line there).
+        rtpReceiver = Object.values(this.ridTable)
+          .filter((r): r is RTCRtpReceiver => r instanceof RTCRtpReceiver)
+          .find(
+            (r) =>
+              r.trackBySSRC[ssrc] &&
+              (!dtlsTransport || r.dtlsTransport === dtlsTransport),
+          );
         if (rtpReceiver) {
-          learnedNow = true;
+          log("simulcast register receiver by ssrc", ssrc);
+          learnedNow = this.learnSsrc(ssrc, rtpReceiver);
           rtpReceiver.handleRtpBySsrc(packet, extensions);
+        } else {
+          // An RTX SSRC is only known from SDP (ssrc-group:FID) or from a
+          // repaired-rtp-stream-id: without either it is not guessed.
+          rtpReceiver = this.learnUnknownSsrc(
+            packet,
+            extensions,
+            mid,
+            typeof repairedRid === "string",
+            dtlsTransport,
+          );
+          if (rtpReceiver) {
+            learnedNow = true;
+            rtpReceiver.handleRtpBySsrc(packet, extensions);
+          }
         }
       }
+    } finally {
+      // The settlement runs even when the receiver or an application
+      // listener of `onReceiveRtp` throws, so the queues of this packet
+      // never pass to the next one; the error itself propagates (to the
+      // last catch of the DTLS transport). A route the packet learned stays
+      // unless the receiver rejected the packet: a listener's error says
+      // nothing about the route
+      // (tests/media/router.test.ts "onReceiveRtp の購読者が投げても、同じパケットの経路の後処理は実行され、例外は再送出される").
+      if (rtpReceiver) {
+        this.settleRoutedPacket(rtpReceiver, packet, {
+          learnedNow,
+          ignoredRid: ignoredRid ? (rid as string) : undefined,
+          mid,
+          repairedRid,
+        });
+      } else {
+        log("ssrcReceiver not found");
+      }
     }
+  };
 
-    if (!rtpReceiver) {
-      log("ssrcReceiver not found");
-      return;
+  /**
+   * After a packet of `routeRtp` was handled by `rtpReceiver`: the routes it
+   * forgot or rejected go and the identifiers the packet carried are noted.
+   */
+  private settleRoutedPacket(
+    rtpReceiver: RTCRtpReceiver,
+    packet: RtpPacket,
+    {
+      learnedNow,
+      ignoredRid,
+      mid,
+      repairedRid,
+    }: {
+      learnedNow: boolean;
+      ignoredRid: string | undefined;
+      mid: unknown;
+      repairedRid: unknown;
+    },
+  ) {
+    const { ssrc } = packet.header;
+    // An invalid packet (an unnegotiated payload type, a malformed payload)
+    // does not note its RID on the fallback SSRC either.
+    if (ignoredRid !== undefined && rtpReceiver.receivesMediaPacket(packet)) {
+      rtpReceiver.noteFallbackRid(ssrc, ignoredRid);
     }
-    if (ignoredRid) rtpReceiver.noteFallbackRid(ssrc, rid as string);
     for (const forgotten of rtpReceiver.takeForgottenSsrcs()) {
       this.unlearnSsrc(forgotten, rtpReceiver);
     }
@@ -829,7 +869,7 @@ export class RtpRouter {
     if (typeof repairedRid === "string") {
       rtpReceiver.latestRepairedRid = repairedRid;
     }
-  };
+  }
 
   /**
    * Route an SSRC learned from a packet. Packet-driven, not a description:
@@ -865,6 +905,7 @@ export class RtpRouter {
    */
   private learnUnknownSsrc(
     packet: RtpPacket,
+    extensions: Extensions,
     mid: unknown,
     repaired: boolean,
     transport: RTCDtlsTransport | undefined,
@@ -887,6 +928,14 @@ export class RtpRouter {
     });
     if ("drop" in candidate) return drop(candidate.drop, candidate.detail);
     const { receiver } = candidate;
+    // A payload the receiver would drop (a malformed RED) teaches nothing
+    // (tests/media/ssrcLess/learning.test.ts "不正な RED のパケットは a=ssrc のない m-line に SSRC を学習させず、後続の正規パケットで学習する (%s)").
+    if (!receiver.receivesMediaPacket(packet)) {
+      // It did arrive on the transport
+      // (tests/media/ssrcLess/learning.test.ts "不正な RED は、未知 SSRC でも別 m-line の MID への移動でも、状態を変えずに transport-wide CC には記録される").
+      receiver.observeDroppedPacket(packet, extensions);
+      return drop(UnknownSsrcDrop.malformedPayload);
+    }
 
     if (handover) {
       // RFC 9143 section 9.2: a newer MID moves the SSRC to its m-line.
@@ -956,11 +1005,12 @@ export class RtpRouter {
    */
   private routeFallbackPacket(
     packet: RtpPacket,
+    extensions: Extensions,
     mid: unknown,
     transport: RTCDtlsTransport,
     owner: RTCRtpReceiver,
   ): { receiver: RTCRtpReceiver; learned: boolean } | undefined {
-    const { ssrc, sequenceNumber, payloadType } = packet.header;
+    const { ssrc, sequenceNumber } = packet.header;
     const observed = owner.observeFallbackPacket(ssrc, sequenceNumber);
     if (!observed) return { receiver: owner, learned: false };
     const own = this.transceivers().find((t) => t.receiver === owner);
@@ -968,16 +1018,23 @@ export class RtpRouter {
     if (midUpdate && own?.mid !== mid) {
       // The m-line the MID names takes the packet only with a media payload
       // type it receives (`learnUnknownSsrc`); otherwise nothing moves.
-      const target = this.learnUnknownSsrc(packet, mid, false, transport, {
-        from: owner,
-        stream: { ...observed.stream, midUpdateExt: observed.ext },
-      });
+      const target = this.learnUnknownSsrc(
+        packet,
+        extensions,
+        mid,
+        false,
+        transport,
+        {
+          from: owner,
+          stream: { ...observed.stream, midUpdateExt: observed.ext },
+        },
+      );
       return target ? { receiver: target, learned: true } : undefined;
     }
     // A packet the owner does not receive as media (a payload type not
-    // negotiated, RTX) is dropped by the receiver: its sequence number and
+    // negotiated, RTX, a malformed payload) is dropped by the receiver: its sequence number and
     // MID must not move the mapping state either.
-    if (owner.receivesMediaPayloadType(payloadType)) {
+    if (owner.receivesMediaPacket(packet)) {
       owner.acceptFallbackPacket(ssrc, observed.ext, midUpdate);
     }
     return { receiver: owner, learned: false };
