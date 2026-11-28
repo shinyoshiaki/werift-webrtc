@@ -33,10 +33,13 @@ import {
 import {
   collectDeliveredRtp,
   createSimulcastMediaPacket,
+  createSimulcastRedPacket,
   createSimulcastRtxFor,
   createSimulcastRtxPacket,
   createSimulcastRtxReceiver,
   getReceiverNack,
+  invalidRedPayloadNames,
+  invalidRedPayloads,
   retransmissionsOf,
   simulcastTimestampBase,
 } from "./rtpReceiverTestUtils";
@@ -1591,6 +1594,187 @@ describe("media/router", () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+
+    describe("交渉済み RED の不正な payload (パケット単位で破棄し、経路状態を変えない)", () => {
+      test.each(invalidRedPayloadNames)(
+        "確立済みの RID に別 SSRC の不正な RED が届いても、媒体 SSRC は切り替わらず後続の正規パケットが届く (%s)",
+        (name) => {
+          // Arrange: RID high の媒体 SSRC を 1000 として確立する。
+          const { router, receiver } = createSimulcastRtxReceiver({
+            rtx: false,
+            red: true,
+          });
+          const highReceived = collectDeliveredRtp(receiver.trackByRID.high);
+          router.routeRtp(mediaOf(high.ssrc, 10, high.rid));
+
+          // Act: RID high を名乗る別 SSRC の不正な RED を受け、続けて 1000 の正規パケットを受ける。
+          const routeInvalid = () =>
+            router.routeRtp(
+              createSimulcastRedPacket({
+                ssrc: 5555,
+                sequenceNumber: 1,
+                rid: high.rid,
+                payload: invalidRedPayloads[name],
+              }),
+            );
+          expect(routeInvalid).not.toThrow();
+          router.routeRtp(mediaOf(high.ssrc, 11, high.rid));
+
+          // Assert: 媒体 SSRC・retired・track の学習・learned route はどれも変わらず、正規パケットは両方届く。
+          expect(receiver.mediaSsrcByRid).toEqual({ high: high.ssrc });
+          expect(receiver.retiredSsrcsByRid.high ?? []).toEqual([]);
+          expect(Object.keys(receiver.trackBySSRC)).toEqual([
+            String(high.ssrc),
+          ]);
+          expect(router.ssrcTable[5555]).toBeUndefined();
+          expect(router.learnedSsrcs.has(5555)).toBe(false);
+          expect(router.ssrcTable[high.ssrc]).toBe(receiver);
+          expect(highReceived.map((p) => [p.ssrc, p.seq])).toEqual([
+            [high.ssrc, 10],
+            [high.ssrc, 11],
+          ]);
+          receiver.stop();
+        },
+      );
+
+      test("不正な RED の SSRC は learned route として残らず、同じ SSRC の正規パケットで初めて学習される", () => {
+        // Arrange
+        const { router, receiver } = createSimulcastRtxReceiver({
+          rtx: false,
+          red: true,
+        });
+        const highReceived = collectDeliveredRtp(receiver.trackByRID.high);
+
+        // Act: まだ媒体 SSRC のない RID high に不正な RED を受ける。
+        router.routeRtp(
+          createSimulcastRedPacket({
+            ssrc: 5555,
+            sequenceNumber: 1,
+            rid: high.rid,
+            payload: invalidRedPayloads.headerTruncated,
+          }),
+        );
+
+        // Assert: RID の媒体 SSRC も経路も学習しない。
+        expect(receiver.mediaSsrcByRid.high).toBeUndefined();
+        expect(router.ssrcTable[5555]).toBeUndefined();
+        expect(receiver.trackBySSRC[5555]).toBeUndefined();
+
+        // Act: 同じ SSRC の正規パケットを rid 付き、続けて rid なしで受ける。
+        router.routeRtp(mediaOf(5555, 2, high.rid));
+        router.routeRtp(mediaOf(5555, 3));
+
+        // Assert: 正規パケットで学習され、rid なしの後続も SSRC で届く。
+        expect(receiver.mediaSsrcByRid.high).toBe(5555);
+        expect(router.ssrcTable[5555]).toBe(receiver);
+        expect(router.learnedSsrcs.has(5555)).toBe(true);
+        expect(highReceived.map((p) => p.seq)).toEqual([2, 3]);
+        receiver.stop();
+      });
+
+      test("不正な RED は他の RID の配送と、同じ RID の欠落の要求・RTX による復元に影響しない", () => {
+        // Arrange: high は seq 11 が欠け、low は配送中。
+        const { router, receiver } = createSimulcastRtxReceiver({ red: true });
+        const highReceived = collectDeliveredRtp(receiver.trackByRID.high);
+        const lowReceived = collectDeliveredRtp(receiver.trackByRID.low);
+        router.routeRtp(mediaOf(high.ssrc, 10, high.rid));
+        router.routeRtp(mediaOf(high.ssrc, 12, high.rid));
+        router.routeRtp(mediaOf(low.ssrc, 500, low.rid));
+
+        // Act: RID high と RID low を名乗る別 SSRC の不正な RED を受け、続けて high の欠落の RTX と low の後続を受ける。
+        for (const rid of [high.rid, low.rid]) {
+          router.routeRtp(
+            createSimulcastRedPacket({
+              ssrc: 5555,
+              sequenceNumber: 1,
+              rid,
+              payload: invalidRedPayloads.blockTooLong,
+            }),
+          );
+        }
+        router.routeRtp(
+          createSimulcastRtxFor(high.ssrc, 11, {
+            rtxSsrc: high.rtxSsrc,
+            rrid: high.rid,
+          }),
+        );
+        router.routeRtp(mediaOf(low.ssrc, 501, low.rid));
+
+        // Assert: high の欠落は要求されたまま残り RTX で復元され、low は途切れない。
+        expect(retransmissionsOf(highReceived)).toEqual([[high.ssrc, 11]]);
+        expect(getReceiverNack(receiver).lostSeqNumbersOf(high.ssrc)).toEqual(
+          [],
+        );
+        expect(lowReceived.map((p) => p.seq)).toEqual([500, 501]);
+        expect(receiver.mediaSsrcByRid).toEqual({
+          high: high.ssrc,
+          low: low.ssrc,
+        });
+        receiver.stop();
+      });
+
+      test.each(invalidRedPayloadNames)(
+        "学習済み SSRC に届いた不正な RED は例外にならずに破棄され、同じ SSRC の後続が届く (%s)",
+        (name) => {
+          // Arrange
+          const { router, receiver } = createSimulcastRtxReceiver({
+            rtx: false,
+            red: true,
+          });
+          const highReceived = collectDeliveredRtp(receiver.trackByRID.high);
+          router.routeRtp(mediaOf(high.ssrc, 10, high.rid));
+
+          // Act: rid なし (SSRC で経路が決まる) の不正な RED、続けて正規パケットを受ける。
+          const routeInvalid = () =>
+            router.routeRtp(
+              createSimulcastRedPacket({
+                ssrc: high.ssrc,
+                sequenceNumber: 11,
+                payload: invalidRedPayloads[name],
+              }),
+            );
+          expect(routeInvalid).not.toThrow();
+          router.routeRtp(mediaOf(high.ssrc, 12));
+
+          // Assert: 学習済みの経路は残り、正規パケットだけが届く。
+          expect(router.ssrcTable[high.ssrc]).toBe(receiver);
+          expect(router.learnedSsrcs.has(high.ssrc)).toBe(true);
+          expect(receiver.mediaSsrcByRid).toEqual({ high: high.ssrc });
+          expect(highReceived.map((p) => p.seq)).toEqual([10, 12]);
+          receiver.stop();
+        },
+      );
+    });
+
+    test("onReceiveRtp の購読者が投げても、同じパケットの経路の後処理は実行され、例外は再送出される", () => {
+      // Arrange: RID high の媒体 SSRC を 1000 として学習させ、以降の配送で投げる購読者を付ける。
+      const { router, receiver } = createSimulcastRtxReceiver({ rtx: false });
+      router.routeRtp(mediaOf(high.ssrc, 10, high.rid));
+      const failure = new Error("listener failure");
+      receiver.trackByRID.high.onReceiveRtp.subscribe(() => {
+        throw failure;
+      });
+
+      // Act: 媒体 SSRC を 3000 に切り替えるパケット (旧 SSRC 1000 の経路を忘れる) を受ける。
+      const route = () =>
+        router.routeRtp(
+          createSimulcastMediaPacket({
+            ssrc: 3000,
+            sequenceNumber: 1,
+            rid: high.rid,
+            mid: "0",
+          }),
+        );
+
+      // Assert: 購読者の例外は routeRtp から再送出される。
+      expect(route).toThrow(failure);
+      // Assert: 旧 SSRC の learned route は同じパケットの後処理で消え、新 SSRC の経路は残り、MID も記録される。
+      expect(router.learnedSsrcs.has(high.ssrc)).toBe(false);
+      expect(router.learnedSsrcs.has(3000)).toBe(true);
+      expect(receiver.takeForgottenSsrcs()).toEqual([]);
+      expect(receiver.sdesMid).toBe("0");
+      receiver.stop();
     });
   });
 });
