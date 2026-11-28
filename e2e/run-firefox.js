@@ -1,20 +1,27 @@
 /**
  * Runs the Firefox E2E suite (vitest.firefox.config.mts) and saves a run
- * record with the commit hash under `firefox-runs/` (see its README). CI does
- * not run the Firefox suite; the committed records are its history.
+ * record with the commit hash (see `firefox-runs/README.md`).
  *
- *   cd e2e && npm run firefox:record                      # whole suite
+ *   cd e2e && npm run firefox:record                      # whole suite, local
  *   cd e2e && npm run firefox:record -- tests/bundle      # vitest filters/args
+ *   cd e2e && npm run firefox:ci                          # CI mode (--ci)
+ *
+ * Local runs save the record under `firefox-runs/` and prune records beyond
+ * the newest `FIREFOX_RECORDS_KEEP` (default 20, `firefox-runs-prune.js`).
+ * The `firefox-e2e` job of `.github/workflows/nodejs.yml` runs the suite with
+ * `--ci`: the record goes outside the repository (`FIREFOX_RECORDS_DIR`, else
+ * `$RUNNER_TEMP/firefox-runs`) for the job to upload as an artifact, nothing
+ * is pruned, and the default time limit is 20 min instead of 60.
  *
  * Starts the e2e server (TypeScript sources, as `npm run server`) on a free
  * port, installs Playwright Firefox into the harness's browser cache when it
  * is missing, runs vitest, and stops the server through its `/stop` endpoint,
  * then by PID. The record is written however the run ends: vitest exits, the
- * time limit (`FIREFOX_E2E_TIMEOUT_MIN`, default 60) or no test event for
- * `FIREFOX_E2E_IDLE_MIN` (default 5) stops it, or SIGINT /
- * SIGTERM stops the runner. The exit code is vitest's (1 on a time limit,
- * 130 / 143 on a signal). After saving, records beyond the newest
- * `FIREFOX_RECORDS_KEEP` (default 20) are deleted (`firefox-runs-prune.js`).
+ * time limit (`FIREFOX_E2E_TIMEOUT_MIN`) or no test event for
+ * `FIREFOX_E2E_IDLE_MIN` (default 5) stops it, or SIGINT / SIGTERM stops the
+ * runner. The exit code is 0 only for a passed record (completed, vitest
+ * exited with 0, no unfinished test or module error); otherwise vitest's code
+ * (1 on a time limit, 130 / 143 on a signal).
  */
 const net = require("node:net");
 const os = require("node:os");
@@ -27,25 +34,29 @@ const {
   statSync,
   writeFileSync,
 } = require("node:fs");
-const { dirname, join, resolve } = require("node:path");
+const { dirname, join, relative, resolve } = require("node:path");
 
 const { ensureBrowsersPathEnv } = require("./ensure-browser");
 const { requestServerStop } = require("./stop");
 const { keepFromEnv, pruneRecords } = require("./firefox-runs-prune");
 const {
-  RECORDS_DIR,
   buildRecord,
   collectGitInfo,
   recordFileName,
+  runOptions,
+  runnerExitCode,
   summarizeEvents,
 } = require("./firefox-run-record");
 
 const repoRoot = resolve(__dirname, "..");
-const timeoutMin = Number(process.env.FIREFOX_E2E_TIMEOUT_MIN ?? 60);
 // A test stuck past its own testTimeout (seen in Firefox) stops the whole
-// run: no reporter event for this long stops it too. The slowest test with
+// run: no reporter event for `idleMin` stops it too. The slowest test with
 // its retry takes about a minute.
-const idleMin = Number(process.env.FIREFOX_E2E_IDLE_MIN ?? 5);
+const { vitestArgs, recordsDir, prune, timeoutMin, idleMin, label } =
+  runOptions(process.argv.slice(2), process.env, {
+    repoRoot,
+    tmpdir: os.tmpdir(),
+  });
 
 function npmCommand() {
   return process.platform === "win32" ? "npm.cmd" : "npm";
@@ -133,7 +144,7 @@ function ensureFirefox(env) {
     { cwd: __dirname, env, encoding: "utf8" },
   );
   if (probe.status === 0 && existsSync(probe.stdout.trim())) return;
-  console.log("[firefox:record] installing Playwright Firefox");
+  console.log(`[${label}] installing Playwright Firefox`);
   const install = spawnSync(
     npmCommand(),
     ["exec", "--", "playwright", "install", "firefox"],
@@ -173,7 +184,6 @@ function collectEnvironment(env) {
 }
 
 async function main() {
-  const vitestArgs = process.argv.slice(2);
   const env = { ...process.env };
   ensureBrowsersPathEnv(env);
   ensureFirefox(env);
@@ -193,7 +203,7 @@ async function main() {
   env.FIREFOX_RECORD_EVENTS = eventsFile;
 
   console.log(
-    `[firefox:record] commit ${git.shortCommit}${git.dirty ? " (+uncommitted changes)" : ""}, ` +
+    `[${label}] commit ${git.shortCommit}${git.dirty ? " (+uncommitted changes)" : ""}, ` +
       `Firefox ${environment.firefox ?? "unknown"}, e2e port ${port}, limit ${timeoutMin} min (idle ${idleMin} min)`,
   );
   const startedAt = new Date();
@@ -233,32 +243,39 @@ async function main() {
         environment,
         summary: summarizeEvents(events, repoRoot),
       });
-      const dir = join(repoRoot, RECORDS_DIR);
+      const dir = recordsDir;
       mkdirSync(dir, { recursive: true });
       const name = recordFileName(record);
       writeFileSync(join(dir, name), `${JSON.stringify(record, null, 2)}\n`);
       const { totals } = record;
       console.log(
-        `[firefox:record] ${record.result} (${outcome}): ${totals.passed} passed, ` +
+        `[${label}] ${record.result} (${outcome}): ${totals.passed} passed, ` +
           `${totals.failed} failed, ${totals.skipped} skipped, ${totals.unfinished} unfinished ` +
           `of ${totals.files} files`,
       );
       for (const test of record.unfinished) {
-        console.log(`[firefox:record] unfinished: ${test.file} > ${test.name}`);
+        console.log(`[${label}] unfinished: ${test.file} > ${test.name}`);
       }
-      console.log(`[firefox:record] record saved: ${RECORDS_DIR}/${name}`);
+      for (const error of record.moduleErrors) {
+        console.log(`[${label}] module error: ${JSON.stringify(error)}`);
+      }
+      console.log(
+        `[${label}] record saved: ${relative(process.cwd(), join(dir, name)) || name}`,
+      );
+      // CI keeps its record as an artifact and never prunes.
+      if (!prune) return runnerExitCode(record);
       // Keep the newest records only (the one just saved always stays).
       try {
         const pruned = pruneRecords(dir, Math.max(1, keepFromEnv()));
         if (pruned.length) {
           console.log(
-            `[firefox:record] pruned ${pruned.length} old record(s), keeping the newest ${Math.max(1, keepFromEnv())}`,
+            `[${label}] pruned ${pruned.length} old record(s), keeping the newest ${Math.max(1, keepFromEnv())}`,
           );
         }
       } catch (error) {
-        console.error(`[firefox:record] prune skipped: ${error.message}`);
+        console.error(`[${label}] prune skipped: ${error.message}`);
       }
-      return exitCode;
+      return runnerExitCode(record);
     })();
     return finishing;
   };
@@ -332,14 +349,14 @@ async function main() {
         result === "limit"
           ? `vitest did not finish in ${timeoutMin} min (FIREFOX_E2E_TIMEOUT_MIN)`
           : `no test event for ${idleMin} min (FIREFOX_E2E_IDLE_MIN)`;
-      console.error(`[firefox:record] ${stopReason}; stopping vitest`);
+      console.error(`[${label}] ${stopReason}; stopping vitest`);
       outcome = "timeout";
       exitCode = 1;
     } else if (outcome === "completed") {
       exitCode = result.code ?? 1;
     }
   } catch (error) {
-    console.error("[firefox:record]", error);
+    console.error(`[${label}]`, error);
     if (outcome === "completed") outcome = "error";
     exitCode = 1;
   }

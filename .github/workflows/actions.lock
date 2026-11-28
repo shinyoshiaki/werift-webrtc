@@ -6,6 +6,7 @@ workflows:
     '.github/workflows/nodejs.yml':
         - 'actions/checkout@v7.0.1'
         - 'actions/setup-node@v4.4.0'
+        - 'actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f'
     '.github/workflows/pages.yml':
         - 'actions/checkout@v7.0.1'
         - 'actions/deploy-pages@v4.0.5'

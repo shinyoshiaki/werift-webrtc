@@ -37,6 +37,19 @@ const TURN_CREDENTIALS = {
 } as const;
 const UDP_TRANSPORT = 0x11000000;
 
+/**
+ * A loopback client descriptor for `TurnServerProtocol` (server at 127.0.0.1:3478).
+ * `clientId` is derived from `transport` and `port`, so the two never disagree.
+ */
+function makeLoopbackClient(port: number, transport: "udp" | "tcp" = "udp") {
+  return {
+    clientId: `${transport}:127.0.0.1:${port}`,
+    remoteAddress: ["127.0.0.1", port] as Address,
+    transport,
+    localAddress: ["127.0.0.1", 3478] as Address,
+  };
+}
+
 function makeAllocateRequest() {
   return new Message(methods.ALLOCATE, classes.REQUEST).setAttribute(
     "REQUESTED-TRANSPORT",
@@ -270,12 +283,7 @@ describe("TurnServerProtocol", () => {
           : undefined,
       now: () => now,
     });
-    const client = {
-      clientId: "udp:127.0.0.1:5000",
-      remoteAddress: ["127.0.0.1", 5000] as Address,
-      transport: "udp" as const,
-      localAddress: ["127.0.0.1", 3478] as Address,
-    };
+    const client = makeLoopbackClient(5000);
 
     // 認証なし Allocate で 401 と REALM/NONCE が返ることを確認する。
     const firstActions = protocol.handleClientDatagram({
@@ -314,6 +322,30 @@ describe("TurnServerProtocol", () => {
     ).toBe(false);
   });
 
+  test("issues a textual NONCE that nICEr (Firefox) can parse", () => {
+    // Arrange: 401 を返す TURN サーバーと、認証なしの Allocate を送るクライアントを用意する。
+    const protocol = new TurnServerProtocol({ realm: TURN_CREDENTIALS.realm });
+    const client = makeLoopbackClient(5000);
+
+    // Act: 乱数の偏りに左右されないよう、NONCE を何度も発行させる。
+    const nonces = Array.from({ length: 200 }, () => {
+      const actions = protocol.handleClientDatagram({
+        ...client,
+        data: makeAllocateRequest().bytes,
+      });
+      const response = parseMessage(findSendClient(actions).data)!;
+      return response.getAttributeValue("NONCE") as Buffer;
+    });
+
+    // Assert: NONCE は 128 文字未満の quoted-string の中身になる (RFC 5389 §15.8)。
+    // NUL を含むと nICEr は 401 応答を解析できず、TCP では再送がないので割り当てに失敗する。
+    for (const nonce of nonces) {
+      expect(nonce.toString("latin1")).toMatch(
+        /^[\x21\x23-\x5b\x5d-\x7e]{1,127}$/,
+      );
+    }
+  });
+
   test("relays channel data between allocations", async () => {
     const protocol = new TurnServerProtocol({
       realm: TURN_CREDENTIALS.realm,
@@ -322,18 +354,8 @@ describe("TurnServerProtocol", () => {
           ? TURN_CREDENTIALS.password
           : undefined,
     });
-    const clientA = {
-      clientId: "udp:127.0.0.1:5000",
-      remoteAddress: ["127.0.0.1", 5000] as Address,
-      transport: "udp" as const,
-      localAddress: ["127.0.0.1", 3478] as Address,
-    };
-    const clientB = {
-      clientId: "udp:127.0.0.1:5001",
-      remoteAddress: ["127.0.0.1", 5001] as Address,
-      transport: "udp" as const,
-      localAddress: ["127.0.0.1", 3478] as Address,
-    };
+    const clientA = makeLoopbackClient(5000);
+    const clientB = makeLoopbackClient(5001);
 
     const allocationA = await allocateRelay(protocol, clientA, [
       "127.0.0.1",
@@ -416,12 +438,7 @@ describe("TurnServerProtocol", () => {
           ? TURN_CREDENTIALS.password
           : undefined,
     });
-    const client = {
-      clientId: "udp:127.0.0.1:5000",
-      remoteAddress: ["127.0.0.1", 5000] as Address,
-      transport: "udp" as const,
-      localAddress: ["127.0.0.1", 3478] as Address,
-    };
+    const client = makeLoopbackClient(5000);
 
     const allocation = await allocateRelay(protocol, client, [
       "127.0.0.1",
@@ -476,12 +493,7 @@ describe("TurnServerProtocol", () => {
           ? TURN_CREDENTIALS.password
           : undefined,
     });
-    const client = {
-      clientId: "udp:127.0.0.1:5000",
-      remoteAddress: ["127.0.0.1", 5000] as Address,
-      transport: "udp" as const,
-      localAddress: ["127.0.0.1", 3478] as Address,
-    };
+    const client = makeLoopbackClient(5000);
 
     const allocation = await allocateRelay(protocol, client, [
       "127.0.0.1",
@@ -520,12 +532,7 @@ describe("TurnServerProtocol", () => {
           ? TURN_CREDENTIALS.password
           : undefined,
     });
-    const client = {
-      clientId: "udp:127.0.0.1:5000",
-      remoteAddress: ["127.0.0.1", 5000] as Address,
-      transport: "udp" as const,
-      localAddress: ["127.0.0.1", 3478] as Address,
-    };
+    const client = makeLoopbackClient(5000);
 
     const allocation = await allocateRelay(protocol, client, [
       "127.0.0.1",
@@ -561,12 +568,7 @@ describe("TurnServerProtocol", () => {
           ? TURN_CREDENTIALS.password
           : undefined,
     });
-    const client = {
-      clientId: "udp:127.0.0.1:5000",
-      remoteAddress: ["127.0.0.1", 5000] as Address,
-      transport: "udp" as const,
-      localAddress: ["127.0.0.1", 3478] as Address,
-    };
+    const client = makeLoopbackClient(5000);
 
     const allocation = await allocateRelay(protocol, client, [
       "127.0.0.1",
@@ -604,12 +606,7 @@ describe("TurnServerProtocol", () => {
           ? TURN_CREDENTIALS.password
           : undefined,
     });
-    const client = {
-      clientId: "udp:127.0.0.1:5000",
-      remoteAddress: ["127.0.0.1", 5000] as Address,
-      transport: "udp" as const,
-      localAddress: ["127.0.0.1", 3478] as Address,
-    };
+    const client = makeLoopbackClient(5000);
 
     const allocation = await allocateRelay(protocol, client, [
       "127.0.0.1",
@@ -649,12 +646,7 @@ describe("TurnServerProtocol", () => {
           : undefined,
       now: () => now,
     });
-    const client = {
-      clientId: "udp:127.0.0.1:5000",
-      remoteAddress: ["127.0.0.1", 5000] as Address,
-      transport: "udp" as const,
-      localAddress: ["127.0.0.1", 3478] as Address,
-    };
+    const client = makeLoopbackClient(5000);
 
     const allocation = await allocateRelay(protocol, client, [
       "127.0.0.1",

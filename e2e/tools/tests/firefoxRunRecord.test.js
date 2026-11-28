@@ -2,10 +2,13 @@ const assert = require("node:assert/strict");
 const { test } = require("node:test");
 
 const {
+  CI_TIMEOUT_MIN,
   RECORDS_DIR,
   buildRecord,
   collectGitInfo,
   recordFileName,
+  runOptions,
+  runnerExitCode,
   selectRecordsToPrune,
   summarizeEvents,
 } = require("../../firefox-run-record.js");
@@ -218,4 +221,107 @@ test("the kept count comes from FIREFOX_RECORDS_KEEP or defaults to 20", () => {
   assert.equal(keepFromEnv({}), 20);
   assert.equal(keepFromEnv({ FIREFOX_RECORDS_KEEP: "" }), 20);
   assert.equal(keepFromEnv({ FIREFOX_RECORDS_KEEP: "5" }), 5);
+});
+
+/** Paths runOptions resolves against in these tests. */
+const runPaths = { repoRoot: "/repo", tmpdir: "/tmp" };
+
+test("a local run records into firefox-runs/, prunes, and keeps the 60 min limit", () => {
+  // Act: --ci なしの引数と空の環境から実行設定を作る
+  const options = runOptions(["tests/bundle"], {}, runPaths);
+  // Assert: repo 内の firefox-runs/ に書いて prune し、vitest の引数はそのまま
+  assert.equal(options.ci, false);
+  assert.equal(options.recordsDir, `/repo/${RECORDS_DIR}`);
+  assert.equal(options.prune, true);
+  assert.equal(options.timeoutMin, 60);
+  assert.equal(options.idleMin, 5);
+  assert.deepEqual(options.vitestArgs, ["tests/bundle"]);
+  assert.equal(options.label, "firefox:record");
+});
+
+test("CI mode records outside the repository, never prunes, and lowers the time limit", () => {
+  // Act: --ci 付きで、出力先の環境変数ごとに実行設定を作る
+  const explicit = runOptions(
+    ["--ci", "tests/ice"],
+    { FIREFOX_RECORDS_DIR: "/out/records", RUNNER_TEMP: "/runner" },
+    runPaths,
+  );
+  const runnerTemp = runOptions(["--ci"], { RUNNER_TEMP: "/runner" }, runPaths);
+  const fallback = runOptions(["--ci"], {}, runPaths);
+  const overridden = runOptions(
+    ["--ci"],
+    { FIREFOX_E2E_TIMEOUT_MIN: "45", FIREFOX_E2E_IDLE_MIN: "3" },
+    runPaths,
+  );
+  // Assert: FIREFOX_RECORDS_DIR → $RUNNER_TEMP/firefox-runs → tmpdir の順に repo の外へ書く
+  assert.equal(explicit.recordsDir, "/out/records");
+  assert.equal(runnerTemp.recordsDir, "/runner/firefox-runs");
+  assert.equal(fallback.recordsDir, "/tmp/werift-firefox-runs");
+  for (const options of [explicit, runnerTemp, fallback]) {
+    assert.equal(options.ci, true);
+    assert.equal(options.prune, false);
+    assert.equal(options.recordsDir.startsWith(`/repo/${RECORDS_DIR}`), false);
+    assert.equal(options.timeoutMin, CI_TIMEOUT_MIN);
+    assert.equal(options.label, "firefox:ci");
+  }
+  // Assert: --ci は vitest に渡さず、時間制限は環境変数で上書きできる
+  assert.deepEqual(explicit.vitestArgs, ["tests/ice"]);
+  assert.deepEqual(fallback.vitestArgs, []);
+  assert.equal(overridden.timeoutMin, 45);
+  assert.equal(overridden.idleMin, 3);
+});
+
+test("an empty, non-numeric or non-positive time limit falls back to the default", () => {
+  // Act: 未設定の CI 変数が展開された空文字や、数値でない・0 以下の値で実行設定を作る
+  const invalid = ["", " ", "abc", "0", "-5", "Infinity", "NaN"].map((value) =>
+    runOptions(
+      ["--ci"],
+      { FIREFOX_E2E_TIMEOUT_MIN: value, FIREFOX_E2E_IDLE_MIN: value },
+      runPaths,
+    ),
+  );
+  const local = runOptions([], { FIREFOX_E2E_TIMEOUT_MIN: "" }, runPaths);
+  // Assert: 上限が即座に発火せず、CI / ローカルそれぞれの既定値になる
+  for (const options of invalid) {
+    assert.equal(options.timeoutMin, CI_TIMEOUT_MIN);
+    assert.equal(options.idleMin, 5);
+  }
+  assert.equal(local.timeoutMin, 60);
+});
+
+test("the runner exits 0 only for a passed record without unfinished tests or module errors", () => {
+  // Arrange: 成功・失敗・時間切れ・未完了・module error の記録
+  const recordWith = ({ exitCode = 0, outcome = "completed", summary = {} }) =>
+    buildRecord({
+      git: gitInfo,
+      startedAt: new Date(0),
+      finishedAt: new Date(1000),
+      exitCode,
+      outcome,
+      vitestArgs: [],
+      environment: {},
+      summary: { ...summarizeEvents("", "/repo"), ...summary },
+    });
+  // Act / Assert: passed だけが 0 になる
+  assert.equal(runnerExitCode(recordWith({})), 0);
+  // vitest の失敗はその exit code のまま
+  assert.equal(runnerExitCode(recordWith({ exitCode: 1 })), 1);
+  // 時間切れで止めた実行は vitest の exit code が 0 でも非 0
+  assert.equal(runnerExitCode(recordWith({ outcome: "timeout" })), 1);
+  // シグナルで止めた実行はそのコード
+  assert.equal(
+    runnerExitCode(recordWith({ exitCode: 143, outcome: "interrupted" })),
+    143,
+  );
+  // 未完了のテストや module error が残れば exit code 0 でも非 0
+  assert.equal(
+    runnerExitCode(
+      recordWith({ summary: { unfinished: [{ file: "a", name: "b" }] } }),
+    ),
+    1,
+  );
+  assert.equal(
+    runnerExitCode(recordWith({ summary: { moduleErrors: [{ file: "a" }] } })),
+    1,
+  );
 });

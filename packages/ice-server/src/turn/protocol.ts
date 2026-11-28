@@ -1069,7 +1069,10 @@ export class TurnServerProtocol {
   }
 
   private issueNonce() {
-    const value = randomBytes(16);
+    // NONCE is text (RFC 5389 §15.8). Raw random bytes can hold a NUL, and
+    // Firefox (nICEr) then drops the whole 401 / 438 response; over TCP / TLS
+    // nothing retransmits the request, so the allocation fails.
+    const value = Buffer.from(randomBytes(16).toString("hex"));
     this.nonces.set(value.toString("hex"), {
       value,
       expiresAt: this.now() + this.nonceLifetime * 1000,

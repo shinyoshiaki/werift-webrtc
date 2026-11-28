@@ -1,12 +1,13 @@
 /**
- * Builds the run record that `run-firefox.js` (`npm run firefox:record`)
- * saves under `firefox-runs/` for every Firefox E2E run. The Firefox suite is
- * kept out of CI, so these committed records are its run history: which
- * commit (and which uncommitted changes) ran, in which Firefox, with which
- * per-test result. Pure functions only; the runner does the I/O.
+ * Builds the run record that `run-firefox.js` saves for every Firefox E2E
+ * run: which commit (and which uncommitted changes) ran, in which Firefox,
+ * with which per-test result. A local run (`npm run firefox:record`) saves it
+ * under `firefox-runs/` (committed when it backs a local result); the CI job
+ * (`npm run firefox:ci`) saves it outside the repository and uploads it as an
+ * artifact. Pure functions only; the runner does the I/O.
  */
 const { createHash } = require("node:crypto");
-const { relative } = require("node:path");
+const { join, relative, resolve } = require("node:path");
 
 /** Record format version, bumped when a field changes meaning. */
 const RECORD_VERSION = 1;
@@ -171,6 +172,69 @@ function recordFileName(record) {
   return `${stamp}-${record.shortCommit}${record.dirty ? "-dirty" : ""}.json`;
 }
 
+/** Time limit of a CI run (minutes), below the E2E step's `timeout-minutes`. */
+const CI_TIMEOUT_MIN = 20;
+
+/**
+ * Runner options from its arguments and environment. `--ci` (CI mode, the
+ * `firefox-e2e` job) writes the record outside the repository
+ * (`FIREFOX_RECORDS_DIR`, else `$RUNNER_TEMP/firefox-runs`, else
+ * `<tmpdir>/werift-firefox-runs`), never prunes, and lowers the default time
+ * limit to {@link CI_TIMEOUT_MIN}, so a hung suite still ends with a record
+ * before the job's own timeout. Other args go to vitest.
+ */
+/**
+ * Minutes from an environment variable. An unset, empty, non-numeric,
+ * non-finite or non-positive value (e.g. a CI variable expanded while unset)
+ * falls back to `fallback`, so it never fires the time limit at once.
+ */
+function positiveMinutes(value, fallback) {
+  if (value === undefined || value.trim() === "") return fallback;
+  const minutes = Number(value);
+  return Number.isFinite(minutes) && minutes > 0 ? minutes : fallback;
+}
+
+function runOptions(argv, env, { repoRoot, tmpdir }) {
+  const ci = argv.includes("--ci");
+  const vitestArgs = argv.filter((arg) => arg !== "--ci");
+  const recordsDir = ci
+    ? resolve(
+        env.FIREFOX_RECORDS_DIR ||
+          (env.RUNNER_TEMP
+            ? join(env.RUNNER_TEMP, "firefox-runs")
+            : join(tmpdir, "werift-firefox-runs")),
+      )
+    : join(repoRoot, RECORDS_DIR);
+  const timeoutMin = positiveMinutes(
+    env.FIREFOX_E2E_TIMEOUT_MIN,
+    ci ? CI_TIMEOUT_MIN : 60,
+  );
+  const idleMin = positiveMinutes(env.FIREFOX_E2E_IDLE_MIN, 5);
+  return {
+    ci,
+    vitestArgs,
+    recordsDir,
+    prune: !ci,
+    timeoutMin,
+    idleMin,
+    label: ci ? "firefox:ci" : "firefox:record",
+  };
+}
+
+/**
+ * Exit code of the runner: 0 only for a `passed` record (completed, vitest
+ * exited with 0), so a failure, a time limit, unfinished tests or a module
+ * error fail the CI job; otherwise the runner's code (at least 1).
+ */
+function runnerExitCode(record) {
+  const clean =
+    record.result === "passed" &&
+    record.unfinished.length === 0 &&
+    record.moduleErrors.length === 0;
+  if (clean) return 0;
+  return record.exitCode || 1;
+}
+
 /** Records kept by default: the runner prunes older ones after each run. */
 const DEFAULT_RECORDS_KEEP = 20;
 
@@ -193,12 +257,15 @@ function selectRecordsToPrune(fileNames, keep) {
 }
 
 module.exports = {
+  CI_TIMEOUT_MIN,
   DEFAULT_RECORDS_KEEP,
   RECORDS_DIR,
   RECORD_VERSION,
   buildRecord,
   collectGitInfo,
   recordFileName,
+  runOptions,
+  runnerExitCode,
   selectRecordsToPrune,
   summarizeEvents,
 };

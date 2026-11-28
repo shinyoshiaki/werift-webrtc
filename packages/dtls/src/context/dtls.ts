@@ -123,8 +123,17 @@ export class DtlsContext {
     this.flightSleepResolvers.clear();
   }
 
+  /**
+   * Log-only connection label. Taken from the cookie's last 5 bytes (the MAC
+   * part of werift's cookies), since the DTLS 1.2 HVR cookie starts with
+   * `version || issuedAt` and that prefix is shared by every cookie of a second.
+   */
   get sessionId() {
-    return this.cookie ? this.cookie.toString("hex").slice(0, 10) : "";
+    return this.cookie
+      ? this.cookie
+          .subarray(Math.max(0, this.cookie.length - 5))
+          .toString("hex")
+      : "";
   }
 
   get sortedHandshakeCache() {

@@ -1,15 +1,15 @@
 {
   "version": 1,
   "suite": "e2e firefox (vitest.firefox.config.mts)",
-  "commit": "966ad2386c863a4846bfe8fd86b2743e5b6a7ed5",
-  "shortCommit": "966ad2386",
-  "branch": "ticket/a461df90-10bb-4aad-8f1b-3cce626d630b",
+  "commit": "7d27abf826ec75cc968504c6471fdfc8f93ed0ae",
+  "shortCommit": "7d27abf82",
+  "branch": "ticket/c7579f9e-3f06-4967-96c8-c5238e91871c",
   "dirty": false,
   "uncommittedFiles": [],
   "uncommittedDiffSha256": null,
-  "startedAt": "2026-11-15T12:48:09.733Z",
-  "finishedAt": "2026-11-15T12:49:51.196Z",
-  "durationSec": 101,
+  "startedAt": "2026-11-28T03:08:57.492Z",
+  "finishedAt": "2026-11-28T03:10:48.150Z",
+  "durationSec": 111,
   "exitCode": 0,
   "outcome": "completed",
   "stopReason": null,
@@ -19,26 +19,44 @@
     "firefox": "157.0",
     "playwright": "1.64.1",
     "vitest": "5.0.5",
-    "node": "v24.22.2",
+    "node": "v24.22.3",
     "platform": "linux 7.0.0-43-generic x64"
   },
   "runEnded": true,
   "endReason": "passed",
   "unhandledErrors": [],
   "totals": {
-    "files": 25,
-    "tests": 71,
-    "passed": 62,
+    "files": 27,
+    "tests": 77,
+    "passed": 68,
     "failed": 0,
     "skipped": 9,
     "unfinished": 0
   },
   "tests": [
     {
+      "file": "e2e/tests/datachannel/turnRelay.test.ts",
+      "name": "datachannel/turn relay > exchanges data over udp TURN relay between Chrome and werift",
+      "status": "passed",
+      "durationMs": 269
+    },
+    {
+      "file": "e2e/tests/datachannel/turnRelay.test.ts",
+      "name": "datachannel/turn relay > exchanges data over tcp TURN relay between Chrome and werift",
+      "status": "passed",
+      "durationMs": 396
+    },
+    {
+      "file": "e2e/tests/datachannel/turnRelay.test.ts",
+      "name": "datachannel/turn relay > [firefox-unsupported:turns-ip-literal] Firefox の TURNS は FQDN と信頼済み証明書が必要（e2e の TURN は 127.0.0.1 と自己署名証明書） | exchanges data over tls TURN relay between Chrome and werift",
+      "status": "skipped",
+      "durationMs": 0
+    },
+    {
       "file": "e2e/tests/mediachannel/codecRtp.test.ts",
       "name": "mediachannel_codec_rtp > scenario A depacketize (Chrome → packages/rtp) > depacketize_vp8",
       "status": "passed",
-      "durationMs": 436
+      "durationMs": 393
     },
     {
       "file": "e2e/tests/mediachannel/codecRtp.test.ts",
@@ -50,25 +68,25 @@
       "file": "e2e/tests/mediachannel/codecRtp.test.ts",
       "name": "mediachannel_codec_rtp > scenario A depacketize (Chrome → packages/rtp) > depacketize_opus",
       "status": "passed",
-      "durationMs": 491
+      "durationMs": 379
     },
     {
       "file": "e2e/tests/mediachannel/codecRtp.test.ts",
       "name": "mediachannel_codec_rtp > scenario A depacketize (Chrome → packages/rtp) > depacketize_vp9",
       "status": "passed",
-      "durationMs": 387
+      "durationMs": 385
     },
     {
       "file": "e2e/tests/mediachannel/codecRtp.test.ts",
       "name": "mediachannel_codec_rtp > scenario A depacketize (Chrome → packages/rtp) > depacketize_av1",
       "status": "passed",
-      "durationMs": 378
+      "durationMs": 389
     },
     {
       "file": "e2e/tests/mediachannel/codecRtp.test.ts",
       "name": "mediachannel_codec_rtp > scenario B packetize (packages/rtp → Chrome) > packetize_vp8",
       "status": "passed",
-      "durationMs": 1238
+      "durationMs": 1278
     },
     {
       "file": "e2e/tests/mediachannel/codecRtp.test.ts",
@@ -80,25 +98,25 @@
       "file": "e2e/tests/mediachannel/codecRtp.test.ts",
       "name": "mediachannel_codec_rtp > scenario B packetize (packages/rtp → Chrome) > packetize_opus",
       "status": "passed",
-      "durationMs": 12345
+      "durationMs": 12379
     },
     {
       "file": "e2e/tests/mediachannel/codecRtp.test.ts",
       "name": "mediachannel_codec_rtp > scenario B packetize (packages/rtp → Chrome) > packetize_vp9",
       "status": "passed",
-      "durationMs": 1439
+      "durationMs": 1497
     },
     {
       "file": "e2e/tests/mediachannel/codecRtp.test.ts",
       "name": "mediachannel_codec_rtp > scenario B packetize (packages/rtp → Chrome) > packetize_av1",
       "status": "passed",
-      "durationMs": 3246
+      "durationMs": 3219
     },
     {
       "file": "e2e/tests/mediachannel/codecRtp.test.ts",
       "name": "mediachannel_codec_rtp > scenario C repacketize (Chrome → de/packetize → Chrome) > repacketize_vp8",
       "status": "passed",
-      "durationMs": 486
+      "durationMs": 485
     },
     {
       "file": "e2e/tests/mediachannel/codecRtp.test.ts",
@@ -110,85 +128,79 @@
       "file": "e2e/tests/mediachannel/codecRtp.test.ts",
       "name": "mediachannel_codec_rtp > scenario C repacketize (Chrome → de/packetize → Chrome) > repacketize_opus",
       "status": "passed",
-      "durationMs": 12378
+      "durationMs": 12390
     },
     {
       "file": "e2e/tests/mediachannel/codecRtp.test.ts",
       "name": "mediachannel_codec_rtp > scenario C repacketize (Chrome → de/packetize → Chrome) > repacketize_vp9",
       "status": "passed",
-      "durationMs": 737
+      "durationMs": 730
     },
     {
       "file": "e2e/tests/mediachannel/codecRtp.test.ts",
       "name": "mediachannel_codec_rtp > scenario C repacketize (Chrome → de/packetize → Chrome) > repacketize_av1",
       "status": "passed",
-      "durationMs": 481
+      "durationMs": 476
     },
     {
       "file": "e2e/tests/mediachannel/recordPlayback.test.ts",
       "name": "mediachannel_record_playback > video",
       "status": "passed",
-      "durationMs": 9692
+      "durationMs": 9696
     },
     {
       "file": "e2e/tests/mediachannel/recordPlayback.test.ts",
       "name": "mediachannel_record_playback > av",
       "status": "passed",
-      "durationMs": 9714
+      "durationMs": 9715
+    },
+    {
+      "file": "e2e/tests/mediachannel/vp8Playback.test.ts",
+      "name": "mediachannel_vp8_playback > file",
+      "status": "passed",
+      "durationMs": 6107
+    },
+    {
+      "file": "e2e/tests/mediachannel/vp8Playback.test.ts",
+      "name": "mediachannel_vp8_playback > dummy",
+      "status": "passed",
+      "durationMs": 4149
     },
     {
       "file": "e2e/tests/mediachannel/recordPlaybackOgg.test.ts",
       "name": "mediachannel_record_playback_ogg > audio",
       "status": "passed",
-      "durationMs": 10242
+      "durationMs": 10200
     },
     {
-      "file": "e2e/tests/bundle/max-compat.test.ts",
-      "name": "bundle_max_compat > bundle_max_compat_answer",
+      "file": "e2e/tests/mediachannel/simulcast.test.ts",
+      "name": "mediachannel_simulcast > mediachannel_simulcast_answer",
       "status": "passed",
-      "durationMs": 358
+      "durationMs": 2276
     },
     {
-      "file": "e2e/tests/bundle/max-compat.test.ts",
-      "name": "bundle_max_compat > bundle_max_compat_offer",
+      "file": "e2e/tests/mediachannel/simulcast.test.ts",
+      "name": "mediachannel_simulcast > mediachannel_simulcast_offer",
       "status": "passed",
-      "durationMs": 338
+      "durationMs": 2254
     },
     {
-      "file": "e2e/tests/combination/allmedia.test.ts",
-      "name": "combination_all_media > combination_all_media_answer",
+      "file": "e2e/tests/mediachannel/simulcast.test.ts",
+      "name": "mediachannel_simulcast > mediachannel_simulcast_rtx_answer",
       "status": "passed",
-      "durationMs": 337
-    },
-    {
-      "file": "e2e/tests/combination/allmedia.test.ts",
-      "name": "combination_all_media > combination_all_media_offer",
-      "status": "passed",
-      "durationMs": 328
-    },
-    {
-      "file": "e2e/tests/mediachannel/oneway.test.ts",
-      "name": "mediachannel_oneway > answer",
-      "status": "passed",
-      "durationMs": 222
-    },
-    {
-      "file": "e2e/tests/mediachannel/oneway.test.ts",
-      "name": "mediachannel_oneway > offer",
-      "status": "passed",
-      "durationMs": 334
+      "durationMs": 6379
     },
     {
       "file": "e2e/tests/mediachannel/removeTrack.test.ts",
       "name": "mediachannel_removeTrack (standard) > mediachannel_removetrack_addtrack",
       "status": "passed",
-      "durationMs": 649
+      "durationMs": 661
     },
     {
       "file": "e2e/tests/mediachannel/removeTrack.test.ts",
       "name": "mediachannel_removeTrack (standard) > mediachannel_addtrack_removefirst_addtrack",
       "status": "passed",
-      "durationMs": 753
+      "durationMs": 754
     },
     {
       "file": "e2e/tests/mediachannel/removeTrack.test.ts",
@@ -200,19 +212,19 @@
       "file": "e2e/tests/mediachannel/removeTrack.test.ts",
       "name": "mediachannel_removeTrack (standard) > mediachannel_offer_replace_second_browser_stop",
       "status": "passed",
-      "durationMs": 540
+      "durationMs": 542
     },
     {
       "file": "e2e/tests/mediachannel/removeTrack.test.ts",
       "name": "mediachannel_removeTrack (aggressive) > mediachannel_removetrack_addtrack_aggressive",
       "status": "passed",
-      "durationMs": 646
+      "durationMs": 670
     },
     {
       "file": "e2e/tests/mediachannel/removeTrack.test.ts",
       "name": "mediachannel_removeTrack (aggressive) > mediachannel_addtrack_removefirst_addtrack_aggressive",
       "status": "passed",
-      "durationMs": 758
+      "durationMs": 784
     },
     {
       "file": "e2e/tests/mediachannel/removeTrack.test.ts",
@@ -221,142 +233,34 @@
       "durationMs": 541
     },
     {
-      "file": "e2e/tests/mediachannel/simulcast.test.ts",
-      "name": "mediachannel_simulcast > mediachannel_simulcast_answer",
+      "file": "e2e/tests/ice/failover.test.ts",
+      "name": "ice/failover (werift controlling, Chrome controlled) > werift's host sockets are cut: werift fails over to its relay pair without an ICE restart and Chrome follows (renomination: false)",
       "status": "passed",
-      "durationMs": 2255
+      "durationMs": 4210
     },
     {
-      "file": "e2e/tests/mediachannel/simulcast.test.ts",
-      "name": "mediachannel_simulcast > mediachannel_simulcast_offer",
-      "status": "passed",
-      "durationMs": 2242
-    },
-    {
-      "file": "e2e/tests/mediachannel/simulcast.test.ts",
-      "name": "mediachannel_simulcast > [firefox-known:simulcast-ssrc-track] be690c2e: a=ssrc 付き simulcast answer で SSRC のトラックが別に作られ、そのレイヤーの RTX がそちらへ復元される | mediachannel_simulcast_rtx_answer",
+      "file": "e2e/tests/ice/failover.test.ts",
+      "name": "ice/failover (werift controlling, Chrome controlled) > [firefox-unsupported:renomination] Firefox (nICEr) は ICE renomination を実装していない（自身の SDP に a=ice-options:renomination を出さず、STUN の NOMINATION 属性も扱わない） | werift's host sockets are cut: werift fails over to its relay pair without an ICE restart and Chrome follows (renomination: true)",
       "status": "skipped",
       "durationMs": 0
-    },
-    {
-      "file": "e2e/tests/mediachannel/vp8Playback.test.ts",
-      "name": "mediachannel_vp8_playback > [firefox-known:vp8-picture-id-loop] f90a2878: answer の fmtp で packetizer を作り直し、ファイル再生のループで VP8 PictureID が戻る | file",
-      "status": "skipped",
-      "durationMs": 0
-    },
-    {
-      "file": "e2e/tests/mediachannel/vp8Playback.test.ts",
-      "name": "mediachannel_vp8_playback > dummy",
-      "status": "passed",
-      "durationMs": 5071
-    },
-    {
-      "file": "e2e/tests/datachannel/close.test.ts",
-      "name": "datachannel/close > datachannel_close_server_create_close",
-      "status": "passed",
-      "durationMs": 186
-    },
-    {
-      "file": "e2e/tests/datachannel/close.test.ts",
-      "name": "datachannel/close > datachannel_close_server_create_client_close",
-      "status": "passed",
-      "durationMs": 703
-    },
-    {
-      "file": "e2e/tests/datachannel/close.test.ts",
-      "name": "datachannel/close > datachannel_close_client_create_close",
-      "status": "passed",
-      "durationMs": 245
-    },
-    {
-      "file": "e2e/tests/datachannel/close.test.ts",
-      "name": "datachannel/close > datachannel_close_client_create_server_close",
-      "status": "passed",
-      "durationMs": 241
-    },
-    {
-      "file": "e2e/tests/mediachannel/reuse.test.ts",
-      "name": "mediachannel_reuse > mediachannel_reuse_standard",
-      "status": "passed",
-      "durationMs": 439
-    },
-    {
-      "file": "e2e/tests/mediachannel/reuse.test.ts",
-      "name": "mediachannel_reuse > mediachannel_reuse_aggressive",
-      "status": "passed",
-      "durationMs": 443
-    },
-    {
-      "file": "e2e/tests/mediachannel/reuse.test.ts",
-      "name": "mediachannel_reuse > mediachannel_reject_unsupported_video",
-      "status": "passed",
-      "durationMs": 300
-    },
-    {
-      "file": "e2e/tests/mediachannel/rtx.test.ts",
-      "name": "mediachannel_rtx > mediachannel_rtx_client_answer",
-      "status": "passed",
-      "durationMs": 530
-    },
-    {
-      "file": "e2e/tests/mediachannel/rtx.test.ts",
-      "name": "mediachannel_rtx > mediachannel_rtx_client_offer",
-      "status": "passed",
-      "durationMs": 531
-    },
-    {
-      "file": "e2e/tests/mediachannel/addTrack.test.ts",
-      "name": "mediachannel_addTrack > mediachannel_addTrack_answer",
-      "status": "passed",
-      "durationMs": 5525
-    },
-    {
-      "file": "e2e/tests/mediachannel/addTrack.test.ts",
-      "name": "mediachannel_addTrack > mediachannel_addTrack_offer",
-      "status": "passed",
-      "durationMs": 526
     },
     {
       "file": "e2e/tests/ice/restart.test.ts",
       "name": "ice/restart > ice_restart_web_trigger",
       "status": "passed",
-      "durationMs": 443
+      "durationMs": 330
     },
     {
       "file": "e2e/tests/ice/restart.test.ts",
       "name": "ice/restart > ice_restart_node_trigger",
       "status": "passed",
-      "durationMs": 429
-    },
-    {
-      "file": "e2e/tests/mediachannel/sendrecv.test.ts",
-      "name": "mediachannel_sendrecv > mediachannel_sendrecv_answer",
-      "status": "passed",
-      "durationMs": 246
-    },
-    {
-      "file": "e2e/tests/mediachannel/sendrecv.test.ts",
-      "name": "mediachannel_sendrecv > offer",
-      "status": "passed",
       "durationMs": 344
-    },
-    {
-      "file": "e2e/tests/bundle/disable.test.ts",
-      "name": "bundle_disable > bundle_disable_answer",
-      "status": "passed",
-      "durationMs": 377
-    },
-    {
-      "file": "e2e/tests/bundle/disable.test.ts",
-      "name": "bundle_disable > bundle_disable_offer",
-      "status": "passed",
-      "durationMs": 350
     },
     {
       "file": "e2e/tests/datachannel/datachannel.test.ts",
       "name": "datachannel > answer",
       "status": "passed",
-      "durationMs": 195
+      "durationMs": 174
     },
     {
       "file": "e2e/tests/datachannel/datachannel.test.ts",
@@ -368,85 +272,217 @@
       "file": "e2e/tests/datachannel/datachannel.test.ts",
       "name": "datachannel > echoes fragmented binary messages",
       "status": "passed",
-      "durationMs": 324
+      "durationMs": 325
     },
     {
-      "file": "e2e/tests/datachannel/turnRelay.test.ts",
-      "name": "datachannel/turn relay > exchanges data over udp TURN relay between Chrome and werift",
+      "file": "e2e/tests/datachannel/close.test.ts",
+      "name": "datachannel/close > datachannel_close_server_create_close",
       "status": "passed",
-      "durationMs": 277
+      "durationMs": 183
     },
     {
-      "file": "e2e/tests/datachannel/turnRelay.test.ts",
-      "name": "datachannel/turn relay > exchanges data over tcp TURN relay between Chrome and werift",
+      "file": "e2e/tests/datachannel/close.test.ts",
+      "name": "datachannel/close > datachannel_close_server_create_client_close",
       "status": "passed",
-      "durationMs": 386
+      "durationMs": 676
     },
     {
-      "file": "e2e/tests/datachannel/turnRelay.test.ts",
-      "name": "datachannel/turn relay > [firefox-unsupported:turns-ip-literal] Firefox の TURNS は FQDN と信頼済み証明書が必要（e2e の TURN は 127.0.0.1 と自己署名証明書） | exchanges data over tls TURN relay between Chrome and werift",
-      "status": "skipped",
-      "durationMs": 0
+      "file": "e2e/tests/datachannel/close.test.ts",
+      "name": "datachannel/close > datachannel_close_client_create_close",
+      "status": "passed",
+      "durationMs": 250
+    },
+    {
+      "file": "e2e/tests/datachannel/close.test.ts",
+      "name": "datachannel/close > datachannel_close_client_create_server_close",
+      "status": "passed",
+      "durationMs": 242
+    },
+    {
+      "file": "e2e/tests/mediachannel/reuse.test.ts",
+      "name": "mediachannel_reuse > mediachannel_reuse_standard",
+      "status": "passed",
+      "durationMs": 450
+    },
+    {
+      "file": "e2e/tests/mediachannel/reuse.test.ts",
+      "name": "mediachannel_reuse > mediachannel_reuse_aggressive",
+      "status": "passed",
+      "durationMs": 446
+    },
+    {
+      "file": "e2e/tests/mediachannel/reuse.test.ts",
+      "name": "mediachannel_reuse > mediachannel_reject_unsupported_video",
+      "status": "passed",
+      "durationMs": 289
+    },
+    {
+      "file": "e2e/tests/mediachannel/rtx.test.ts",
+      "name": "mediachannel_rtx > mediachannel_rtx_client_answer",
+      "status": "passed",
+      "durationMs": 530
+    },
+    {
+      "file": "e2e/tests/mediachannel/rtx.test.ts",
+      "name": "mediachannel_rtx > mediachannel_rtx_client_offer",
+      "status": "passed",
+      "durationMs": 533
+    },
+    {
+      "file": "e2e/tests/mediachannel/addTrack.test.ts",
+      "name": "mediachannel_addTrack > mediachannel_addTrack_answer",
+      "status": "passed",
+      "durationMs": 528
+    },
+    {
+      "file": "e2e/tests/mediachannel/addTrack.test.ts",
+      "name": "mediachannel_addTrack > mediachannel_addTrack_offer",
+      "status": "passed",
+      "durationMs": 537
+    },
+    {
+      "file": "e2e/tests/bundle/disable.test.ts",
+      "name": "bundle_disable > bundle_disable_answer",
+      "status": "passed",
+      "durationMs": 349
+    },
+    {
+      "file": "e2e/tests/bundle/disable.test.ts",
+      "name": "bundle_disable > bundle_disable_offer",
+      "status": "passed",
+      "durationMs": 348
+    },
+    {
+      "file": "e2e/tests/bundle/max-compat.test.ts",
+      "name": "bundle_max_compat > bundle_max_compat_answer",
+      "status": "passed",
+      "durationMs": 349
+    },
+    {
+      "file": "e2e/tests/bundle/max-compat.test.ts",
+      "name": "bundle_max_compat > bundle_max_compat_offer",
+      "status": "passed",
+      "durationMs": 326
+    },
+    {
+      "file": "e2e/tests/combination/allmedia.test.ts",
+      "name": "combination_all_media > combination_all_media_answer",
+      "status": "passed",
+      "durationMs": 326
+    },
+    {
+      "file": "e2e/tests/combination/allmedia.test.ts",
+      "name": "combination_all_media > combination_all_media_offer",
+      "status": "passed",
+      "durationMs": 331
     },
     {
       "file": "e2e/tests/bundle/max-bundle.test.ts",
       "name": "bundle_max_bundle > bundle_max_bundle_answer",
       "status": "passed",
-      "durationMs": 326
+      "durationMs": 341
     },
     {
       "file": "e2e/tests/bundle/max-bundle.test.ts",
       "name": "bundle_max_bundle > bundle_max_bundle_offer",
       "status": "passed",
-      "durationMs": 1350
+      "durationMs": 339
     },
     {
       "file": "e2e/tests/bundle/tagOnlyCandidates.test.ts",
       "name": "bundle_tag_only_candidates > bundle_tag_only_candidates",
       "status": "passed",
-      "durationMs": 571
+      "durationMs": 549
+    },
+    {
+      "file": "e2e/tests/mediachannel/sendrecv.test.ts",
+      "name": "mediachannel_sendrecv > mediachannel_sendrecv_answer",
+      "status": "passed",
+      "durationMs": 242
+    },
+    {
+      "file": "e2e/tests/mediachannel/sendrecv.test.ts",
+      "name": "mediachannel_sendrecv > offer",
+      "status": "passed",
+      "durationMs": 329
+    },
+    {
+      "file": "e2e/tests/mediachannel/oneway.test.ts",
+      "name": "mediachannel_oneway > answer",
+      "status": "passed",
+      "durationMs": 223
+    },
+    {
+      "file": "e2e/tests/mediachannel/oneway.test.ts",
+      "name": "mediachannel_oneway > offer",
+      "status": "passed",
+      "durationMs": 337
+    },
+    {
+      "file": "e2e/tests/ice/nomination.test.ts",
+      "name": "ice/nomination (semi-aggressive / renomination with the browser) > the selection moves from the relay path to the host path (chrome offers, renomination: false)",
+      "status": "passed",
+      "durationMs": 247
+    },
+    {
+      "file": "e2e/tests/ice/nomination.test.ts",
+      "name": "ice/nomination (semi-aggressive / renomination with the browser) > [firefox-unsupported:renomination] Firefox (nICEr) は ICE renomination を実装していない（自身の SDP に a=ice-options:renomination を出さず、STUN の NOMINATION 属性も扱わない） | the selection moves from the relay path to the host path (chrome offers, renomination: true)",
+      "status": "skipped",
+      "durationMs": 0
+    },
+    {
+      "file": "e2e/tests/ice/nomination.test.ts",
+      "name": "ice/nomination (semi-aggressive / renomination with the browser) > the selection moves from the relay path to the host path (werift offers, renomination: false)",
+      "status": "passed",
+      "durationMs": 184
+    },
+    {
+      "file": "e2e/tests/ice/nomination.test.ts",
+      "name": "ice/nomination (semi-aggressive / renomination with the browser) > [firefox-unsupported:renomination] Firefox (nICEr) は ICE renomination を実装していない（自身の SDP に a=ice-options:renomination を出さず、STUN の NOMINATION 属性も扱わない） | the selection moves from the relay path to the host path (werift offers, renomination: true)",
+      "status": "skipped",
+      "durationMs": 0
     },
     {
       "file": "e2e/tests/ice/trickle.test.ts",
       "name": "ice/trickle > answer",
       "status": "passed",
-      "durationMs": 187
+      "durationMs": 176
     },
     {
       "file": "e2e/tests/ice/trickle.test.ts",
       "name": "ice/trickle > offer",
       "status": "passed",
-      "durationMs": 251
+      "durationMs": 267
+    },
+    {
+      "file": "e2e/tests/datachannel/iceTcp.test.ts",
+      "name": "datachannel/ice tcp > exchanges data over direct ICE-TCP between Chrome and werift",
+      "status": "passed",
+      "durationMs": 279
     },
     {
       "file": "e2e/tests/datachannel/dtlsAlert.test.ts",
       "name": "datachannel/dtlsAlert > dtls_alert_close_notify_from_werift",
       "status": "passed",
-      "durationMs": 91
+      "durationMs": 70
     },
     {
       "file": "e2e/tests/datachannel/dtlsAlert.test.ts",
       "name": "datachannel/dtlsAlert > dtls_alert_close_notify_from_chrome",
       "status": "passed",
-      "durationMs": 102
+      "durationMs": 99
     },
     {
       "file": "e2e/tests/datachannel/dtlsAlert.test.ts",
       "name": "datachannel/dtlsAlert > dtls_alert_bad_certificate",
       "status": "passed",
-      "durationMs": 100
+      "durationMs": 81
     },
     {
       "file": "e2e/tests/datachannel/iceLite.test.ts",
       "name": "datachannel/ice lite > exchanges data between Chrome and werift ICE lite",
       "status": "passed",
-      "durationMs": 225
-    },
-    {
-      "file": "e2e/tests/datachannel/iceTcp.test.ts",
-      "name": "datachannel/ice tcp > [firefox-known:ice-tcp-active-only] 8b7c8e4a: 相手が active の TCP 候補だけだと werift の ICE が check を待たずに failed になる | exchanges data over direct ICE-TCP between Chrome and werift",
-      "status": "skipped",
-      "durationMs": 0
+      "durationMs": 241
     },
     {
       "file": "e2e/tests/mediachannel/red.test.ts",

@@ -57,6 +57,61 @@ jobs:
         run: |
           npm run examples:e2e
 
+  # Firefox interop regressions (e.g. an NSS-only DTLS rejection) do not show
+  # in the Chrome suite, so the Firefox E2E suite runs in its own job, in
+  # parallel with `build`. It stays out of `npm run ci` / `npm run e2e` /
+  # `e2e/run-ci.js` so local default validation does not get longer.
+  firefox-e2e:
+    runs-on: ubuntu-latest
+    # Setup (apt-get, npm i, playwright --with-deps) counts here too, so the
+    # job limit leaves room above the E2E step's own limit; the record upload
+    # still runs when that step hits its limit.
+    timeout-minutes: 45
+    env:
+      # The harness's private Playwright cache (e2e/browsers-path.js).
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/e2e/node_modules/.cache/ms-playwright
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: init submodules
+        run: |
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule update --init --recursive
+      - name: Use Node.js 24.x
+        uses: actions/setup-node@v4.4.0
+        with:
+          node-version: 24.x
+      - name: prepare
+        run: |
+          sudo apt-get update
+          sudo apt-get -y install libavdevice-dev libavfilter-dev libopus-dev libvpx-dev pkg-config libsrtp2-dev libasound2-dev libgstreamer1.0-0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav gstreamer1.0-tools gstreamer1.0-x gstreamer1.0-alsa gstreamer1.0-pulseaudio ffmpeg
+          npm i
+          cd e2e
+          npm install --prefer-offline --no-audit --no-fund --no-update-notifier
+      - name: install Playwright Firefox
+        working-directory: e2e
+        # e2e's own playwright, so the revision matches what vitest launches;
+        # --with-deps adds Firefox's system libraries.
+        run: npx playwright install --with-deps firefox
+      - name: Firefox E2E
+        working-directory: e2e
+        # run-firefox.js --ci stops vitest after 20 min (CI_TIMEOUT_MIN) and
+        # writes the record; this is the backstop if the runner itself hangs.
+        timeout-minutes: 25
+        env:
+          CI: true
+          # `runner` is not available in job-level `env`, only in steps.
+          FIREFOX_RECORDS_DIR: ${{ runner.temp }}/firefox-runs
+        run: npm run firefox:ci
+      - name: upload Firefox run record and failure screenshots
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: firefox-e2e-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/firefox-runs/
+            e2e/.vitest/attachments/
+          if-no-files-found: warn
+
   mediasoup-interop:
     runs-on: ubuntu-latest
     strategy:
