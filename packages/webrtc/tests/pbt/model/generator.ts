@@ -243,10 +243,12 @@ export const STEPS: Record<string, Step> = {
       return { kind: free.length ? rng.pick(free).kind : rng.pick(kinds) };
     },
     run: async ({ pc }, w, { kind }) => {
+      const existing = new Set(pc.getTransceivers());
       const sender = pc.addTrack(
         new MediaStreamTrack({ kind: kind as "audio" }),
       );
       const t = pc.getTransceivers().find((each) => each.sender === sender)!;
+      w.oracles.addedTrack(t, existing);
       w.addTracked.add(t);
       w.oracles.application(t);
     },
@@ -258,10 +260,12 @@ export const STEPS: Record<string, Step> = {
     applies: ({ pc }) => pc.getTransceivers().length < 6,
     draw: (rng) => ({ kind: rng.pick(kinds) }),
     run: async ({ pc }, w, { kind }) => {
+      const existing = new Set(pc.getTransceivers());
       const sender = pc.addTrack(
         new MediaStreamTrack({ kind: kind as "audio" }),
       );
       const t = pc.getTransceivers().find((each) => each.sender === sender)!;
+      w.oracles.addedTrack(t, existing);
       w.addTracked.add(t);
       w.oracles.application(t);
     },

@@ -20,11 +20,18 @@
  *
  *   node --import ../../tools/node-ts/register.mjs tools/negotiation-diff/scenarios.ts --root <repo> [--check 1]
  *
+ * The addTrack() rows (addTrackScenarios.ts) also fix the sender,
+ * transceiver and m-line counts. They are the one intended difference from a
+ * develop without the change, whose column `--expect develop` checks. Every
+ * other row has the same contract on both.
+ *
  * In CI the description-pool episodes of the episode fuzzer
  * (`tests/pbt/fuzz`) check the same contract with an atomicity oracle (a
  * refused operation leaves both peers' snapshot identical).
  */
 import { join, resolve } from "node:path";
+import { isDeepStrictEqual } from "node:util";
+import { addTrackContract, runAddTrackScenarios } from "./addTrackScenarios";
 import {
   type Ctx,
   communication,
@@ -505,13 +512,32 @@ async function main() {
     results[name] = { result, comm };
   }
   results[FIRST_PRANSWER_REPLACED] = await initialPranswerReplacement(api);
+  Object.assign(results, await runAddTrackScenarios(api));
+  const expectations: {
+    [name: string]: {
+      result: string;
+      basis: string;
+      shape?: unknown;
+      /** The row must not communicate (develop's defect, as expected). */
+      silent?: boolean;
+    };
+  } = {
+    ...contract,
+    ...addTrackContract(args.get("expect") === "develop" ? "develop" : "head"),
+  };
   let mismatches = 0;
   for (const [name, row] of Object.entries(results)) {
-    const expected = contract[name];
-    const { result, comm } = row as { result: string; comm: unknown };
+    const expected = expectations[name];
+    const { result, comm, shape } = row as {
+      result: string;
+      comm: unknown;
+      shape?: unknown;
+    };
     // An accepted row must also communicate afterwards (rule (b)).
     const matches =
-      result === expected?.result && (result !== "ok" || communicates(comm));
+      result === expected?.result &&
+      isDeepStrictEqual(shape, expected.shape) &&
+      (result !== "ok" || communicates(comm) !== !!expected.silent);
     if (!matches) mismatches++;
     results[name] = { ...(row as object), contract: expected, matches };
   }
