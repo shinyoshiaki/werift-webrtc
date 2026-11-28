@@ -1,7 +1,10 @@
 import {
   advertiseRenomination,
   ensurePeerConnected,
+  firefoxUnsupported,
   getSelectedCandidatePairAddresses,
+  isFirefox,
+  itSkipOnFirefox,
   peer,
   sleep,
   waitForDataChannelOpen,
@@ -92,52 +95,68 @@ async function roundTrip(
 }
 
 describe("ice/failover (werift controlling, Chrome controlled)", () => {
-  test.each([{ renomination: false }, { renomination: true }])(
-    "werift's host sockets are cut: werift fails over to its relay pair without an ICE restart and Chrome follows (renomination: $renomination)",
-    async ({ renomination }) => {
-      const { pc, channel } = await connectOverHost(renomination);
-      await roundTrip(channel, "host");
-      const before = await serverStats();
-      expect(before.controlling).toBe(true);
+  for (const renomination of [false, true]) {
+    const itCase = renomination
+      ? itSkipOnFirefox(firefoxUnsupported.renomination)
+      : it;
+    itCase(
+      `werift's host sockets are cut: werift fails over to its relay pair without an ICE restart and Chrome follows (renomination: ${renomination})`,
+      async ({ annotate }) => {
+        const { pc, channel } = await connectOverHost(renomination);
+        await roundTrip(channel, "host");
+        const before = await serverStats();
+        expect(before.controlling).toBe(true);
 
-      try {
-        // Act: werift の host ソケットを遮断する (送受信とも届かない)。
-        await peer.request(label, { type: "cut", payload: {} });
+        try {
+          // Act: werift の host ソケットを遮断する (送受信とも届かない)。
+          await peer.request(label, { type: "cut", payload: {} });
 
-        // Assert: werift は ICE restart なしで relay の pair に退避する。
-        await vi.waitFor(
-          async () => {
-            const werift = await serverStats();
-            expect(werift.nominated?.localCandidateType).toBe("relay");
-          },
-          { timeout: 20_000, interval: 250 },
-        );
-        // Act: werift が relay の経路でデータを送る (Chrome は指名とデータに従う)。
-        await peer.request(label, { type: "send", payload: {} });
+          // Assert: werift は ICE restart なしで relay の pair に退避する。
+          await vi.waitFor(
+            async () => {
+              const werift = await serverStats();
+              expect(werift.nominated?.localCandidateType).toBe("relay");
+            },
+            { timeout: 20_000, interval: 250 },
+          );
+          if (isFirefox) {
+            await annotate(firefoxUnsupported.lowerPriorityNomination);
+            // Firefox は優先度の低い relay ペアへの指名に追従しないので、ブラウザ側の
+            // 追従は確かめない (firefoxUnsupported.lowerPriorityNomination)。
+            // werift 自身の退避と、ICE restart をしていないことだけを確かめる。
+            const after = await serverStats();
+            expect(after.generation).toBe(before.generation);
+            expect(after.connectionState).toBe("connected");
+            return;
+          }
+          // Act: werift が relay の経路でデータを送る (Chrome は指名とデータに従う)。
+          await peer.request(label, { type: "send", payload: {} });
 
-        // Assert: Chrome も werift の relay 候補を使う経路に移り、データが往復する。
-        await vi.waitFor(
-          async () => {
-            await peer.request(label, { type: "send", payload: {} });
-            expect(
-              (await getSelectedCandidatePairAddresses(pc)).remoteCandidateType,
-            ).toBe("relay");
-          },
-          { timeout: 15_000, interval: 250 },
-        );
-        await roundTrip(channel, "relay");
-        // Assert: ICE restart はしておらず、werift は connected のまま。
-        const after = await serverStats();
-        expect(after.generation).toBe(before.generation);
-        expect(after.iceConnectionState).toBe("connected");
-        expect(after.connectionState).toBe("connected");
-      } finally {
-        await peer
-          .request(label, { type: "close", payload: {} })
-          .catch(() => {});
-        pc.close();
-      }
-    },
-    60_000,
-  );
+          // Assert: Chrome も werift の relay 候補を使う経路に移り、データが往復する。
+          await vi.waitFor(
+            async () => {
+              await peer.request(label, { type: "send", payload: {} });
+              expect(
+                (await getSelectedCandidatePairAddresses(pc))
+                  .remoteCandidateType,
+              ).toBe("relay");
+            },
+            { timeout: 15_000, interval: 250 },
+          );
+          await roundTrip(channel, "relay");
+          // Assert: ICE restart はしておらず、werift は connected のまま。
+          const after = await serverStats();
+          expect(after.generation).toBe(before.generation);
+          expect(after.iceConnectionState).toBe("connected");
+          expect(after.connectionState).toBe("connected");
+        } finally {
+          await peer
+            .request(label, { type: "close", payload: {} })
+            .catch(() => {});
+          pc.close();
+        }
+      },
+      60_000,
+    );
+  }
 });

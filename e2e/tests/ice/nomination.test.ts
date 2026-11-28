@@ -1,8 +1,10 @@
 import {
   advertiseRenomination,
   ensurePeerConnected,
+  firefoxUnsupported,
   getSelectedCandidatePairAddresses,
   holdBackNonRelayCandidates,
+  itSkipOnFirefox,
   peer,
   sleep,
   waitForDataChannelOpen,
@@ -132,72 +134,87 @@ async function waitForHostPath(pc: RTCPeerConnection) {
 }
 
 describe("ice/nomination (semi-aggressive / renomination with Chrome)", () => {
-  test.each([
+  // Firefox: renomination がなくても、このシナリオは指名後に trickle した
+  // werift の host 候補をブラウザがペアにすることを前提にしている。Firefox は
+  // それを捨てるので、どの組み合わせも host 経路が生まれない。
+  const cases = [
     { offerer: "chrome", renomination: false },
     { offerer: "chrome", renomination: true },
     { offerer: "werift", renomination: false },
     { offerer: "werift", renomination: true },
-  ] as const)(
-    "the selection moves from the relay path to the host path ($offerer offers, renomination: $renomination)",
-    async ({ offerer, renomination }) => {
-      const { pc, channel, held } = await connectOverRelayFirst({
-        offerer,
-        renomination,
-      });
+  ] as const;
+  for (const { offerer, renomination } of cases) {
+    const itCase = itSkipOnFirefox(
+      renomination
+        ? firefoxUnsupported.renomination
+        : firefoxUnsupported.lateTrickleAfterCompleted,
+    );
+    itCase(
+      `the selection moves from the relay path to the host path (${offerer} offers, renomination: ${renomination})`,
+      async () => {
+        const { pc, channel, held } = await connectOverRelayFirst({
+          offerer,
+          renomination,
+        });
 
-      try {
-        // Assert: 最初に werift が relay を指名し、Chrome も relay 経由の初期経路で通信する。
-        const before = await serverStats();
-        expect(before.controlling).toBe(offerer === "werift");
-        expect(before.nominated?.localCandidateType).toBe("relay");
-        const browserPair = await getSelectedCandidatePairAddresses(pc);
-        if (offerer === "chrome") {
-          expect(browserPair.remoteCandidateType).toBe("relay");
-        } else {
-          // werift が controlling のとき、TURN source address の変換を Chrome が prflx と記録することがある。
-          expect(["relay", "prflx"]).toContain(browserPair.remoteCandidateType);
-        }
-        await roundTrip(channel, "relay-first");
-
-        // Act: 保留していた werift の host 候補を Chrome に通知する。
-        await signalHeldCandidates(pc, held);
-
-        // Assert: 両端の選択が同じ host <-> host の経路に移り、データが届く。
-        const { werift } = await waitForHostPath(pc);
-        await roundTrip(channel, "host-later");
-
-        // Assert: renomination の交渉結果どおりの方式で指名される。
-        expect(werift.remoteRenomination).toBe(renomination);
-        if (offerer === "chrome") {
-          // Chrome (controlling) の指名に werift (controlled) が従う。
-          if (renomination) {
-            // NOMINATION の値を増やして再指名し、USE-CANDIDATE は使わない。
-            expect(werift.useCandidateReceived).toBe(0);
-            expect(Math.max(...werift.nominationsReceived)).toBeGreaterThan(1);
-            expect(werift.nominated?.remoteNomination).toBe(
-              Math.max(...werift.nominationsReceived),
+        try {
+          // Assert: 最初に werift が relay を指名し、Chrome も relay 経由の初期経路で通信する。
+          const before = await serverStats();
+          expect(before.controlling).toBe(offerer === "werift");
+          expect(before.nominated?.localCandidateType).toBe("relay");
+          const browserPair = await getSelectedCandidatePairAddresses(pc);
+          if (offerer === "chrome") {
+            expect(browserPair.remoteCandidateType).toBe("relay");
+          } else {
+            // werift が controlling のとき、TURN source address の変換を Chrome が prflx と記録することがある。
+            expect(["relay", "prflx"]).toContain(
+              browserPair.remoteCandidateType,
             );
-          } else {
-            // semi-aggressive: より良い経路への USE-CANDIDATE で切り替わる。
-            expect(werift.nominationsReceived).toEqual([]);
-            expect(werift.useCandidateReceived).toBeGreaterThan(0);
-            expect(werift.nominated?.remoteNomination).toBe(1);
           }
-        } else {
-          // werift (controlling) の指名に Chrome (controlled) が従う。
-          // renomination なら werift が送り Chrome が応答した NOMINATION は 2 以上 (relay の 1 の次)。
-          if (renomination) {
-            expect(werift.nominated?.nomination).toBeGreaterThan(1);
+          await roundTrip(channel, "relay-first");
+
+          // Act: 保留していた werift の host 候補を Chrome に通知する。
+          await signalHeldCandidates(pc, held);
+
+          // Assert: 両端の選択が同じ host <-> host の経路に移り、データが届く。
+          const { werift } = await waitForHostPath(pc);
+          await roundTrip(channel, "host-later");
+
+          // Assert: renomination の交渉結果どおりの方式で指名される。
+          expect(werift.remoteRenomination).toBe(renomination);
+          if (offerer === "chrome") {
+            // Chrome (controlling) の指名に werift (controlled) が従う。
+            if (renomination) {
+              // NOMINATION の値を増やして再指名し、USE-CANDIDATE は使わない。
+              expect(werift.useCandidateReceived).toBe(0);
+              expect(Math.max(...werift.nominationsReceived)).toBeGreaterThan(
+                1,
+              );
+              expect(werift.nominated?.remoteNomination).toBe(
+                Math.max(...werift.nominationsReceived),
+              );
+            } else {
+              // semi-aggressive: より良い経路への USE-CANDIDATE で切り替わる。
+              expect(werift.nominationsReceived).toEqual([]);
+              expect(werift.useCandidateReceived).toBeGreaterThan(0);
+              expect(werift.nominated?.remoteNomination).toBe(1);
+            }
           } else {
-            expect(werift.nominated?.nomination).toBe(0);
+            // werift (controlling) の指名に Chrome (controlled) が従う。
+            // renomination なら werift が送り Chrome が応答した NOMINATION は 2 以上 (relay の 1 の次)。
+            if (renomination) {
+              expect(werift.nominated?.nomination).toBeGreaterThan(1);
+            } else {
+              expect(werift.nominated?.nomination).toBe(0);
+            }
           }
+        } finally {
+          await peer
+            .request(label, { type: "close", payload: {} })
+            .catch(() => {});
+          pc.close();
         }
-      } finally {
-        await peer
-          .request(label, { type: "close", payload: {} })
-          .catch(() => {});
-        pc.close();
-      }
-    },
-  );
+      },
+    );
+  }
 });

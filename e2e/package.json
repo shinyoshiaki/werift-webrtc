@@ -31,6 +31,7 @@
     "test:sim": "npm run install:browsers && npm run build && node simulations/run-sim.js",
     "test:sim:netns": "node simulations/netns/run-netns-sim.js",
     "firefox:record": "node run-firefox.js",
+    "firefox:ci": "node run-firefox.js --ci",
     "firefox:record:prune": "node firefox-runs-prune.js"
   },
   "dependencies": {

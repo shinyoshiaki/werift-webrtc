@@ -1,9 +1,16 @@
 # Firefox E2E run records
 
-CI does not run the Firefox E2E suite (`e2e/vitest.firefox.config.mts`).
-Each local run of it saves one record here, and the records are committed, so
-the history of Firefox runs stays in the repository with the commit each run
-tested.
+Every run of the Firefox E2E suite (`e2e/vitest.firefox.config.mts`) through
+`e2e/run-firefox.js` saves one run record with the commit it tested.
+
+- **CI**: the `firefox-e2e` job of `.github/workflows/nodejs.yml` runs the
+  whole suite on every push / PR (`npm run firefox:ci`, see
+  [CI mode](#ci-mode)). Its record and the failure screenshots
+  (`e2e/.vitest/attachments/`) are uploaded as the job's artifact, so CI
+  holds the regular history.
+- **Local**: `npm run firefox:record` saves the record in this directory.
+  Commit it when it backs a Firefox result you verified locally (for example
+  a Firefox fix); it must come from a committed, clean HEAD with no extra args.
 
 ## Run
 
@@ -24,9 +31,26 @@ PID. The record is written however the run ends: vitest exits, the time limit
 `FIREFOX_E2E_TIMEOUT_MIN` (default 60) or the idle limit `FIREFOX_E2E_IDLE_MIN`
 (default 5 min without a test event; a test stuck past its own timeout was
 seen in Firefox) stops it, the runner fails, or SIGINT /
-SIGTERM stops the runner. The exit code is vitest's (1 on the time limit or a
-runner failure, 130 / 143 on a signal). Commit the new record file together
-with the change it verified.
+SIGTERM stops the runner. The exit code is 0 only for a `passed` record with
+no unfinished test and no module error; otherwise vitest's code (1 on the time
+limit or a runner failure, 130 / 143 on a signal).
+
+## CI mode
+
+`npm run firefox:ci` (`run-firefox.js --ci`) is what the `firefox-e2e` job
+runs. It differs from `firefox:record` only in:
+
+- The record goes outside the repository: `FIREFOX_RECORDS_DIR`, else
+  `$RUNNER_TEMP/firefox-runs`, else `<os tmpdir>/werift-firefox-runs`. The job
+  sets `FIREFOX_RECORDS_DIR=$RUNNER_TEMP/firefox-runs` and uploads it. The
+  committed records here are never touched.
+- Nothing is pruned.
+- `FIREFOX_E2E_TIMEOUT_MIN` defaults to 20 (below the job's
+  `timeout-minutes: 30`), so even a suite that hangs ends with a record.
+
+The exit code rule is the same, so any result other than `passed` fails the
+job. The job installs Firefox with `npx playwright install --with-deps
+firefox` from `e2e/` into `PLAYWRIGHT_BROWSERS_PATH=e2e/node_modules/.cache/ms-playwright`.
 
 ## Retention
 

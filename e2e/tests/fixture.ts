@@ -25,6 +25,12 @@ export const firefoxUnsupported = {
     "[firefox-unsupported:encoded-streams] Chrome 独自の RTCRtpReceiver.createEncodedStreams() で RED を読む",
   turnsIpLiteral:
     "[firefox-unsupported:turns-ip-literal] Firefox の TURNS は FQDN と信頼済み証明書が必要（e2e の TURN は 127.0.0.1 と自己署名証明書）",
+  renomination:
+    "[firefox-unsupported:renomination] Firefox (nICEr) は ICE renomination を実装していない（自身の SDP に a=ice-options:renomination を出さず、STUN の NOMINATION 属性も扱わない）",
+  lateTrickleAfterCompleted:
+    '[firefox-unsupported:late-trickle-after-completed] Firefox は ICE stream の完了（指名）後に trickle された候補を捨てる（MOZ_LOG: "Trickle candidate is redundant ... because it is completed"、nICEr の R_ALREADY）ため、指名後に host 経路が生まれない',
+  lowerPriorityNomination:
+    "[firefox-unsupported:lower-priority-nomination] Firefox (nICEr, controlled) は指名済みペアより優先度の低いペアの USE-CANDIDATE を無視する（nr_ice_component_nominated_pair）ため、host から relay への切り替えに追従しない",
 } as const;
 
 type FirefoxSkipReason =

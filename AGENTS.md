@@ -49,7 +49,7 @@ Rules that apply to one package or directory belong in the nearest `AGENTS.md`.
 | full suite including E2E | `npm run test` |
 | install Playwright browsers | `npm run install:browsers` |
 | E2E only (verbose: `e2e:verbose`) | `npm run e2e` |
-| Firefox E2E with a committed run record (local only, not in CI) | `cd e2e && npm run firefox:record` |
+| Firefox E2E locally, with a run record under `e2e/firefox-runs/` (CI runs it in the `firefox-e2e` job: `cd e2e && npm run firefox:ci`) | `cd e2e && npm run firefox:record` |
 | prune / clear Firefox E2E run records (`--keep <n>`, `--dry-run`) | `cd e2e && npm run firefox:record:prune` |
 | broad workspace validation (WPT は含まない。別ワークフロー `wpt.yml`) | `npm run ci` |
 | examples smoke (Chromium + gst/ffmpeg) | `npm run examples:e2e` |
@@ -74,7 +74,7 @@ Start with the narrowest package command, and widen to workspace commands only w
 * Cross-package, public API, or protocol changes: `npm run type` and `npm run test:small`; `npm run ci` when the change spans the full stack.
 * Property tests or `packages/pbt`: the package's `npm test`, then `npm run pbt:deep` in the affected packages (`-- --dry-run` checks the shard plan; `-- --baseline <develop worktree>` leaves failures develop repeats out of the exit code).
 * WPT runner, dummy media, or allowlist changes: `npm run wpt`; also `npm run wpt:coverage` when coverage or baseline wiring changes.
-* Browser interop or signaling changes: run `npm run install:browsers` once from the repo root (covers `e2e`, `packages/ice-server/chrome-e2e`, and `examples/turn-loopback/chrome-e2e`), then the relevant example and/or `npm run e2e`. A Firefox E2E run goes through `npm run firefox:record` so its record (commit hash and per-test results, `e2e/firefox-runs/`) is committed with the change. For a failing E2E, reproduce with only the affected test file first, then run the full suite as final validation. Root `examples/` demos in the `examples/e2e` catalog also need `npm run examples:e2e`.
+* Browser interop or signaling changes: run `npm run install:browsers` once from the repo root (covers `e2e`, `packages/ice-server/chrome-e2e`, and `examples/turn-loopback/chrome-e2e`), then the relevant example and/or `npm run e2e`. The CI `firefox-e2e` job runs the Firefox E2E suite on every PR; locally, run it through `npm run firefox:record` (record with the commit hash and per-test results in `e2e/firefox-runs/`), and commit that record when it backs a Firefox result you verified locally. For a failing E2E, reproduce with only the affected test file first, then run the full suite as final validation. Root `examples/` demos in the `examples/e2e` catalog also need `npm run examples:e2e`.
 * Infrastructure-backed E2E: run the targeted scenario with its opt-in environment flag, so the real dependency path is exercised.
 * `integration/werift-mediasoup-interop`: follow that directory's `AGENTS.md`.
 

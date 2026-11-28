@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### 🐛 Bug Fixes
+
+- **DTLS 1.2 HelloVerifyRequest cookie fits in 32 bytes again** (`werift-dtls`, `werift`): since v0.29.0 the cookie was 104 bytes, and Firefox (NSS, which keeps the RFC 4347 `cookie<0..32>` bound) answered it with a fatal `decode_error`, so every connection where werift is the DTLS server (werift offers, the browser answers `active`) failed with Firefox. The cookie is now `version(1) || issuedAt(4) || HMAC-SHA256(…)[0:27]` = 32 bytes, still bound to the peer binding, the ClientHello parameters (except `random` and the cookie) and a 60 s lifetime; the ClientHello hash is recomputed from the cookie-bearing ClientHello instead of being carried. A HelloVerifyRequest is never sent with a cookie over 32 bytes. The DTLS 1.3 HelloRetryRequest cookie is unchanged.
+
+### 🧪 Testing & tooling
+
+- **Firefox E2E in CI**: the `firefox-e2e` job of `.github/workflows/nodejs.yml` runs the Firefox E2E suite (`cd e2e && npm run firefox:ci`) on every push / PR and uploads its run record and failure screenshots as an artifact; `run-firefox.js --ci` writes the record outside the repository, does not prune, has a 20 min default limit and exits non-zero unless the record passed. `ice/nomination` and the browser-follow step of `ice/failover` are skipped in Firefox with `firefoxUnsupported` reasons (late trickle after the ICE stream completed, lower-priority nomination, renomination).
+
 ## v0.29.0
 
 This release collects everything merged since v0.28.0. DTLS 1.3, SPED (DTLS handshake in ICE Binding) and WARP are opt-ins: a default `RTCPeerConnection` stays on DTLS 1.2 without SPED, and the DTLS / ICE changes that reach it are listed under "Behavior changes".

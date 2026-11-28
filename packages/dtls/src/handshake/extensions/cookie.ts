@@ -163,8 +163,60 @@ export function clientHelloBodyForDtls12Cookie(
 }
 
 /**
- * Mint a DTLS 1.2 address cookie: HMAC-bound to peer + CH parameters (cookie-free).
- * Reuses the DTLS 1.3 stateless cookie layout for peer + expiry + field binding.
+ * Upper bound of a DTLS 1.2 HelloVerifyRequest cookie werift sends.
+ *
+ * RFC 6347 §4.2.1 widened `HelloVerifyRequest.cookie` to `<0..2^8-1>`, but
+ * RFC 4347 (DTLS 1.0) declared `opaque cookie<0..32>` and NSS (Firefox) still
+ * enforces that bound: `dtls_HandleHelloVerifyRequest` (lib/ssl/dtlscon.c)
+ * answers a cookie longer than `DTLS_COOKIE_BYTES` (32) with a fatal
+ * `decode_error`. Keep every HVR cookie within 32 bytes so all DTLS 1.2
+ * clients accept it.
+ */
+export const DTLS12_HVR_COOKIE_MAX_LENGTH = 32;
+
+/** Format version byte of the compact DTLS 1.2 HelloVerifyRequest cookie. */
+export const DTLS12_HVR_COOKIE_VERSION = 0x12;
+
+const DTLS12_HVR_COOKIE_MAC_LENGTH = 27;
+
+/**
+ * Compact stateless DTLS 1.2 HelloVerifyRequest cookie layout:
+ *   version(1) || issuedAt(4) || mac(27)
+ * mac = HMAC-SHA256(secret, label || version || issuedAt || peerKey || 0x00
+ *       || immutableHash(CH))[0:27]
+ *
+ * RFC 6347 §4.2.1 requires the cookie-bearing ClientHello to repeat CH1's
+ * parameters, so the verifier recomputes the CH hash from CH2 instead of
+ * carrying it in the cookie. The TLS 1.3 transcript `message_hash` is not
+ * needed on this path.
+ */
+export const DTLS12_HVR_COOKIE_LENGTH = 1 + 4 + DTLS12_HVR_COOKIE_MAC_LENGTH; // 32
+
+const DTLS12_HVR_COOKIE_LABEL = Buffer.from("werift dtls12 hvr cookie", "utf8");
+
+function macDtls12HelloVerifyCookie(
+  secret: Buffer,
+  issuedAt: number,
+  peerKey: string,
+  immutableHash: Buffer,
+): Buffer {
+  const issued = Buffer.alloc(4);
+  issued.writeUInt32BE(issuedAt >>> 0, 0);
+  return createHmac("sha256", secret)
+    .update(DTLS12_HVR_COOKIE_LABEL)
+    .update(Buffer.from([DTLS12_HVR_COOKIE_VERSION]))
+    .update(issued)
+    .update(Buffer.from(peerKey, "utf8"))
+    .update(Buffer.from([0]))
+    .update(immutableHash)
+    .digest()
+    .subarray(0, DTLS12_HVR_COOKIE_MAC_LENGTH);
+}
+
+/**
+ * Mint a DTLS 1.2 HelloVerifyRequest cookie: HMAC-bound to the peer address,
+ * the ClientHello parameters (cookie and random excluded) and issuedAt.
+ * The result is at most {@link DTLS12_HVR_COOKIE_MAX_LENGTH} bytes.
  */
 export function mintDtls12HelloVerifyCookie(
   secret: Buffer,
@@ -172,17 +224,40 @@ export function mintDtls12HelloVerifyCookie(
   clientHelloBody: Buffer,
   opts?: { nowSec?: number },
 ): Buffer {
-  return mintAddressCookie(
-    secret,
-    peerKey,
+  const immutableHash = clientHelloImmutableFieldsHash(
     clientHelloBodyForDtls12Cookie(clientHelloBody),
-    opts,
   );
+  const issuedAt = opts?.nowSec ?? Math.floor(Date.now() / 1000);
+  const mac = macDtls12HelloVerifyCookie(
+    secret,
+    issuedAt,
+    peerKey,
+    immutableHash,
+  );
+  const out = Buffer.alloc(DTLS12_HVR_COOKIE_LENGTH);
+  out[0] = DTLS12_HVR_COOKIE_VERSION;
+  out.writeUInt32BE(issuedAt >>> 0, 1);
+  mac.copy(out, 5);
+  assertDtls12HelloVerifyCookieLength(out);
+  return out;
+}
+
+/**
+ * Throws when a HelloVerifyRequest cookie exceeds
+ * {@link DTLS12_HVR_COOKIE_MAX_LENGTH}; such a cookie is rejected by NSS.
+ */
+export function assertDtls12HelloVerifyCookieLength(cookie: Buffer): void {
+  if (cookie.length > DTLS12_HVR_COOKIE_MAX_LENGTH) {
+    throw new Error(
+      `DTLS 1.2 HelloVerifyRequest cookie is ${cookie.length} bytes (max ${DTLS12_HVR_COOKIE_MAX_LENGTH})`,
+    );
+  }
 }
 
 /**
  * Verify a DTLS 1.2 HelloVerify cookie for this peer and ClientHello parameters.
- * Returns false when MAC/peer/expiry fails or CH2 immutable fields diverge from CH1.
+ * Returns false when the format, MAC, peer, expiry or CH parameters
+ * (cookie-bearing CH2 vs CH1) do not match.
  */
 export function verifyDtls12HelloVerifyCookie(
   secret: Buffer,
@@ -191,15 +266,31 @@ export function verifyDtls12HelloVerifyCookie(
   clientHelloBody: Buffer,
   opts?: { nowSec?: number; maxAgeSec?: number },
 ): boolean {
-  const bindingBody = clientHelloBodyForDtls12Cookie(clientHelloBody);
-  const verified = verifyAddressCookie(secret, cookie, peerKey, opts);
-  if (!verified) return false;
-  const imm = clientHelloImmutableFieldsHash(bindingBody);
+  if (cookie.length !== DTLS12_HVR_COOKIE_LENGTH) return false;
+  if (cookie[0] !== DTLS12_HVR_COOKIE_VERSION) return false;
+  const issuedAt = cookie.readUInt32BE(1);
+  const mac = cookie.subarray(5);
+  let immutableHash: Buffer;
   try {
-    return timingSafeEqual(imm, verified.ch1ImmutableHash);
+    immutableHash = clientHelloImmutableFieldsHash(
+      clientHelloBodyForDtls12Cookie(clientHelloBody),
+    );
   } catch {
     return false;
   }
+  const expected = macDtls12HelloVerifyCookie(
+    secret,
+    issuedAt,
+    peerKey,
+    immutableHash,
+  );
+  if (!timingSafeEqual(mac, expected)) return false;
+
+  const now = opts?.nowSec ?? Math.floor(Date.now() / 1000);
+  const maxAge = opts?.maxAgeSec ?? ADDRESS_COOKIE_MAX_AGE_SEC;
+  if (issuedAt > now + ADDRESS_COOKIE_CLOCK_SKEW_SEC) return false;
+  if (now - issuedAt > maxAge) return false;
+  return true;
 }
 
 export type AddressCookiePayload = {

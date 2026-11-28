@@ -1,6 +1,7 @@
 import type { DtlsContext } from "../../context/dtls";
 import type { TransportContext } from "../../context/transport";
 import {
+  assertDtls12HelloVerifyCookieLength,
   mintDtls12HelloVerifyCookie,
   peerKeyFromAddr,
 } from "../../handshake/extensions/cookie";
@@ -49,6 +50,9 @@ export const flight2 =
       peerKey,
       chBody,
     );
+    // NSS (Firefox) rejects HVR cookies over 32 bytes with decode_error:
+    // never put a longer cookie on the wire.
+    assertDtls12HelloVerifyCookieLength(cookie);
     // sessionId display only — not used for verification (stateless HMAC cookie)
     dtls.cookie = cookie;
 

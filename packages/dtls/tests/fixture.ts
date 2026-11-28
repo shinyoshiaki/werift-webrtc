@@ -12,6 +12,7 @@ import {
 import { generateKeyPair } from "../src/cipher/namedCurve";
 import { SessionType } from "../src/cipher/suites/abstract";
 import { Dtls13Connection } from "../src/engine/v1_3/connection";
+import { HandshakeType } from "../src/handshake/const";
 import { EllipticCurves } from "../src/handshake/extensions/ellipticCurves";
 import { ExtendedMasterSecret } from "../src/handshake/extensions/extendedMasterSecret";
 import { KeyShare } from "../src/handshake/extensions/keyShare";
@@ -19,6 +20,7 @@ import { Signature } from "../src/handshake/extensions/signature";
 import { SignatureAlgorithms } from "../src/handshake/extensions/signatureAlgorithms";
 import { SupportedVersions } from "../src/handshake/extensions/supportedVersions";
 import { ClientHello } from "../src/handshake/message/client/hello";
+import { ServerHelloVerifyRequest } from "../src/handshake/message/server/helloVerifyRequest";
 import { DtlsRandom } from "../src/handshake/random";
 import { ContentType } from "../src/record/const";
 import { FragmentedHandshake } from "../src/record/message/fragment";
@@ -739,4 +741,28 @@ export function build13ClientHelloRecord(opts?: {
     0,
     frag.serialize(),
   );
+}
+
+/**
+ * HelloVerifyRequest cookie in an epoch-0 handshake datagram, or `undefined`
+ * when the datagram is not an unfragmented HelloVerifyRequest. Reads the wire
+ * (record header 13 bytes + handshake header 12 bytes) the way a DTLS 1.2
+ * client sees it.
+ */
+export function helloVerifyRequestCookieOf(
+  datagram: Buffer,
+): Buffer | undefined {
+  const RECORD_HEADER = 13;
+  const HANDSHAKE_HEADER = 12;
+  if (datagram.length < RECORD_HEADER + HANDSHAKE_HEADER) return undefined;
+  if (datagram[0] !== ContentType.handshake) return undefined;
+  if (datagram[RECORD_HEADER] !== HandshakeType.hello_verify_request_3) {
+    return undefined;
+  }
+  const bodyLength = datagram.readUIntBE(RECORD_HEADER + 9, 3);
+  const body = datagram.subarray(
+    RECORD_HEADER + HANDSHAKE_HEADER,
+    RECORD_HEADER + HANDSHAKE_HEADER + bodyLength,
+  );
+  return Buffer.from(ServerHelloVerifyRequest.deSerialize(body).cookie);
 }
