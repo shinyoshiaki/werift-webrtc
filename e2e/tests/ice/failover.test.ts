@@ -120,31 +120,27 @@ describe("ice/failover (werift controlling, Chrome controlled)", () => {
             { timeout: 20_000, interval: 250 },
           );
           if (isFirefox) {
-            await annotate(firefoxUnsupported.lowerPriorityNomination);
             // Firefox は優先度の低い relay ペアへの指名に追従しないので、ブラウザ側の
-            // 追従は確かめない (firefoxUnsupported.lowerPriorityNomination)。
-            // werift 自身の退避と、ICE restart をしていないことだけを確かめる。
-            const after = await serverStats();
-            expect(after.generation).toBe(before.generation);
-            expect(after.connectionState).toBe("connected");
-            return;
-          }
-          // Act: werift が relay の経路でデータを送る (Chrome は指名とデータに従う)。
-          await peer.request(label, { type: "send", payload: {} });
+            // 追従と relay での往復は確かめない (firefoxUnsupported.lowerPriorityNomination)。
+            await annotate(firefoxUnsupported.lowerPriorityNomination);
+          } else {
+            // Act: werift が relay の経路でデータを送る (Chrome は指名とデータに従う)。
+            await peer.request(label, { type: "send", payload: {} });
 
-          // Assert: Chrome も werift の relay 候補を使う経路に移り、データが往復する。
-          await vi.waitFor(
-            async () => {
-              await peer.request(label, { type: "send", payload: {} });
-              expect(
-                (await getSelectedCandidatePairAddresses(pc))
-                  .remoteCandidateType,
-              ).toBe("relay");
-            },
-            { timeout: 15_000, interval: 250 },
-          );
-          await roundTrip(channel, "relay");
-          // Assert: ICE restart はしておらず、werift は connected のまま。
+            // Assert: Chrome も werift の relay 候補を使う経路に移り、データが往復する。
+            await vi.waitFor(
+              async () => {
+                await peer.request(label, { type: "send", payload: {} });
+                expect(
+                  (await getSelectedCandidatePairAddresses(pc))
+                    .remoteCandidateType,
+                ).toBe("relay");
+              },
+              { timeout: 15_000, interval: 250 },
+            );
+            await roundTrip(channel, "relay");
+          }
+          // Assert: どのブラウザでも ICE restart はしておらず、werift は connected のまま。
           const after = await serverStats();
           expect(after.generation).toBe(before.generation);
           expect(after.iceConnectionState).toBe("connected");

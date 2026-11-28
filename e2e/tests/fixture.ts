@@ -1228,6 +1228,8 @@ export type SelectedCandidatePairAddresses = {
   localAddress?: string;
   localPort?: number;
   localCandidateType?: string;
+  remoteAddress?: string;
+  remotePort?: number;
   remoteCandidateType?: string;
 };
 
@@ -1246,12 +1248,16 @@ export async function getSelectedCandidatePairAddresses(
         | undefined)
     : undefined;
   const remote = pair.remoteCandidateId
-    ? statsMap.get(pair.remoteCandidateId)
+    ? (statsMap.get(pair.remoteCandidateId) as
+        | (RTCStats & { address?: string; port?: number })
+        | undefined)
     : undefined;
   return {
     localAddress: local?.address,
     localPort: local?.port,
     localCandidateType: readStatString(local, "candidateType"),
+    remoteAddress: remote?.address,
+    remotePort: remote?.port,
     remoteCandidateType: readStatString(remote, "candidateType"),
   };
 }

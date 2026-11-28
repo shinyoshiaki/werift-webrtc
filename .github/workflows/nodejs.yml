@@ -67,7 +67,6 @@ jobs:
     env:
       # The harness's private Playwright cache (e2e/browsers-path.js).
       PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/e2e/node_modules/.cache/ms-playwright
-      FIREFOX_RECORDS_DIR: ${{ runner.temp }}/firefox-runs
     steps:
       - uses: actions/checkout@v7.0.1
       - name: init submodules
@@ -94,6 +93,8 @@ jobs:
         working-directory: e2e
         env:
           CI: true
+          # `runner` is not available in job-level `env`, only in steps.
+          FIREFOX_RECORDS_DIR: ${{ runner.temp }}/firefox-runs
         run: npm run firefox:ci
       - name: upload Firefox run record and failure screenshots
         if: always()

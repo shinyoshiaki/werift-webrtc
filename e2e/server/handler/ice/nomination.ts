@@ -19,6 +19,9 @@ export type NominationStats = {
   remoteRenomination: boolean;
   nominated?: {
     localCandidateType: string;
+    /** The local candidate's address (the TURN allocation for a relay one). */
+    localAddress: string;
+    localPort: number;
     remoteAddress: string;
     remotePort: number;
     /** The NOMINATION value werift sent and Chrome answered (werift controlling). */
@@ -120,6 +123,8 @@ export class ice_nomination {
       remoteRenomination: !!connection.remoteRenomination,
       nominated: nominated && {
         localCandidateType: nominated.localCandidate.type,
+        localAddress: nominated.localCandidate.host,
+        localPort: nominated.localCandidate.port,
         remoteAddress: nominated.remoteAddr[0],
         remotePort: nominated.remoteAddr[1],
         nomination: nominated.nomination,

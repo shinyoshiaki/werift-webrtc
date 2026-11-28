@@ -8,7 +8,7 @@
 
 ### 🧪 Testing & tooling
 
-- **Firefox E2E in CI**: the `firefox-e2e` job of `.github/workflows/nodejs.yml` runs the Firefox E2E suite (`cd e2e && npm run firefox:ci`) on every push / PR and uploads its run record and failure screenshots as an artifact; `run-firefox.js --ci` writes the record outside the repository, does not prune, has a 20 min default limit and exits non-zero unless the record passed. `ice/nomination` and the browser-follow step of `ice/failover` are skipped in Firefox with `firefoxUnsupported` reasons (late trickle after the ICE stream completed, lower-priority nomination, renomination).
+- **Firefox E2E in CI**: the `firefox-e2e` job of `.github/workflows/nodejs.yml` runs the Firefox E2E suite (`cd e2e && npm run firefox:ci`) on every push / PR and uploads its run record and failure screenshots as an artifact; `run-firefox.js --ci` writes the record outside the repository, does not prune, has a 20 min default limit and exits non-zero unless the record passed. In Firefox, the renomination cases of `ice/nomination` and `ice/failover` are skipped, and the other cases run without the checks that need the browser to change its selection (the move to the host path in `ice/nomination`, following werift to the relay path in `ice/failover`), with `firefoxUnsupported` reasons (late trickle after the ICE stream completed, lower-priority nomination, renomination).
 
 ## v0.29.0
 

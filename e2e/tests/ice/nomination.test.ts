@@ -4,6 +4,7 @@ import {
   firefoxUnsupported,
   getSelectedCandidatePairAddresses,
   holdBackNonRelayCandidates,
+  isFirefox,
   itSkipOnFirefox,
   peer,
   sleep,
@@ -19,6 +20,8 @@ type NominationStats = {
   remoteRenomination: boolean;
   nominated?: {
     localCandidateType: string;
+    localAddress: string;
+    localPort: number;
     remoteAddress: string;
     remotePort: number;
     nomination: number;
@@ -35,7 +38,7 @@ const serverStats = () =>
   }) as Promise<NominationStats>;
 
 /**
- * Arrange: connect Chrome and werift so that the first selected path is
+ * Arrange: connect the browser and werift so that the first selected path is
  * werift's TURN relay (werift only checks relay pairs and the browser holds
  * back werift's host candidates). `offerer` decides the ICE roles: the
  * offerer is controlling. With `renomination` both descriptions advertise
@@ -133,10 +136,7 @@ async function waitForHostPath(pc: RTCPeerConnection) {
   );
 }
 
-describe("ice/nomination (semi-aggressive / renomination with Chrome)", () => {
-  // Firefox: renomination がなくても、このシナリオは指名後に trickle した
-  // werift の host 候補をブラウザがペアにすることを前提にしている。Firefox は
-  // それを捨てるので、どの組み合わせも host 経路が生まれない。
+describe("ice/nomination (semi-aggressive / renomination with the browser)", () => {
   const cases = [
     { offerer: "chrome", renomination: false },
     { offerer: "chrome", renomination: true },
@@ -144,14 +144,12 @@ describe("ice/nomination (semi-aggressive / renomination with Chrome)", () => {
     { offerer: "werift", renomination: true },
   ] as const;
   for (const { offerer, renomination } of cases) {
-    const itCase = itSkipOnFirefox(
-      renomination
-        ? firefoxUnsupported.renomination
-        : firefoxUnsupported.lateTrickleAfterCompleted,
-    );
+    const itCase = renomination
+      ? itSkipOnFirefox(firefoxUnsupported.renomination)
+      : it;
     itCase(
       `the selection moves from the relay path to the host path (${offerer} offers, renomination: ${renomination})`,
-      async () => {
+      async ({ annotate }) => {
         const { pc, channel, held } = await connectOverRelayFirst({
           offerer,
           renomination,
@@ -163,18 +161,48 @@ describe("ice/nomination (semi-aggressive / renomination with Chrome)", () => {
           expect(before.controlling).toBe(offerer === "werift");
           expect(before.nominated?.localCandidateType).toBe("relay");
           const browserPair = await getSelectedCandidatePairAddresses(pc);
-          if (offerer === "chrome") {
-            expect(browserPair.remoteCandidateType).toBe("relay");
-          } else {
-            // werift が controlling のとき、TURN source address の変換を Chrome が prflx と記録することがある。
-            expect(["relay", "prflx"]).toContain(
-              browserPair.remoteCandidateType,
-            );
+          // ブラウザの選択ペアの相手は werift の relay 候補 (TURN の割り当てアドレス)。
+          expect(browserPair.remoteAddress).toBe(
+            before.nominated?.localAddress,
+          );
+          expect(browserPair.remotePort).toBe(before.nominated?.localPort);
+          // 候補の型の表記はブラウザ固有 (Firefox は prflx と記録する) なので Chrome だけで確かめる。
+          if (!isFirefox) {
+            if (offerer === "chrome") {
+              expect(browserPair.remoteCandidateType).toBe("relay");
+            } else {
+              // werift が controlling のとき、TURN source address の変換を Chrome が prflx と記録することがある。
+              expect(["relay", "prflx"]).toContain(
+                browserPair.remoteCandidateType,
+              );
+            }
           }
           await roundTrip(channel, "relay-first");
 
           // Act: 保留していた werift の host 候補を Chrome に通知する。
           await signalHeldCandidates(pc, held);
+
+          if (isFirefox) {
+            // Firefox は指名後に trickle された候補を捨てるので host 経路は生まれない
+            // (firefoxUnsupported.lateTrickleAfterCompleted)。ここから先の移行は確かめない。
+            await annotate(firefoxUnsupported.lateTrickleAfterCompleted);
+
+            // Assert: 候補の追加後も werift は relay の指名のまま接続を保ち、データが往復する。
+            await roundTrip(channel, "relay-after-trickle");
+            const after = await serverStats();
+            expect(after.connectionState).toBe("connected");
+            expect(after.remoteRenomination).toBe(false);
+            expect(after.nominated?.localCandidateType).toBe("relay");
+            // Assert: renomination なしの方式で指名されている。
+            if (offerer === "chrome") {
+              expect(after.nominationsReceived).toEqual([]);
+              expect(after.useCandidateReceived).toBeGreaterThan(0);
+              expect(after.nominated?.remoteNomination).toBe(1);
+            } else {
+              expect(after.nominated?.nomination).toBe(0);
+            }
+            return;
+          }
 
           // Assert: 両端の選択が同じ host <-> host の経路に移り、データが届く。
           const { werift } = await waitForHostPath(pc);
