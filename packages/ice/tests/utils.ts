@@ -4738,3 +4738,68 @@ export function stagedNominations(a: Connection) {
     nomination: message.getAttributeValue("NOMINATION") as number | undefined,
   }));
 }
+
+/**
+ * Shared Arrange / Act: `a` committed a restart that carried a staged check
+ * (`createRestartCheckedBeforeAnswer`), started `connect()` and, while that
+ * connect() still replays the carried check, `interrupt` ends the generation
+ * (`restart()` or `restartRemote()`). Resolves with the interrupted connect()
+ * (already settled) and `earlyChecksDone` right after it settled.
+ */
+export async function interruptCarriedReplay(
+  interrupt: "restart" | "restartRemote",
+) {
+  const pair = await createRestartCheckedBeforeAnswer();
+  const { a, b, staged } = pair;
+  await a.restart();
+  a.commitLocalCredentials(staged.usernameFragment, staged.password);
+  await a.gatherCandidates();
+  a.remoteUsername = b.localUsername;
+  a.remotePassword = b.localPassword;
+  await a.addRemoteCandidate(undefined);
+  // connect() は carried check の再生中に await で中断する。その間に世代を終わらせる。
+  const interrupted = a.connect();
+  if (interrupt === "restart") {
+    void a.restart();
+    await a.gatherCandidates();
+  } else {
+    a.restartRemote();
+  }
+  const outcome = await interrupted.then(
+    () => "connected" as const,
+    (error: Error) => error,
+  );
+  const internals = a as unknown as {
+    earlyChecksDone: boolean;
+    earlyChecks: unknown[];
+  };
+  return { ...pair, outcome, earlyChecksDone: internals.earlyChecksDone };
+}
+
+/**
+ * Act helper: `b` restarts toward `a`'s current local credentials and
+ * candidates and checks them (`b` keeps checking until `a` nominates); `a`
+ * has not applied `b`'s new credentials yet. Resolves once `a` queued an early
+ * check of `b`'s new generation, with the count queued.
+ */
+export async function checkNextGenerationBeforeAnswer(
+  a: Connection,
+  b: Connection,
+) {
+  await b.restart();
+  await b.gatherCandidates();
+  b.remoteUsername = a.localUsername;
+  b.remotePassword = a.localPassword;
+  for (const candidate of a.localCandidates) {
+    await b.addRemoteCandidate(
+      remoteHostCandidate(candidate.port, candidate.host),
+    );
+  }
+  await b.addRemoteCandidate(undefined);
+  const bConnected = b.connect();
+  // close() で終わる場合もあるので未処理の reject にしない。
+  bConnected.catch(() => {});
+  const internals = a as unknown as { earlyChecks: unknown[] };
+  await waitUntil(() => internals.earlyChecks.length > 0);
+  return { bConnected, queued: internals.earlyChecks.length };
+}

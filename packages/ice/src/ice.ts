@@ -1959,6 +1959,9 @@ export class Connection implements IceConnection {
         this.checkIncoming(message, addr, protocol);
         this.settleSpedUnconfirmed(this.findPairByAddr(protocol, addr));
         await this.maybeSendSpedFallback(protocol, addr, this.generation);
+        // A restart during the wait ended this generation: the replay must
+        // not go on into (or clear the early checks of) the next one.
+        if (ended.aborted) throw this.connectError();
       } else if (protocol.localCandidate?.type === "relay") {
         // The commit replaced the TURN allocation the check arrived on, so
         // it cannot be answered there; the peer's address is still learned
@@ -1971,6 +1974,9 @@ export class Connection implements IceConnection {
       const [, addr, protocol] = earlyCheck;
       this.settleSpedUnconfirmed(this.findPairByAddr(protocol, addr));
       await this.maybeSendSpedFallback(protocol, addr, this.generation);
+      // As above: the next generation keeps its own early checks and
+      // `earlyChecksDone`.
+      if (ended.aborted) throw this.connectError();
     }
     this.earlyChecks = [];
     this.earlyChecksDone = true;

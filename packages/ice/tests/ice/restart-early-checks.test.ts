@@ -1,14 +1,17 @@
+import { IceRestartedError } from "../../src/exceptions";
 import { CandidatePairState } from "../../src/iceBase";
 import { classes, methods } from "../../src/stun/const";
 import { Message } from "../../src/stun/message";
 import type { Protocol } from "../../src/types/model";
 import {
   carriedCheckCount,
+  checkNextGenerationBeforeAnswer,
   commitRestartWithoutCandidates,
   createRenominatedBeforeAnswer,
   createRestartCheckedBeforeAnswer,
   expectDataFlows,
   injectStagedChecksFrom,
+  interruptCarriedReplay,
   stagedChecks,
   stagedNominations,
   waitUntil,
@@ -249,4 +252,43 @@ describe("checks a staged ICE restart received before its answer", () => {
       await Promise.allSettled([a.close(), b.close()]);
     }
   }, 20000);
+
+  test.each(["restart", "restartRemote"] as const)(
+    "a %s during the carried check replay leaves the next generation's early checks to it",
+    async (interrupt) => {
+      // Arrange / Act: carried check を再生中の connect() の途中で世代を終わらせる。
+      const { a, b, outcome, earlyChecksDone } =
+        await interruptCarriedReplay(interrupt);
+      try {
+        // Assert: 中断された connect() は restart で終わり、次世代の earlyChecksDone を立てない。
+        expect(outcome).toBeInstanceOf(IceRestartedError);
+        expect(earlyChecksDone).toBe(false);
+
+        // Act: b が a の現在の資格情報へ restart して check し、a は b の新しい資格情報をまだ知らない。
+        const { bConnected, queued } = await checkNextGenerationBeforeAnswer(
+          a,
+          b,
+        );
+
+        // Assert: 次世代の check は即座に処理されず、早期キューに保持される。
+        expect(queued).toBeGreaterThan(0);
+        expect(a.checkList).toHaveLength(0);
+
+        // Act: a が候補を含まない b の answer を適用して接続する。
+        a.remoteUsername = b.localUsername;
+        a.remotePassword = b.localPassword;
+        await a.addRemoteCandidate(undefined);
+        await a.connect();
+        await bConnected;
+
+        // Assert: 保持した早期 check から相手を学び、新しい世代で接続してデータが流れる。
+        expect(a.nominated).toBeDefined();
+        expect(a.nominated!.remoteCandidate.type).toBe("prflx");
+        await expectDataFlows(a, b, "after-interrupted-replay");
+      } finally {
+        await Promise.allSettled([a.close(), b.close()]);
+      }
+    },
+    30000,
+  );
 });
