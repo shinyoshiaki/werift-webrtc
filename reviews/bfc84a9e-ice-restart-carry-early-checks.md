@@ -18,7 +18,7 @@ answer の適用前に新しい ufrag 宛てに届いた connectivity check を�
 
 - carried check や early check の再生中に restart が起きると、古い `connect()` が次の generation の early check を消していました（2.3 節）。
 
-**マージ前に確認してください。** この変更の changelog の項目が、公開済みの `## v0.29.0` の節に入っています（5 節の 1）。また、**現行コードでは Firefox の実機確認をしていません**（6 節）。
+**マージ前に確認してください。** **現行コードでは Firefox の実機確認をしていません**（6 節）。changelog の項目は一時、公開済みの `## v0.29.0` の節に入っていましたが、`## Unreleased` に移しました（5 節の 1、チケット 10.8 節）。
 
 ## 2. 修正前と修正後の流れ
 
@@ -169,7 +169,7 @@ commit で TURN allocation が差し替わると、その allocation では応�
 - [packages/ice/tests/ice/restart-early-checks.test.ts:256](review-diff:packages/ice/tests/ice/restart-early-checks.test.ts:commit:d6f6d3049:256): 再生中の `restart` / `restartRemote` の 2 ケースを追加し、合計 12 ケースになりました。古い `connect()` が `IceRestartedError` で終わること、次世代の early check が残ること、その check から接続してデータが流れることを確かめます。共通の準備は [packages/ice/tests/utils.ts:4749](review-file:packages/ice/tests/utils.ts:4749) の `interruptCarriedReplay` と [packages/ice/tests/utils.ts:4785](review-file:packages/ice/tests/utils.ts:4785) の `checkNextGenerationBeforeAnswer` です。
 - [packages/ice/tests/sped/restart.test.ts:391](review-diff:packages/ice/tests/sped/restart.test.ts:commit:6e6d2d4ae:391): 再生した check の経路へ fallback の flight を直送するテストを追加しました。テストは fallback への移行を直接起こし、mock の `Protocol` で送信を記録します。実際の DTLS と組み合わせた restart ではありません。
 - [packages/webrtc/tests/pbt/leak/leakProbe.ts:491](review-diff:packages/webrtc/tests/pbt/leak/leakProbe.ts:commit:0767eeacb:491): leak probe に `ice.carriedChecks` を追加しました。`endedStagedChecks` の件数も合算します。
-- [changelog.md:118](review-file:changelog.md:118): この変更の項目です。節の位置に問題があります（5 節の 1）。
+- [changelog.md:7](review-file:changelog.md:7): この変更の項目です。`## Unreleased` → `### 🐛 Bug Fixes` にあります（5 節の 1）。
 
 ICE の行番号付き diff リンクは、コミットを固定しています。`0767eeacb` が初版、`6e6d2d4ae` が再指名と SPED の指摘への対応、`d6f6d3049` が再生中の restart への対応です。行番号は各コミット時点のものです。HEAD の ICE ソースには途中の develop マージも入っているため、固定した行番号は HEAD の行番号と一致しない場合があります。
 
@@ -185,9 +185,9 @@ ICE の行番号付き diff リンクは、コミットを固定しています�
 
 ## 5. レビュアーが確認すべき点とリスク
 
-1. **changelog の節が誤っている（要修正）**: この変更の項目は [changelog.md:118](review-file:changelog.md:118) にあり、属する節は [changelog.md:3](review-file:changelog.md:3) の `## v0.29.0` です。`v0.29.0` タグ（`36f413e62`）と develop（`73e59216d`）の changelog には、この項目がありません。そのまま取り込むと、公開済みの版にこの修正が含まれるように読めます。`e72cbd57e` で一度 `## Unreleased` に置きましたが、その後の develop は同じ見出しを `v0.29.0` に変えています。develop のマージで節がずれたと考えられます。HEAD には `## Unreleased` の節がありません。先頭に `## Unreleased` → `### 🐛 Bug Fixes` を作り、項目を移してください。最終レビューの結果には、この点の指摘がありません。この文書の作成では changelog を変更していません。
+1. **changelog の節（修正済み）**: この変更の項目は [changelog.md:7](review-file:changelog.md:7) の `## Unreleased` → `### 🐛 Bug Fixes` にあり、changelog には 1 か所だけです。`v0.29.0` の節（[changelog.md:9](review-file:changelog.md:9)）には入っていません。`v0.29.0` タグ（`36f413e62`）にも、この項目はありません。
 
-   同じく、チケット 10.4 節の「`## Unreleased` へ移した」という記録は、HEAD の状態と一致しません。
+   経緯: `e72cbd57e` で一度 `## Unreleased` に置いたが、develop が v0.29.0 をリリースしたときに同じ見出しを `## v0.29.0` に変えたため、develop のマージで項目が公開済みの節に入っていた。その後、先頭に `## Unreleased` を作り直して項目を移した（チケット 10.8 節）。チケット 10.4 節の「`## Unreleased` へ移した」は v0.28.0 のときの記録で、10.8 節がその後の状態を記録している。
 2. **Firefox の確認は現行コードより前の結果**: チケットの目的は Firefox との相互接続ですが、直結確認の後に `ice.ts` と `provisional.ts` を変えています。18/18 の対象は `0767eeacb` です。チケット 9 章はすべてチェック済みですが、一部は移植前の結果に基づきます（10.4 節）。
 3. **再指名の途中経過**: commit 直後に B が一時的に選ばれ、その後 A に移ることがあります。確認はテスト内の ICE agent 同士で、実際の controlling peer との再指名は試していません。
 4. **32 件の上限が守る範囲**: 1 つの誤った ufrag からの大量の check は、別の ufrag の check を押し出しにくい作りです。一方、全送信元が 1 件ずつで満杯の場合は、先に登録された送信元の check から落ちます。テストが確かめているのは、1 つの別 ufrag から 64 件届く場合です。
