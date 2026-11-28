@@ -4,11 +4,11 @@ ide:
   version: 1
   title: "Firefox E2E の失敗修正と CI 追加：レビュー解説"
   dock: right
-  baseCommit: 35f658fc5adef205a2ebabbbd8bb523c2c4522f4
+  baseCommit: a51aec620e2637c38dbcfc79adb5236751faf31f
 ---
 # Firefox E2E の失敗修正と CI 追加：レビュー解説
 
-対象は `73e59216d..5c55224f9` の変更と、その後の develop 取り込み（`4d58e2e70`、headCommit は `35f658fc5`）です。取り込みで入った他チケットの変更（ICE の TURN 失敗伝播、RTP の不正 RED 隔離）は、この解説の対象外です。
+対象は `73e59216d..5c55224f9` の変更と、その後の develop 取り込み（`4d58e2e70`、reReview 時点の headCommit は `a51aec620`）です。取り込みで入った他チケットの変更（ICE の TURN 失敗伝播、RTP の不正 RED 隔離）は、この解説の対象外です。
 
 ## 概要
 
@@ -94,7 +94,7 @@ flowchart LR
   X -->|いいえ| N[非 0 で終了]
 ```
 
-- ジョブ定義（30 分で打ち切り）: [.github/workflows/nodejs.yml:64](review-diff:.github/workflows/nodejs.yml:commit:e411e9e10:64)
+- ジョブ定義（再レビュー後は job 45 分、E2E step 25 分、runner の上限 20 分）: [.github/workflows/nodejs.yml:64](review-diff:.github/workflows/nodejs.yml:commit:e411e9e10:64)
   - `runner.temp` をジョブ単位の `env` に書けない問題は 後続コミット（[.github/workflows/nodejs.yml:97](review-diff:.github/workflows/nodejs.yml:commit:dc0eeddd4:97)）で直しています。
 - CI モード（記録は repo の外、prune なし、既定の上限 20 分）: [e2e/firefox-run-record.js:186](review-diff:e2e/firefox-run-record.js:commit:e411e9e10:186)
 - 終了コード: [e2e/firefox-run-record.js:217](review-file:e2e/firefox-run-record.js:217)
@@ -102,6 +102,15 @@ flowchart LR
 - 運用方針も更新しています。 [e2e/AGENTS.md](review-file:e2e/AGENTS.md) / [e2e/firefox-runs/README.md](review-file:e2e/firefox-runs/README.md)
 
 差分の行数の多くは `e2e/firefox-runs/` の run record です。新しい記録 3 件が増え、古い 10 件が消えています（git の表示は削除 7 件と rename 3 件）。残る記録は 20 件で、runner の既定の保持数と一致します。
+
+### 5. 再レビュー指摘の軽微な修正（`a51aec620`）
+
+1 回目のレビュー指摘への対応です。挙動を変えるのは次の 3 点で、残りはテストの整理です。
+
+- **DTLS のログ ID**: `DtlsContext.sessionId` は cookie の先頭 5 バイトを使っていました。新しい HVR cookie は先頭が `version || issuedAt` なので、同じ秒の接続が同じ ID になります。末尾 5 バイト（MAC 部分）に変えました。ログ専用の値です。 [packages/dtls/src/context/dtls.ts:126](review-diff:packages/dtls/src/context/dtls.ts:commit:a51aec620:126)
+- **Firefox CI の時間上限**: setup（apt-get、npm、playwright）も job の上限に含まれるため、job を 45 分、E2E step を 25 分にしました。runner の 20 分打ち切りが先に効くので、record と artifact が残ります。 [.github/workflows/nodejs.yml:66](review-diff:.github/workflows/nodejs.yml:commit:a51aec620:66)
+- **時間の環境変数**: `FIREFOX_E2E_TIMEOUT_MIN` / `FIREFOX_E2E_IDLE_MIN` の空文字、非数値、0 以下は既定値に戻します。CI で未設定の変数が空に展開されても、すぐ打ち切られません。 [e2e/firefox-run-record.js:186](review-diff:e2e/firefox-run-record.js:commit:a51aec620:186)
+- **テストの整理**: DTLS 1.2 ペアの Arrange を [packages/dtls/tests/fixture.ts:168](review-file:packages/dtls/tests/fixture.ts:168) の `arrangeDtls12Pair()` に、TURN client の記述子を [packages/ice-server/tests/turn.test.ts](review-diff:packages/ice-server/tests/turn.test.ts:commit:a51aec620) の共通ヘルパーに移しました。`SelectedCandidatePairAddresses` のコメントはブラウザ非依存の表現にしました。 [e2e/tests/fixture.ts:1226](review-file:e2e/tests/fixture.ts:1226)
 
 ## 判断理由
 
@@ -144,10 +153,10 @@ BoringSSL のジョブは DTLS 1.3 が対象なので、今回の 1.2 HVR の変
 
 ### 今回実行したもの
 
-取り込み後の headCommit（`35f658fc5`）で、次を実行しました。
+再レビュー後の headCommit（`a51aec620`）で、次を実行しました。
 
-- `node --test tools/tests/firefoxRunRecord.test.js`（`e2e/`）: 12 件すべて成功
-- `vitest run tests/e2e/self12_hvr_cookie_length.test.ts`（`packages/dtls`）: 5 件すべて成功
+- `node --test tools/tests/firefoxRunRecord.test.js`（`e2e/`）: 13 件すべて成功
+- `vitest run tests/e2e/self12_hvr_cookie_length.test.ts`（`packages/dtls`）: 6 件すべて成功
 - `vitest run tests/turn.test.ts`（`packages/ice-server`）: 19 件すべて成功
 
 `test:tools` 全体は実行していません。
@@ -155,3 +164,6 @@ BoringSSL のジョブは DTLS 1.3 が対象なので、今回の 1.2 HVR の変
 ### 今回実行していないもの
 
 上記以外のパッケージのテスト、取り込み後のブラウザ E2E（Firefox を含む）と CI は実行していません。headCommit の CI の結果は、この解説では確認していません。`packages/ice` の `pbt:deep` も実行していません（この差分は `packages/ice` を変更していません）。
+- `vitest run tests/turn.test.ts`（`packages/ice-server`）: 19 件すべて成功
+
+実行していないもの: Firefox E2E のフルスイート、`npm run ci`、`a51aec620` 後の GitHub Actions。CI の時間上限の変更（job 45 分、step 25 分）は実機で確かめていません。
