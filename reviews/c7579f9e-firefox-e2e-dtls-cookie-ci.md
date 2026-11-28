@@ -4,17 +4,17 @@ ide:
   version: 1
   title: "Firefox E2E の失敗修正と CI 追加：レビュー解説"
   dock: right
-  baseCommit: 5c55224f990f64a747dc6c2cd5dd5ed9df621cc5
+  baseCommit: 35f658fc5adef205a2ebabbbd8bb523c2c4522f4
 ---
 # Firefox E2E の失敗修正と CI 追加：レビュー解説
 
-対象は `73e59216d..5c55224f9` です。
+対象は `73e59216d..5c55224f9` の変更と、その後の develop 取り込み（`4d58e2e70`、headCommit は `35f658fc5`）です。取り込みで入った他チケットの変更（ICE の TURN 失敗伝播、RTP の不正 RED 隔離）は、この解説の対象外です。
 
 ## 概要
 
 Firefox E2E のメディア系の失敗は、テストではなく werift の回帰が原因でした。DTLS 1.2 の HelloVerifyRequest (HVR) の cookie が 104 バイトになり、32 バイトを超える cookie を拒否する Firefox (NSS) がハンドシェイクを打ち切っていました。cookie を 32 バイトに戻し、調査中に見つかった TURN の NONCE の不具合も直したうえで、Firefox E2E を CI の独立ジョブにしています。
 
-残っていた ICE の失敗は、チケット §2.3 で Firefox の非対応と結論されています。`packages/ice` は変えず、E2E 側で対象を絞って検証を外しています。headCommit の CI は 5 ジョブすべて成功し、Firefox は 68 passed / 0 failed / 9 skipped でした。
+残っていた ICE の失敗は、チケット §2.3 で Firefox の非対応と結論されています。`packages/ice` は変えず、E2E 側で対象を絞って検証を外しています。取り込み前（`5c55224f9`）の CI は 5 ジョブすべて成功し、Firefox は 68 passed / 0 failed / 9 skipped でした。
 
 ## 修正前 → 修正後
 
@@ -118,11 +118,12 @@ flowchart LR
 4. **非対応と判断した根拠**: 根拠の MOZ_LOG はチケットと理由文に要約されています。ログ本体は、確認した差分に含まれていません。今回の解説作成では再現していません。特に `lowerPriorityNomination` の説明が妥当かを確認してください。
 5. **終了コードはローカルにも影響**: `firefox:record` も、記録が `passed` で `unfinished` と `moduleErrors` が空のときだけ 0 を返します。
 6. **ハーネスのテストは CI の対象外**: `e2e` は workspace ではなく、`ci:silent` も `test:tools` を呼びません。CI モードのロジックを変えるときは、手元での実行が必要です。
-7. **マージ時の changelog**: 解説の作成時点で、worktree では別のマージが進行中で、`changelog.md` が未解決でした。解決後に [changelog.md](review-file:changelog.md) の Unreleased 節に両方の項目が残っているか確認してください。この解説と以下の検証結果は、マージ後の内容を対象にしていません。
+7. **develop 取り込み後の changelog**: 競合は解決済みで、衝突マーカーはありません。[changelog.md](review-file:changelog.md) の Bug Fixes には、このチケットの TURN NONCE と DTLS 1.2 cookie の項目が残っています。取り込みで増えた項目は、他チケットのものです。
+8. **取り込みで変わったファイル**: `5c55224f9..35f658fc5` の差分に、`e2e/`、`packages/dtls`、`packages/ice-server`、`.github` のファイルはありません。変わったのは `packages/ice`（TURN/TCP の失敗処理）、`packages/common`、`packages/rtp`、`packages/webrtc`（RED）と、そのドキュメントです。取り込み後の Firefox E2E は再実行していません。
 
 ## 検証結果
 
-### headCommit の CI
+### 取り込み前（`5c55224f9`）の CI
 
 GitHub Actions の [run 46106618596](https://github.com/shinyoshiaki/werift-webrtc/actions/runs/46106618596)（`workflow_dispatch`、`5c55224f9`）を、今回 `gh` で確認しました。
 
@@ -143,8 +144,14 @@ BoringSSL のジョブは DTLS 1.3 が対象なので、今回の 1.2 HVR の変
 
 ### 今回実行したもの
 
-`node --test tools/tests/firefoxRunRecord.test.js`（`e2e/` で実行）は 12 件すべて成功しました。`test:tools` 全体は実行していません。
+取り込み後の headCommit（`35f658fc5`）で、次を実行しました。
+
+- `node --test tools/tests/firefoxRunRecord.test.js`（`e2e/`）: 12 件すべて成功
+- `vitest run tests/e2e/self12_hvr_cookie_length.test.ts`（`packages/dtls`）: 5 件すべて成功
+- `vitest run tests/turn.test.ts`（`packages/ice-server`）: 19 件すべて成功
+
+`test:tools` 全体は実行していません。
 
 ### 今回実行していないもの
 
-DTLS やパッケージのテスト、ブラウザ E2E はローカルで再実行していません。`packages/ice` の `pbt:deep` も実行していません（この差分は `packages/ice` を変更していません）。
+上記以外のパッケージのテスト、取り込み後のブラウザ E2E（Firefox を含む）と CI は実行していません。headCommit の CI の結果は、この解説では確認していません。`packages/ice` の `pbt:deep` も実行していません（この差分は `packages/ice` を変更していません）。
