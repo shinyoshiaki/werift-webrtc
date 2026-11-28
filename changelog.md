@@ -4,6 +4,7 @@
 
 ### 🐛 Bug Fixes
 
+- **TURN server: the NONCE is text** (`werift-ice-server`): the 401 / 438 responses carried 16 raw random bytes as NONCE (RFC 5389 §15.8 defines it as quoted-string text). Firefox (nICEr) cannot parse a NONCE that holds a NUL byte and drops the whole response; over TURN/TCP nothing retransmits the Allocate, so Firefox got no relay candidate. The NONCE is now 32 hex characters.
 - **DTLS 1.2 HelloVerifyRequest cookie fits in 32 bytes again** (`werift-dtls`, `werift`): since v0.29.0 the cookie was 104 bytes, and Firefox (NSS, which keeps the RFC 4347 `cookie<0..32>` bound) answered it with a fatal `decode_error`, so every connection where werift is the DTLS server (werift offers, the browser answers `active`) failed with Firefox. The cookie is now `version(1) || issuedAt(4) || HMAC-SHA256(…)[0:27]` = 32 bytes, still bound to the peer binding, the ClientHello parameters (except `random` and the cookie) and a 60 s lifetime; the ClientHello hash is recomputed from the cookie-bearing ClientHello instead of being carried. A HelloVerifyRequest is never sent with a cookie over 32 bytes. The DTLS 1.3 HelloRetryRequest cookie is unchanged.
 
 ### 🧪 Testing & tooling

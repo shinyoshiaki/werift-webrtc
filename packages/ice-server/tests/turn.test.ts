@@ -314,6 +314,35 @@ describe("TurnServerProtocol", () => {
     ).toBe(false);
   });
 
+  test("issues a textual NONCE that nICEr (Firefox) can parse", () => {
+    // Arrange: 401 を返す TURN サーバーと、認証なしの Allocate を送るクライアントを用意する。
+    const protocol = new TurnServerProtocol({ realm: TURN_CREDENTIALS.realm });
+    const client = {
+      clientId: "tcp:127.0.0.1:5000",
+      remoteAddress: ["127.0.0.1", 5000] as Address,
+      transport: "udp" as const,
+      localAddress: ["127.0.0.1", 3478] as Address,
+    };
+
+    // Act: 乱数の偏りに左右されないよう、NONCE を何度も発行させる。
+    const nonces = Array.from({ length: 200 }, () => {
+      const actions = protocol.handleClientDatagram({
+        ...client,
+        data: makeAllocateRequest().bytes,
+      });
+      const response = parseMessage(findSendClient(actions).data)!;
+      return response.getAttributeValue("NONCE") as Buffer;
+    });
+
+    // Assert: NONCE は 128 文字未満の quoted-string の中身になる (RFC 5389 §15.8)。
+    // NUL を含むと nICEr は 401 応答を解析できず、TCP では再送がないので割り当てに失敗する。
+    for (const nonce of nonces) {
+      expect(nonce.toString("latin1")).toMatch(
+        /^[\x21\x23-\x5b\x5d-\x7e]{1,127}$/,
+      );
+    }
+  });
+
   test("relays channel data between allocations", async () => {
     const protocol = new TurnServerProtocol({
       realm: TURN_CREDENTIALS.realm,
